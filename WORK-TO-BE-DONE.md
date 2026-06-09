@@ -75,7 +75,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 ---
 
 ## Cross-cutting features (not tied to one phase)
-- [ ] `git init` + first commit (version the repo; `data/` stays ignored)
+- [x] `git init` + first commit + **pushed to GitHub** — private repo `SoSaLay/rapid-vibe-coding-pipeline`, branch `main`. README + MIT LICENSE + `.env.example` + tight `.gitignore`. Remote verified clean (no `data/`, no secrets). Flip to public when ready to open-source.
 - [ ] Per-app **project dashboard**: aggregated tools + management URLs
 - [ ] **Tech-stack table** per app (inferred from the code)
 - [ ] **Open-Source Tool Directory**: pull repo → Dockerize → host → control panel (status/ports/logs)
