@@ -36,6 +36,7 @@ export default function ProjectWorkspace({ params }: { params: { id: string } })
   const rawIdea = artifacts.filter((a) => a.artifact_type === "raw-idea").slice(-1)[0];
   const productSpec = artifacts.filter((a) => a.artifact_type === "product-spec").slice(-1)[0];
   const marketReport = artifacts.filter((a) => a.artifact_type === "market-report").slice(-1)[0];
+  const audienceBrief = artifacts.filter((a) => a.artifact_type === "audience-brief").slice(-1)[0];
   const ideaText = rawIdea?.payload?.raw_text || "";
   const current = project.current_phase;
   const showPO = !!productSpec || current === "product-owner" || current === "business-owner";
@@ -93,6 +94,7 @@ export default function ProjectWorkspace({ params }: { params: { id: string } })
                 hasSpec={!!productSpec}
                 kit={preMkt?.kit ?? null}
                 frameworks={preMkt?.frameworks ?? null}
+                brief={audienceBrief?.payload ?? null}
                 onUpdated={refresh}
               />
             </section>

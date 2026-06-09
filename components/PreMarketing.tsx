@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 interface Kit {
   positioning: {
@@ -18,17 +18,30 @@ interface Kit {
   success_thresholds: { landing_conversion: string; waitlist_target: string; presale_target: string; decision_rule: string };
 }
 
+interface Brief {
+  verdict: "proceed" | "pivot" | "stop" | "keep-collecting";
+  confidence: string;
+  demand_summary: string;
+  segment_insights: string[];
+  validated_positioning: string;
+  what_to_change: string[];
+  recommendation: string;
+  metrics?: { signups: number; presale_interest: number };
+}
+
 export function PreMarketing({
   projectId,
   hasSpec,
   kit,
   frameworks,
+  brief,
   onUpdated,
 }: {
   projectId: string;
   hasSpec: boolean;
   kit: Kit | null;
   frameworks: { ids: string[]; rationale: string } | null;
+  brief: Brief | null;
   onUpdated: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -57,7 +70,15 @@ export function PreMarketing({
 
   if (!hasSpec) return <div className="card p-6 text-sm text-muted">Locked until the product spec is complete.</div>;
 
-  if (kit) return <KitView kit={kit} frameworks={frameworks} onRegen={generate} busy={busy} />;
+  if (kit) {
+    return (
+      <div className="space-y-4">
+        {brief && <BriefView brief={brief} />}
+        <KitView kit={kit} frameworks={frameworks} onRegen={generate} busy={busy} />
+        <LaunchPanel projectId={projectId} kit={kit} onUpdated={onUpdated} />
+      </div>
+    );
+  }
 
   return (
     <div className="card p-6 space-y-4">
@@ -84,28 +105,210 @@ export function PreMarketing({
   );
 }
 
+function BriefView({ brief }: { brief: Brief }) {
+  const style: Record<string, string> = {
+    proceed: "text-ink bg-ok",
+    pivot: "text-ink bg-warn",
+    stop: "text-white bg-bad",
+    "keep-collecting": "text-white bg-edge",
+  };
+  return (
+    <div className="card p-5 border border-ok/30">
+      <div className="flex items-center gap-3">
+        <span className={`rounded-full px-3 py-1 text-sm font-semibold ${style[brief.verdict]}`}>{brief.verdict}</span>
+        <span className="text-xs text-muted">
+          confidence: {brief.confidence}
+          {brief.metrics ? ` · ${brief.metrics.signups} signups · ${brief.metrics.presale_interest} pre-sale` : ""}
+        </span>
+      </div>
+      <p className="mt-3 text-sm text-white/90">{brief.demand_summary}</p>
+      <p className="mt-2 text-sm text-muted">{brief.recommendation}</p>
+    </div>
+  );
+}
+
+function Section({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
+  return (
+    <div className="card p-4">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-[11px] uppercase tracking-wider text-muted">{title}</div>
+        {action}
+      </div>
+      {children}
+    </div>
+  );
+}
+
 function Copyable({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
       className="text-[11px] text-accent2 hover:text-white"
-      onClick={() => {
-        navigator.clipboard.writeText(text).then(() => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        });
-      }}
+      onClick={() => navigator.clipboard.writeText(text).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      })}
     >
       {copied ? "copied ✓" : "copy"}
     </button>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+/* ---------------- Stage 2 + 3: launch, track, decide ---------------- */
+function LaunchPanel({ projectId, kit, onUpdated }: { projectId: string; kit: Kit; onUpdated: () => void }) {
+  const [sbReady, setSbReady] = useState<boolean | null>(null);
+  const [sql, setSql] = useState("");
+  const [url, setUrl] = useState("");
+  const [anonKey, setAnonKey] = useState("");
+  const [serviceKey, setServiceKey] = useState("");
+  const [tableMissing, setTableMissing] = useState(false);
+  const [landingReady, setLandingReady] = useState(false);
+  const [metrics, setMetrics] = useState<{ total: number; presale_interest: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/supabase")
+      .then((r) => r.json())
+      .then((d) => {
+        setSbReady(!!d.configured);
+        setSql(d.sql || "");
+      })
+      .catch(() => setSbReady(false));
+    fetch(`/api/projects/${projectId}/pre-marketing/landing`).then((r) => setLandingReady(r.ok));
+  }, [projectId]);
+
+  async function connectSupabase() {
+    setBusy(true);
+    setError(null);
+    const res = await fetch("/api/supabase/configure", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, anonKey, serviceKey }),
+    });
+    const d = await res.json();
+    setBusy(false);
+    if (!d.ok) return setError(d.error || "Failed to connect Supabase.");
+    setSbReady(true);
+    setTableMissing(!!d.tableMissing);
+    setSql(d.sql || sql);
+  }
+
+  async function genLanding() {
+    setBusy(true);
+    setError(null);
+    const res = await fetch(`/api/projects/${projectId}/pre-marketing/landing`, { method: "POST" });
+    const d = await res.json();
+    setBusy(false);
+    if (!res.ok) return setError(d.error || "Failed to generate landing page.");
+    setLandingReady(true);
+  }
+
+  async function refreshSignups() {
+    setBusy(true);
+    setError(null);
+    const res = await fetch(`/api/projects/${projectId}/pre-marketing/signups`);
+    const d = await res.json();
+    setBusy(false);
+    if (!res.ok) return setError(d.error || "Failed to read signups.");
+    setMetrics(d);
+  }
+
+  async function evaluate() {
+    setBusy(true);
+    setError(null);
+    const res = await fetch(`/api/projects/${projectId}/pre-marketing/evaluate`, { method: "POST" });
+    const d = await res.json();
+    setBusy(false);
+    if (!res.ok) return setError(d.error || "Failed to evaluate.");
+    onUpdated();
+  }
+
+  const landingUrl = `/api/projects/${projectId}/pre-marketing/landing`;
+
   return (
-    <div className="card p-4">
-      <div className="text-[11px] uppercase tracking-wider text-muted mb-2">{title}</div>
-      {children}
+    <div className="space-y-4">
+      <div className="text-[11px] uppercase tracking-wider text-accent2">Launch &amp; track</div>
+
+      {sbReady === false && (
+        <Section title="Connect Supabase (waitlist store)">
+          <p className="text-xs text-muted mb-2">
+            Create a free project at supabase.com → Project Settings → API for the URL + keys. Stored locally.
+          </p>
+          <div className="space-y-2">
+            <input className="input" placeholder="https://xxxx.supabase.co" value={url} onChange={(e) => setUrl(e.target.value)} />
+            <input className="input" type="password" placeholder="anon public key" value={anonKey} onChange={(e) => setAnonKey(e.target.value)} />
+            <input className="input" type="password" placeholder="service_role key" value={serviceKey} onChange={(e) => setServiceKey(e.target.value)} />
+            <button className="btn-primary" disabled={busy || !url || !anonKey || !serviceKey} onClick={connectSupabase}>
+              {busy ? "Connecting…" : "Connect Supabase"}
+            </button>
+          </div>
+        </Section>
+      )}
+
+      {(tableMissing || sbReady) && sql && (
+        <Section title="One-time: create the signups table" action={<Copyable text={sql} />}>
+          <p className="text-xs text-muted mb-2">
+            {tableMissing ? "Table not found — " : ""}Paste this once in Supabase → SQL Editor → Run.
+          </p>
+          <pre className="whitespace-pre-wrap rounded bg-ink p-2 text-[11px] text-white/80">{sql}</pre>
+        </Section>
+      )}
+
+      {sbReady && (
+        <>
+          <Section title="Landing page (Launch UI style)">
+            <p className="text-xs text-muted mb-2">
+              Generates a self-contained page from your kit, with the waitlist form wired to Supabase. Preview it, then
+              deploy the HTML anywhere (Vercel / Netlify / Amplify / S3).
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <button className="btn-primary" disabled={busy} onClick={genLanding}>
+                {busy ? "Generating…" : landingReady ? "Regenerate page" : "Generate landing page"}
+              </button>
+              {landingReady && (
+                <>
+                  <a className="btn-ghost" href={landingUrl} target="_blank" rel="noreferrer">
+                    Preview ↗
+                  </a>
+                  <a className="btn-ghost" href={`${landingUrl}?download=1`}>
+                    Download HTML
+                  </a>
+                </>
+              )}
+            </div>
+          </Section>
+
+          <Section title="Waitlist dashboard" action={<button className="text-[11px] text-accent2 hover:text-white" onClick={refreshSignups}>refresh</button>}>
+            {!metrics ? (
+              <p className="text-xs text-muted">Drive traffic to your deployed page, then refresh to see signups.</p>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-lg bg-edge/40 p-3">
+                  <div className="text-2xl font-semibold text-white">{metrics.total}</div>
+                  <div className="text-xs text-muted">signups · target {kit.success_thresholds.waitlist_target}</div>
+                </div>
+                <div className="rounded-lg bg-edge/40 p-3">
+                  <div className="text-2xl font-semibold text-white">{metrics.presale_interest}</div>
+                  <div className="text-xs text-muted">pre-sale interest · target {kit.success_thresholds.presale_target}</div>
+                </div>
+              </div>
+            )}
+            <p className="mt-2 text-[11px] text-muted">⚖️ {kit.success_thresholds.decision_rule}</p>
+          </Section>
+
+          <Section title="Decide">
+            <p className="text-xs text-muted mb-2">
+              When you’ve collected enough signal, evaluate against your thresholds for a proceed / pivot / stop verdict.
+            </p>
+            <button className="btn-primary" disabled={busy} onClick={evaluate}>
+              {busy ? "Evaluating…" : "Evaluate & decide →"}
+            </button>
+          </Section>
+        </>
+      )}
+
+      {error && <p className="text-sm text-bad">{error}</p>}
     </div>
   );
 }
@@ -126,7 +329,7 @@ function KitView({
     <div className="space-y-4">
       <div className="card p-5">
         <div className="flex items-center justify-between">
-          <div className="text-[11px] uppercase tracking-wider text-ok">Validation kit ready</div>
+          <div className="text-[11px] uppercase tracking-wider text-ok">Validation kit</div>
           <button className="btn-ghost" disabled={busy} onClick={onRegen}>
             {busy ? "…" : "Regenerate"}
           </button>
@@ -148,40 +351,6 @@ function KitView({
           <div className="text-sm text-white">{kit.offer.headline}</div>
           <div className="text-xs text-muted mt-1">{kit.offer.details}</div>
           <div className="text-xs text-accent2 mt-2">Test price: {kit.offer.price_hypothesis}</div>
-          <div className="text-[11px] text-muted">Type: {kit.offer.type}</div>
-        </Section>
-      </div>
-
-      <Section title="Social proof (real voices)">
-        <div className="space-y-2">
-          {kit.social_proof.map((s, i) => (
-            <blockquote key={i} className="border-l-2 border-l-accent pl-3 text-sm text-white/90 italic">
-              “{s.quote}” <span className="text-xs text-muted not-italic">— {s.source}</span>
-            </blockquote>
-          ))}
-        </div>
-      </Section>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Section title="Signup qualifying questions">
-          <ul className="space-y-2">
-            {kit.qualifying_questions.map((q, i) => (
-              <li key={i} className="text-sm">
-                <span className="text-white">{q.question}</span>
-                <span className="block text-xs text-muted">{q.why}</span>
-              </li>
-            ))}
-          </ul>
-        </Section>
-        <Section title="FAQ">
-          <ul className="space-y-2">
-            {p.faq.map((f, i) => (
-              <li key={i} className="text-sm">
-                <span className="text-white">{f.q}</span>
-                <span className="block text-xs text-muted">{f.a}</span>
-              </li>
-            ))}
-          </ul>
         </Section>
       </div>
 
@@ -200,33 +369,9 @@ function KitView({
         </div>
       </Section>
 
-      {kit.fake_door_tests.length > 0 && (
-        <Section title="Fake-door feature tests">
-          <ul className="space-y-1">
-            {kit.fake_door_tests.map((f, i) => (
-              <li key={i} className="text-sm">
-                <span className="text-white">{f.feature}</span>
-                <span className="block text-xs text-muted">{f.copy}</span>
-              </li>
-            ))}
-          </ul>
-        </Section>
-      )}
-
-      <Section title="Success thresholds (the gate)">
-        <ul className="space-y-1 text-sm text-white/85">
-          <li>📧 Landing conversion: {kit.success_thresholds.landing_conversion}</li>
-          <li>📝 Waitlist target: {kit.success_thresholds.waitlist_target}</li>
-          <li>💰 Pre-sale target: {kit.success_thresholds.presale_target}</li>
-          <li className="text-accent2">⚖️ {kit.success_thresholds.decision_rule}</li>
-        </ul>
-      </Section>
-
-      <div className="card p-4 text-xs text-muted">
-        <span className="text-white/80">Next (Stage 2 & 3, coming):</span> generate a deployable Launch-UI landing page
-        from this kit, wire the waitlist to Supabase, then track signups against these thresholds for the go/no-go.
-        {frameworks?.ids?.length ? <div className="mt-1">Playbooks applied: {frameworks.ids.join(", ")} · via marketing-skills</div> : null}
-      </div>
+      {frameworks?.ids?.length ? (
+        <p className="text-xs text-muted">Playbooks applied: {frameworks.ids.join(", ")} · via marketing-skills</p>
+      ) : null}
     </div>
   );
 }

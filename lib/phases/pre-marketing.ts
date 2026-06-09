@@ -176,6 +176,58 @@ function marketToText(market: Record<string, any> | null): string {
   ].join("\n");
 }
 
+const BRIEF_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    verdict: { type: "string", enum: ["proceed", "pivot", "stop", "keep-collecting"] },
+    confidence: { type: "string", enum: ["low", "medium", "high"] },
+    demand_summary: { type: "string", description: "What the signups + pre-sale interest tell us, honestly." },
+    segment_insights: {
+      type: "array",
+      description: "Insights from the qualifying answers (who's signing up, urgency, ICP fit).",
+      items: { type: "string" },
+    },
+    validated_positioning: { type: "string", description: "The positioning the evidence supports going forward." },
+    what_to_change: { type: "array", items: { type: "string" } },
+    recommendation: { type: "string" },
+  },
+  required: ["verdict", "confidence", "demand_summary", "segment_insights", "validated_positioning", "what_to_change", "recommendation"],
+};
+
+export interface DemandMetrics {
+  signups: number;
+  presale_interest: number;
+  answers_sample: string[];
+}
+
+/** Stage 3: turn real signup data into the audience-brief verdict. */
+export async function synthesizeAudienceBrief(
+  kit: Record<string, any>,
+  metrics: DemandMetrics
+): Promise<Record<string, unknown>> {
+  const provider = activeProvider();
+  const thresholds = kit.success_thresholds || {};
+  return provider.completeJson<Record<string, unknown>>({
+    system:
+      "You are evaluating a pre-launch waitlist campaign against its own success thresholds. Be honest and " +
+      "skeptical — emails are weak signal, pre-sale/deposit interest is strong signal. If the numbers are thin, " +
+      "say 'keep-collecting' or 'pivot' rather than greenlighting. 'proceed' requires a real demand signal.",
+    effort: "high",
+    schema: BRIEF_SCHEMA,
+    messages: [
+      {
+        role: "user",
+        content:
+          `SUCCESS THRESHOLDS (set earlier):\n${JSON.stringify(thresholds, null, 2)}\n\n` +
+          `ACTUAL RESULTS:\n- Waitlist signups: ${metrics.signups}\n- Pre-sale interest (checked "I'd pre-order"): ${metrics.presale_interest}\n` +
+          `- Sample qualifying answers:\n${metrics.answers_sample.map((a) => `  • ${a}`).join("\n") || "  (none)"}\n\n` +
+          "Deliver the audience-brief verdict.",
+      },
+    ],
+  });
+}
+
 export async function generateKit(
   spec: Record<string, any>,
   market: Record<string, any> | null,

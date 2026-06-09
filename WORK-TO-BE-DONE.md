@@ -5,8 +5,9 @@
 > current. This is the human-readable status board (CLAUDE.md is the architecture
 > doc for the AI agent; the `~/.claude` memory files are the running log).
 
-**Where we are now:** Phases 1–3 built (not yet run live end-to-end — needs the
-Anthropic key connected). Next up: **Phase 4 — Pre-Marketing**.
+**Where we are now:** Phases 1–4 built (not yet run live end-to-end — needs the
+Anthropic key connected; Phase 4 also needs a real Supabase project). Next up:
+**Phase 5 — Product Design**.
 
 Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 
@@ -43,14 +44,16 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [ ] Live test with Exa + Anthropic keys
 - [ ] (Later) Optional Reddit via official Reddit API (Exa can't search Reddit)
 
-### Phase 4 — Pre-Marketing 🚧  *(optional / skippable)* — Stage 1 done
+### Phase 4 — Pre-Marketing ✅  *(optional / skippable)*
 Validation stage 2: landing page + waitlist + pre-sell offer to prove real intent.
-- [x] Tools chosen: **marketing-skills** (Corey Haines, MIT) for copy/plan; **Launch UI** (MIT) for the landing page; **Supabase** for the waitlist store
-- [x] Vendored 11 marketing-skills playbooks; generalized framework loader to scan multiple `vendor/` sources (now 31 frameworks)
-- [x] **Stage 1** — validation-kit generation: positioning + landing copy, de-risking pre-sell offer, qualifying questions, social proof (reuses real Phase-3 forum quotes), distribution plan w/ outreach templates, success thresholds. Auto-selects marketing playbooks. UI + generic skip route.
-- [ ] **Stage 2** — generate a deployable **Launch UI** landing page project (own Next/Tailwind-v4/shadcn) from the kit, with a waitlist form
-- [ ] **Stage 3** — **Supabase** waitlist store + demand dashboard (signups vs thresholds) + verdict gate → `audience-brief`
-- [ ] Live test (needs Anthropic key)
+- [x] Tools: **marketing-skills** (Corey Haines, MIT) for copy/plan; **Launch UI**-style landing page; **Supabase** waitlist store
+- [x] Vendored 11 marketing-skills playbooks; generalized framework loader to scan multiple `vendor/` sources (31 frameworks)
+- [x] **Stage 1** — validation-kit generation (positioning, pre-sell offer, qualifying Qs, social proof from Phase-3 quotes, distribution plan + templates, thresholds); auto-selects marketing playbooks; generic skip route
+- [x] **Stage 2** — landing-page generator: self-contained deployable HTML (Launch UI dark aesthetic, Tailwind CDN), waitlist form wired to Supabase (anon key only — service key never leaked); preview + download routes
+- [x] **Stage 3** — Supabase store (`lib/supabase.ts` + one-time SQL), waitlist dashboard (signups + pre-sale vs thresholds), evaluate → `audience-brief` verdict (proceed/pivot/stop/keep-collecting) gating the phase
+- [x] Verified: typecheck clean, HTML render validated (security check passed), all gating works
+- [ ] Live test (needs Anthropic key + a real Supabase project)
+- [ ] (Optional later) Scaffold a full literal Launch-UI React project instead of the self-contained HTML, if pixel-true components are wanted
 
 ### Phase 5 — Product Design ⬜
 - [ ] Design spec, assets, UX direction → `design-spec`
