@@ -1,0 +1,29 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# next.js / build
+/.next/
+/out/
+/build
+next-env.d.ts
+*.tsbuildinfo
+
+# local pipeline data + secrets (artifacts, connector tokens, API keys)
+/data/
+
+# env / secrets
+.env
+.env*.local
+
+# editor / OS
+.DS_Store
+.vscode/
+.idea/
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

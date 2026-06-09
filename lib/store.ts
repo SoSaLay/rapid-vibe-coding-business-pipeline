@@ -1,0 +1,229 @@
+/**
+ * Artifact spine + project store.
+ *
+ * The artifact envelope is the ONLY contract shared across phases. Each phase
+ * reads the envelopes it depends on and writes a new one. Artifacts are stored
+ * as versioned JSON files on disk so the whole pipeline is inspectable and
+ * git-diffable (data/ is gitignored for privacy).
+ *
+ *   data/projects/<project_id>/meta.json
+ *   data/projects/<project_id>/artifacts/<artifact_type>.v<n>.json
+ */
+
+import { promises as fs } from "fs";
+import path from "path";
+import crypto from "crypto";
+import { PHASES, PhaseId, FIRST_PHASE } from "./pipeline";
+
+const DATA_ROOT = path.join(process.cwd(), "data");
+const PROJECTS_ROOT = path.join(DATA_ROOT, "projects");
+
+export type ArtifactStatus = "draft" | "complete" | "rejected";
+
+export interface ArtifactEnvelope<T = unknown> {
+  project_id: string;
+  phase: PhaseId;
+  artifact_type: string;
+  version: number;
+  status: ArtifactStatus;
+  created_at: string;
+  /** artifact refs this was built from, e.g. ["raw-idea@1"] */
+  inputs: string[];
+  payload: T;
+  links?: Record<string, string>;
+}
+
+export type PhaseState = "locked" | "available" | "active" | "complete" | "skipped";
+
+export interface ProjectMeta {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  current_phase: PhaseId;
+  phase_status: Record<string, PhaseState>;
+}
+
+async function ensureDir(dir: string) {
+  await fs.mkdir(dir, { recursive: true });
+}
+
+function projectDir(id: string) {
+  return path.join(PROJECTS_ROOT, id);
+}
+
+function artifactsDir(id: string) {
+  return path.join(projectDir(id), "artifacts");
+}
+
+function freshPhaseStatus(): Record<string, PhaseState> {
+  const status: Record<string, PhaseState> = {};
+  PHASES.forEach((p, i) => {
+    status[p.id] = i === 0 ? "active" : "locked";
+  });
+  return status;
+}
+
+export async function createProject(title: string): Promise<ProjectMeta> {
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const meta: ProjectMeta = {
+    id,
+    title: title.trim() || "Untitled idea",
+    created_at: now,
+    updated_at: now,
+    current_phase: FIRST_PHASE,
+    phase_status: freshPhaseStatus(),
+  };
+  await ensureDir(artifactsDir(id));
+  await writeMeta(meta);
+  return meta;
+}
+
+export async function writeMeta(meta: ProjectMeta): Promise<void> {
+  meta.updated_at = new Date().toISOString();
+  await ensureDir(projectDir(meta.id));
+  await fs.writeFile(path.join(projectDir(meta.id), "meta.json"), JSON.stringify(meta, null, 2), "utf8");
+}
+
+export async function getProject(id: string): Promise<ProjectMeta | null> {
+  try {
+    const raw = await fs.readFile(path.join(projectDir(id), "meta.json"), "utf8");
+    return JSON.parse(raw) as ProjectMeta;
+  } catch {
+    return null;
+  }
+}
+
+export async function listProjects(): Promise<ProjectMeta[]> {
+  try {
+    const ids = await fs.readdir(PROJECTS_ROOT);
+    const metas = await Promise.all(ids.map((id) => getProject(id)));
+    return metas
+      .filter((m): m is ProjectMeta => m !== null)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  } catch {
+    return [];
+  }
+}
+
+async function nextVersion(projectId: string, artifactType: string): Promise<number> {
+  try {
+    const files = await fs.readdir(artifactsDir(projectId));
+    const versions = files
+      .filter((f) => f.startsWith(`${artifactType}.v`) && f.endsWith(".json"))
+      .map((f) => parseInt(f.replace(`${artifactType}.v`, "").replace(".json", ""), 10))
+      .filter((n) => !Number.isNaN(n));
+    return versions.length ? Math.max(...versions) + 1 : 1;
+  } catch {
+    return 1;
+  }
+}
+
+export async function saveArtifact<T>(args: {
+  projectId: string;
+  phase: PhaseId;
+  artifactType: string;
+  payload: T;
+  status?: ArtifactStatus;
+  inputs?: string[];
+  links?: Record<string, string>;
+}): Promise<ArtifactEnvelope<T>> {
+  const version = await nextVersion(args.projectId, args.artifactType);
+  const envelope: ArtifactEnvelope<T> = {
+    project_id: args.projectId,
+    phase: args.phase,
+    artifact_type: args.artifactType,
+    version,
+    status: args.status ?? "complete",
+    created_at: new Date().toISOString(),
+    inputs: args.inputs ?? [],
+    payload: args.payload,
+    links: args.links,
+  };
+  await ensureDir(artifactsDir(args.projectId));
+  await fs.writeFile(
+    path.join(artifactsDir(args.projectId), `${args.artifactType}.v${version}.json`),
+    JSON.stringify(envelope, null, 2),
+    "utf8"
+  );
+  return envelope;
+}
+
+export async function listArtifacts(projectId: string): Promise<ArtifactEnvelope[]> {
+  try {
+    const files = await fs.readdir(artifactsDir(projectId));
+    const items = await Promise.all(
+      files
+        .filter((f) => f.endsWith(".json"))
+        .map(async (f) => {
+          const raw = await fs.readFile(path.join(artifactsDir(projectId), f), "utf8");
+          return JSON.parse(raw) as ArtifactEnvelope;
+        })
+    );
+    return items.sort((a, b) => a.created_at.localeCompare(b.created_at));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Per-phase working state (e.g. the Product Owner clarification dialogue) — a
+ * mutable scratchpad that lives between the artifacts a phase consumes and the
+ * artifact it ultimately produces.
+ */
+function phaseStateDir(id: string) {
+  return path.join(projectDir(id), "phase-state");
+}
+
+export async function savePhaseState<T>(projectId: string, phaseId: PhaseId, state: T): Promise<void> {
+  await ensureDir(phaseStateDir(projectId));
+  await fs.writeFile(path.join(phaseStateDir(projectId), `${phaseId}.json`), JSON.stringify(state, null, 2), "utf8");
+}
+
+export async function getPhaseState<T>(projectId: string, phaseId: PhaseId): Promise<T | null> {
+  try {
+    const raw = await fs.readFile(path.join(phaseStateDir(projectId), `${phaseId}.json`), "utf8");
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+export async function latestArtifact(projectId: string, artifactType: string): Promise<ArtifactEnvelope | null> {
+  const all = await listArtifacts(projectId);
+  const matching = all.filter((a) => a.artifact_type === artifactType);
+  return matching.length ? matching[matching.length - 1] : null;
+}
+
+/** Mark a phase complete and unlock the next phase. */
+export async function completePhase(projectId: string, phase: PhaseId): Promise<ProjectMeta | null> {
+  const meta = await getProject(projectId);
+  if (!meta) return null;
+  meta.phase_status[phase] = "complete";
+  const idx = PHASES.findIndex((p) => p.id === phase);
+  const next = PHASES[idx + 1];
+  if (next) {
+    meta.phase_status[next.id] = "active";
+    meta.current_phase = next.id;
+  }
+  await writeMeta(meta);
+  return meta;
+}
+
+/** Skip an OPTIONAL phase and unlock the next one (no artifact produced). */
+export async function skipPhase(projectId: string, phase: PhaseId): Promise<ProjectMeta | null> {
+  const meta = await getProject(projectId);
+  if (!meta) return null;
+  const def = PHASES.find((p) => p.id === phase);
+  if (def?.gate !== "optional") return meta; // only optional phases may be skipped
+  meta.phase_status[phase] = "skipped";
+  const idx = PHASES.findIndex((p) => p.id === phase);
+  const next = PHASES[idx + 1];
+  if (next) {
+    meta.phase_status[next.id] = "active";
+    meta.current_phase = next.id;
+  }
+  await writeMeta(meta);
+  return meta;
+}
