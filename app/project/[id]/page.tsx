@@ -5,6 +5,7 @@ import Link from "next/link";
 import { PhaseRail } from "@/components/PhaseRail";
 import { ProductOwner } from "@/components/ProductOwner";
 import { IdeaValidation } from "@/components/IdeaValidation";
+import { PreMarketing } from "@/components/PreMarketing";
 
 interface Artifact {
   artifact_type: string;
@@ -38,6 +39,10 @@ export default function ProjectWorkspace({ params }: { params: { id: string } })
   const ideaText = rawIdea?.payload?.raw_text || "";
   const current = project.current_phase;
   const showPO = !!productSpec || current === "product-owner" || current === "business-owner";
+
+  const preMkt = (phaseState as any)?.["pre-marketing"] ?? null;
+  const preMktState = project.phase_status["pre-marketing"];
+  const showPreMkt = !!preMkt?.kit || ["active", "complete", "skipped"].includes(preMktState);
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-8">
@@ -75,6 +80,19 @@ export default function ProjectWorkspace({ params }: { params: { id: string } })
                 projectId={project.id}
                 hasSpec={!!productSpec}
                 report={marketReport?.payload ?? null}
+                onUpdated={refresh}
+              />
+            </section>
+          )}
+
+          {showPreMkt && (
+            <section>
+              <h2 className="mb-3 text-sm font-medium uppercase tracking-wider text-muted">Phase 4 · Pre-Marketing</h2>
+              <PreMarketing
+                projectId={project.id}
+                hasSpec={!!productSpec}
+                kit={preMkt?.kit ?? null}
+                frameworks={preMkt?.frameworks ?? null}
                 onUpdated={refresh}
               />
             </section>

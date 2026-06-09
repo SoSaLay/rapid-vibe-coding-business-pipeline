@@ -8,9 +8,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const artifacts = await listArtifacts(params.id);
   const productOwner = await getPhaseState<PODialogue>(params.id, "product-owner");
   const ideaValidation = await getPhaseState(params.id, "idea-validation");
+  const preMarketing = await getPhaseState(params.id, "pre-marketing");
   return NextResponse.json({
     project,
     artifacts,
-    phaseState: { "product-owner": productOwner, "idea-validation": ideaValidation },
+    phaseState: { "product-owner": productOwner, "idea-validation": ideaValidation, "pre-marketing": preMarketing },
   });
 }

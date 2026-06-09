@@ -43,10 +43,14 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [ ] Live test with Exa + Anthropic keys
 - [ ] (Later) Optional Reddit via official Reddit API (Exa can't search Reddit)
 
-### Phase 4 — Pre-Marketing ⬜
-- [ ] Design the phase (audience building, waitlist, early signal) → `audience-brief`
-- [ ] Pick tools (pm-skills go-to-market/marketing-growth available; Exa available)
-- [ ] Build logic + routes + UI
+### Phase 4 — Pre-Marketing 🚧  *(optional / skippable)* — Stage 1 done
+Validation stage 2: landing page + waitlist + pre-sell offer to prove real intent.
+- [x] Tools chosen: **marketing-skills** (Corey Haines, MIT) for copy/plan; **Launch UI** (MIT) for the landing page; **Supabase** for the waitlist store
+- [x] Vendored 11 marketing-skills playbooks; generalized framework loader to scan multiple `vendor/` sources (now 31 frameworks)
+- [x] **Stage 1** — validation-kit generation: positioning + landing copy, de-risking pre-sell offer, qualifying questions, social proof (reuses real Phase-3 forum quotes), distribution plan w/ outreach templates, success thresholds. Auto-selects marketing playbooks. UI + generic skip route.
+- [ ] **Stage 2** — generate a deployable **Launch UI** landing page project (own Next/Tailwind-v4/shadcn) from the kit, with a waitlist form
+- [ ] **Stage 3** — **Supabase** waitlist store + demand dashboard (signups vs thresholds) + verdict gate → `audience-brief`
+- [ ] Live test (needs Anthropic key)
 
 ### Phase 5 — Product Design ⬜
 - [ ] Design spec, assets, UX direction → `design-spec`

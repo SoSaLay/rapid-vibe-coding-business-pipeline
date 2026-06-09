@@ -1,29 +1,33 @@
 /**
  * Framework-pack layer.
  *
- * A reusable knowledge service: it discovers vendored pm-skills playbooks
- * (vendor/pm-skills/<plugin>/<skill>/SKILL.md), parses their frontmatter, and
+ * A reusable knowledge service: it discovers vendored playbooks under `vendor/`
+ * (any source — pm-skills, marketing-skills, …), parses their frontmatter, and
  * exposes them as selectable "frameworks." Phases load the relevant ones into
- * the LLM's context so its output is shaped by proven PM frameworks instead of
- * generic reasoning. Built phase-agnostic so Market Research, GTM, etc. can
- * reuse it later — they just point at different plugins.
+ * the LLM's context so its output is shaped by proven frameworks instead of
+ * generic reasoning.
+ *
+ * A playbook is any `.../SKILL.md` under `vendor/<source>/.../<skill>/SKILL.md`.
+ * `source` = the top folder (e.g. "marketing-skills"); `id` = the skill folder.
  */
 
 import { promises as fs } from "fs";
 import path from "path";
 
-const VENDOR_ROOT = path.join(process.cwd(), "vendor", "pm-skills");
+const VENDOR_ROOT = path.join(process.cwd(), "vendor");
 
 export interface Framework {
-  id: string; // skill folder name, e.g. "value-proposition"
-  plugin: string; // e.g. "pm-product-strategy"
+  id: string; // skill folder name, e.g. "copywriting"
+  source: string; // vendor source, e.g. "marketing-skills" | "pm-skills"
+  plugin: string; // grouping folder if present, else source
   name: string;
   description: string;
-  body: string; // the playbook content (frontmatter stripped)
+  body: string;
 }
 
 export interface FrameworkSummary {
   id: string;
+  source: string;
   plugin: string;
   name: string;
   description: string;
@@ -43,52 +47,37 @@ let cache: Framework[] | null = null;
 
 export async function loadFrameworks(): Promise<Framework[]> {
   if (cache) return cache;
-  const frameworks: Framework[] = [];
-  let plugins: string[];
+  let entries: string[];
   try {
-    plugins = await fs.readdir(VENDOR_ROOT);
+    entries = (await fs.readdir(VENDOR_ROOT, { recursive: true })) as string[];
   } catch {
     return [];
   }
-  for (const plugin of plugins) {
-    const skillsDir = path.join(VENDOR_ROOT, plugin);
-    let stat;
+  const frameworks: Framework[] = [];
+  for (const rel of entries) {
+    if (!rel.endsWith(`${path.sep}SKILL.md`) && rel !== "SKILL.md") continue;
+    const parts = rel.split(path.sep);
+    if (parts.length < 2) continue;
+    const source = parts[0];
+    const id = parts[parts.length - 2]; // folder containing SKILL.md
+    const plugin = parts.length > 3 ? parts[1] : source;
     try {
-      stat = await fs.stat(skillsDir);
+      const raw = await fs.readFile(path.join(VENDOR_ROOT, rel), "utf8");
+      const { name, description, body } = parseFrontmatter(raw);
+      frameworks.push({ id, source, plugin, name: name || id, description: description || "", body });
     } catch {
-      continue;
-    }
-    if (!stat.isDirectory()) continue;
-    let skills: string[];
-    try {
-      skills = await fs.readdir(skillsDir);
-    } catch {
-      continue;
-    }
-    for (const skill of skills) {
-      const file = path.join(skillsDir, skill, "SKILL.md");
-      try {
-        const raw = await fs.readFile(file, "utf8");
-        const { name, description, body } = parseFrontmatter(raw);
-        frameworks.push({
-          id: skill,
-          plugin,
-          name: name || skill,
-          description: description || "",
-          body,
-        });
-      } catch {
-        // not a skill dir (e.g. LICENSE, ATTRIBUTION.md) — skip
-      }
+      /* skip unreadable */
     }
   }
   cache = frameworks;
   return frameworks;
 }
 
-export async function frameworkCatalog(): Promise<FrameworkSummary[]> {
+export async function frameworkCatalog(source?: string): Promise<FrameworkSummary[]> {
   const all = await loadFrameworks();
-  return all.map(({ id, plugin, name, description }) => ({ id, plugin, name, description }));
+  return all
+    .filter((f) => !source || f.source === source)
+    .map(({ id, source, plugin, name, description }) => ({ id, source, plugin, name, description }));
 }
 
 export async function getFrameworks(ids: string[]): Promise<Framework[]> {
@@ -100,13 +89,10 @@ export async function getFrameworks(ids: string[]): Promise<Framework[]> {
 export async function buildFrameworkContext(ids: string[]): Promise<string> {
   const frameworks = await getFrameworks(ids);
   if (frameworks.length === 0) return "";
-  const blocks = frameworks.map(
-    (f) => `### Playbook: ${f.name}\n(source: pm-skills/${f.plugin})\n\n${f.body}`
-  );
+  const blocks = frameworks.map((f) => `### Playbook: ${f.name}\n(source: ${f.source})\n\n${f.body}`);
   return (
-    "You have the following proven PM playbooks to apply. Use their frameworks, " +
-    "categories, and structure to make your questions and spec rigorous — adapt them to THIS idea, " +
-    "do not just recite them:\n\n" +
+    "You have the following proven playbooks to apply. Use their frameworks, " +
+    "categories, and structure to make your output rigorous — adapt them to THIS idea, do not just recite them:\n\n" +
     blocks.join("\n\n---\n\n")
   );
 }
