@@ -99,12 +99,14 @@ Business Owner labels the idea at capture (Phase 1) → label flows through the 
 
 ### Phase 8 — Deployment ⬜
 - [ ] Dev / UAT / Prod environments; AWS (Amplify/Lambda); IAM roles → `deploy-manifest`
+- [ ] **Security carryover from Phase 6** (platform-level slice): verify HTTPS + security headers at the host, host WAF/rate-limit config, production env vars set securely (no secrets in build logs), Route 53 + domain wiring
 
 ### Phase 9 — Marketing & Sales ⬜
 - [ ] Campaigns, content, lead gen → `campaign-report`
 
 ### Phase 10 — Operations & Maintenance ⬜
 - [ ] Release, monitoring, error visibility → `ops-report`
+- [ ] **Security carryover from Phase 6** (process slice): surface the auth-failure/5xx logs the apps already emit; MVP incident response = alert the owner when something breaks (cross-app critical-errors view is already a cross-cutting goal)
 
 ### Phase 11 — Iteration ⬜
 - [ ] Loop learnings back to the Product Owner → `iteration-brief`

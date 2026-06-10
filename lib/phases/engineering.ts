@@ -308,7 +308,7 @@ ${dosDonts}
 
 ## LAUNCH-GUIDE.md (final task template)
 
-Write it for a non-developer: 1) every key/account to create and where to paste it (.env var names), 2) run locally (install → dev → URL), 3) what to click to verify each core flow, 4) the API routes that exist and what they do, 5) what Phase 8 deployment will need (host: ${getSlot("hosting")?.options.find((o) => o.id === choices.find((c) => c.slot === "hosting")?.choice)?.label || "see stack"}).
+Write it for a non-developer: 1) every key/account to create and where to paste it (.env var names), 2) run locally (install → dev → URL), 3) what to click to verify each core flow, 4) the API routes that exist and what they do, 5) what Phase 8 deployment will need (host: ${getSlot("hosting")?.options.find((o) => o.id === choices.find((c) => c.slot === "hosting")?.choice)?.label || "see stack"}), 6) when something breaks: where the logs live (host dashboard, Supabase logs) and the first three things to check.
 `;
 }
 
