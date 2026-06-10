@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { ideaTypeContext } from "@/lib/idea-types";
 import { latestArtifact, savePhaseState, getPhaseState } from "@/lib/store";
 import { generatePOTurn, PODialogue } from "@/lib/phases/product-owner";
 
@@ -11,7 +12,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!dialogue) return NextResponse.json({ error: "No active review. Start it first." }, { status: 400 });
 
   const rawIdea = await latestArtifact(params.id, "raw-idea");
-  const ideaText = (rawIdea?.payload as any)?.raw_text || "";
+  const ideaText = `${ideaTypeContext((rawIdea?.payload as any)?.idea_type)}\n\n${(rawIdea?.payload as any)?.raw_text || ""}`;
 
   dialogue.turns.push({ role: "owner", text });
 

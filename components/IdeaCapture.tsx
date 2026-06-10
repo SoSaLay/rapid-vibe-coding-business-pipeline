@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { VoiceInput } from "./VoiceInput";
+import { IDEA_TYPES } from "@/lib/idea-types";
 
 interface ConnectorInfo {
   id: string;
@@ -22,6 +23,7 @@ export function IdeaCapture({ onCreated }: { onCreated: () => void }) {
   const [tab, setTab] = useState<"direct" | "pull">("direct");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [ideaType, setIdeaType] = useState("web-app");
 
   // Direct entry
   const [title, setTitle] = useState("");
@@ -77,7 +79,7 @@ export function IdeaCapture({ onCreated }: { onCreated: () => void }) {
     const res = await fetch("/api/ideas", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode: "direct", title, text, inputMethod: usedVoice ? "voice" : "text" }),
+      body: JSON.stringify({ mode: "direct", title, text, inputMethod: usedVoice ? "voice" : "text", ideaType }),
     });
     setBusy(false);
     if (!res.ok) {
@@ -96,7 +98,7 @@ export function IdeaCapture({ onCreated }: { onCreated: () => void }) {
     const res = await fetch("/api/ideas", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode: "pull", connector: activeConnector, sourceId: selectedSource.id, title }),
+      body: JSON.stringify({ mode: "pull", connector: activeConnector, sourceId: selectedSource.id, title, ideaType }),
     });
     setBusy(false);
     if (!res.ok) {
@@ -120,6 +122,27 @@ export function IdeaCapture({ onCreated }: { onCreated: () => void }) {
         <TabButton active={tab === "pull"} onClick={() => setTab("pull")}>
           🔗 Pull from a tool
         </TabButton>
+      </div>
+
+      <div className="mb-5">
+        <div className="text-[11px] uppercase tracking-wider text-muted mb-1.5">What kind of idea is this?</div>
+        <div className="flex flex-wrap gap-1.5">
+          {IDEA_TYPES.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setIdeaType(t.id)}
+              title={t.blurb}
+              className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                ideaType === t.id
+                  ? "border-accent2 bg-accent2/15 text-white"
+                  : "border-edge text-muted hover:text-white hover:bg-edge/30"
+              }`}
+            >
+              {t.icon} {t.label}
+            </button>
+          ))}
+        </div>
+        <p className="mt-1.5 text-[11px] text-muted">{IDEA_TYPES.find((t) => t.id === ideaType)?.blurb}</p>
       </div>
 
       {tab === "direct" && (

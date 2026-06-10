@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createProject, listProjects, saveArtifact, completePhase } from "@/lib/store";
 import { getConnector } from "@/lib/connectors/registry";
+import { isValidIdeaType } from "@/lib/idea-types";
 
 export interface RawIdeaPayload {
   source: "direct" | "pull";
   input_method: "voice" | "text" | string;
   title: string;
   raw_text: string;
+  idea_type: string;
   connector?: { id: string; sourceId: string; sourceTitle: string; url?: string };
 }
 
@@ -43,13 +45,15 @@ export async function POST(req: NextRequest) {
 
   if (!rawText) return NextResponse.json({ error: "Idea is empty." }, { status: 400 });
   if (!title) title = rawText.slice(0, 60);
+  const ideaType = isValidIdeaType(body.ideaType) ? (body.ideaType as string) : "web-app";
 
-  const project = await createProject(title);
+  const project = await createProject(title, ideaType);
   const payload: RawIdeaPayload = {
     source: mode,
     input_method: inputMethod,
     title,
     raw_text: rawText,
+    idea_type: ideaType,
     connector: connectorMeta,
   };
   const artifact = await saveArtifact<RawIdeaPayload>({

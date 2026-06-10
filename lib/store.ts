@@ -38,6 +38,8 @@ export type PhaseState = "locked" | "available" | "active" | "complete" | "skipp
 export interface ProjectMeta {
   id: string;
   title: string;
+  /** Idea-type label from capture (see lib/idea-types.ts). Missing on legacy projects = web-app. */
+  idea_type?: string;
   created_at: string;
   updated_at: string;
   current_phase: PhaseId;
@@ -64,12 +66,13 @@ function freshPhaseStatus(): Record<string, PhaseState> {
   return status;
 }
 
-export async function createProject(title: string): Promise<ProjectMeta> {
+export async function createProject(title: string, ideaType?: string): Promise<ProjectMeta> {
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   const meta: ProjectMeta = {
     id,
     title: title.trim() || "Untitled idea",
+    idea_type: ideaType,
     created_at: now,
     updated_at: now,
     current_phase: FIRST_PHASE,

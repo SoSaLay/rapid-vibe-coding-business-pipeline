@@ -15,6 +15,7 @@
  */
 
 import { activeProvider } from "../llm/registry";
+import { ideaTypeContext } from "../idea-types";
 import { buildFrameworkContext } from "../frameworks";
 import { designSystemCatalog, buildDesignSystemContext, loadDesignTaste } from "../design-systems";
 
@@ -213,6 +214,7 @@ function specToText(spec: Record<string, any>): string {
     `Value proposition: ${spec.value_proposition || ""}`,
     `Must-have features: ${(spec.must_have_features || []).map((x: any) => `${x.name}: ${x.description || ""}`).join("; ")}`,
     `Nice-to-haves: ${(spec.nice_to_have_features || []).map((x: any) => x.name).join("; ")}`,
+    ideaTypeContext(spec.idea_type),
   ].join("\n");
 }
 

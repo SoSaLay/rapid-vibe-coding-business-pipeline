@@ -5,12 +5,13 @@
 > current. This is the human-readable status board (CLAUDE.md is the architecture
 > doc for the AI agent; the `~/.claude` memory files are the running log).
 
-**Where we are now:** Phases 1–5 built. Anthropic key is connected. Phase 5 (Product
-Design) generates a full design-spec — branding, screens with states, design tokens
-grounded in a reference design system, component inventory, do's/don'ts — plus HTML
-mockups of key screens. Remaining live-test blocker: **Supabase project** (Phase 4
-waitlist only — Phases 1–3 + 5 can run end-to-end now). Next up: **Phase 6 —
-Development & Engineering**.
+**Where we are now:** Phases 1–6 built. Phase 6 (Development & Engineering) is the
+architect/foreman: stack proposal (9 slots, Amplify/Route 53 defaults, "Change tech
+stack" selector), workspace generator (`~/Rapid Vibe Coding Apps/<app>/` with CLAUDE.md
++ TASKS.md + SPECS briefing), live build monitor, and Launch Guide → build-manifest
+gates QA. Idea-type labeling (9 types) flows from capture through every phase.
+Remaining live-test blockers: **Supabase project** (Phase 4 waitlist) and a **full
+live build run** (Phase 6). Next up: **Phase 7 — QA**.
 
 Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 
@@ -75,11 +76,23 @@ Produces the `design-spec` the build phase works from. Two tools vendored:
 - [x] Verified: typecheck clean, route guards smoke-tested, loader sees 32 frameworks + 138 design systems
 - [ ] Live test with Anthropic key (brief + mockup quality)
 
-### Phase 6 — Development & Engineering ⬜
-- [ ] System Design Architect: stack selection UI (Clerk vs Supabase, etc.)
-- [ ] Default-stack recommendation + deviation warnings
-- [ ] Spec-driven task graph; Claude Code executes tasks across sessions
-- [ ] Integrate OpenSpec and/or gsd-core (pick one or compose) → `task-graph`, `build-manifest`
+### Phase 6 — Development & Engineering — Part A ✅ / Part B ⬜
+**Part A — the build pipeline.** Tool decision: **GSD** recommended as a one-time global install (`npx get-shit-done-cc`), NOT vendored (24MB, fast-moving canary releases, installs to `~/.claude`) — the workspace briefing is agent-agnostic (`TASKS.md` + `CLAUDE.md`), works with bare Claude Code, and the monitor detects GSD's `.planning/` when present. OpenSpec deferred to Phase 11; boilerplates (open-saas/ixartz) rejected — clean scaffold + briefing beats stripping kitchen-sink code.
+- [x] **Architect** (`lib/phases/engineering.ts`): reads product-spec + design-spec (design optional) → stack proposal + rationale + Mermaid diagram + key decisions → `stack-selection`
+- [x] **Tech-stack selector** (`lib/stack.ts`, 9 slots; defaults silent, deviations warned, hidden behind "Change tech stack"): Frontend (Next.js + shadcn/ui), Backend (Next.js API routes), Database (Supabase), Auth (Supabase Auth | Clerk), Payments (none | Stripe | Clerk Billing), Hosting (**AWS Amplify** | Vercel), Domain (**Route 53**), Coding agent (Claude Code | others coming_soon), AI model (only if the app itself needs AI)
+- [x] **Workspace generator** (`lib/workspace.ts`): `~/Rapid Vibe Coding Apps/<slug>/` (git init + briefing commit) with CLAUDE.md (stack + design tokens + do's/don'ts verbatim + execution discipline + Launch-Guide template), TASKS.md (parseable checkbox tracker), SPECS/*.json. Info notice shown before folder creation. Agent scaffolds the actual app as Milestone 1 (workspace creation stays instant/offline).
+- [x] **Task graph**: milestones w/ small tasks + verifiable acceptance criteria; screen tasks must implement design-spec states; test setup early; final milestone = verification + LAUNCH-GUIDE.md → `task-graph`
+- [x] **Build monitor**: progress route parses TASKS.md checkboxes + recent commits + GSD detection; UI polls every 20s (phone-friendly). User's only build action: copy-paste one start command.
+- [x] **Complete**: gated on all tasks done (or manual force) → reads agent-written LAUNCH-GUIDE.md (LLM fallback) → `build-manifest` gates QA; Launch Guide shown in UI
+- [x] Verified: typecheck clean, all route guards smoke-tested
+- [ ] Live test: full run (propose → approve → scaffold → real Claude Code build of a small app)
+
+**Part B — idea-type labeling ✅**
+Business Owner labels the idea at capture (Phase 1) → label flows through the whole pipeline as context and adapts downstream phases (esp. the Phase 6 stack — though most types still get a simple website/UI built).
+- [x] Taxonomy confirmed with user — all 9 (`lib/idea-types.ts`): web app, mobile app, web+mobile, AI agent/agent team, browser extension, API/dev tool, community/paid group, physical product, content/media brand — each with pipeline-wide `implications` text
+- [x] Label picker (chip row) in Phase 1 capture UI, applies to both direct + pull intake; stored on `raw-idea` payload + project meta (`idea_type`; legacy projects default to web-app)
+- [x] Trickle-down: PO dialogue + spec synthesis get the context (route-level inject); `idea_type` stamped into `product-spec` at synthesis; all downstream `specToText`s (research, pre-marketing, design, engineering) append `ideaTypeContext()` — the architect's stack proposal adapts per type (e.g. mobile → Expo deviation, AI agent → AI-model slot required, community → light task graph)
+- [x] Verified: typecheck clean; live capture smoke test confirmed label on meta + artifact
 
 ### Phase 7 — QA ⬜
 - [ ] Automated tests, **manual testing** checklist, security review → `qa-report`
