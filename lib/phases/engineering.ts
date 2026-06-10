@@ -187,7 +187,7 @@ export async function generateTaskGraph(
     system:
       "You are a tech lead breaking an MVP into a task graph an AI coding agent (Claude Code) will execute one task " +
       "per fresh session. Rules:\n" +
-      "- Milestone 1 = scaffold: create-next-app (or chosen frontend), Tailwind + shadcn/ui init, repo hygiene, env template, DB/auth client setup.\n" +
+      "- Milestone 1 = scaffold: create-next-app (or chosen frontend), Tailwind + shadcn/ui init, repo hygiene, env template, DB/auth client setup, security headers.\n" +
       "- Tasks must be SMALL and independently verifiable. Acceptance criteria are commands or observable behaviors, never vibes.\n" +
       "- Include test setup early (Vitest) and at least smoke tests for core flows (Playwright optional).\n" +
       "- Every screen task must implement the screen's empty/loading/error/success states from the design spec.\n" +
@@ -296,8 +296,11 @@ GSD users: \`/gsd:import --from TASKS.md\` works; keep TASKS.md checkboxes in sy
 - Auth checks happen SERVER-SIDE on every protected route/action — client-side redirects are UX, not security.
 - The service-role key never appears in client code or NEXT_PUBLIC_ env vars. Client uses the anon key only.
 - No \`dangerouslySetInnerHTML\` with user-influenced content; escape anything user-provided that gets rendered.
-- Public endpoints that write (signups, webhooks, contact forms) note rate-limiting needs in a comment if not implemented.
-- Run \`npm audit\` during the final verification milestone; fix criticals.
+- Auth endpoints and public write endpoints (signups, webhooks, forms) get basic rate limiting — a simple middleware/in-memory limiter is fine for MVP; leave a comment noting the production upgrade path (host WAF, Upstash).
+- Set standard security headers in the scaffold milestone: a CSP appropriate to the app, X-Frame-Options DENY, X-Content-Type-Options nosniff, Referrer-Policy strict-origin-when-cross-origin.
+- Log auth failures and 5xx errors server-side so incidents are visible; NEVER log secrets, tokens, or PII.
+- Don't store sensitive data the app doesn't need. HTTPS and encryption-at-rest come from the platform (host + Supabase) — don't undermine them (no plaintext exports of sensitive fields, no sensitive data in client storage).
+- Run \`npm audit\` during the final verification milestone; fix criticals. Commit the lockfile.
 
 ${tokens}
 
