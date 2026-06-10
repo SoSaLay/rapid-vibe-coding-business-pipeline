@@ -5,9 +5,12 @@
 > current. This is the human-readable status board (CLAUDE.md is the architecture
 > doc for the AI agent; the `~/.claude` memory files are the running log).
 
-**Where we are now:** Phases 1–4 built (not yet run live end-to-end — needs the
-Anthropic key connected; Phase 4 also needs a real Supabase project). Next up:
-**Phase 5 — Product Design**.
+**Where we are now:** Phases 1–5 built. Anthropic key is connected. Phase 5 (Product
+Design) generates a full design-spec — branding, screens with states, design tokens
+grounded in a reference design system, component inventory, do's/don'ts — plus HTML
+mockups of key screens. Remaining live-test blocker: **Supabase project** (Phase 4
+waitlist only — Phases 1–3 + 5 can run end-to-end now). Next up: **Phase 6 —
+Development & Engineering**.
 
 Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 
@@ -51,12 +54,26 @@ Validation stage 2: landing page + waitlist + pre-sell offer to prove real inten
 - [x] **Stage 1** — validation-kit generation (positioning, pre-sell offer, qualifying Qs, social proof from Phase-3 quotes, distribution plan + templates, thresholds); auto-selects marketing playbooks; generic skip route
 - [x] **Stage 2** — landing-page generator: self-contained deployable HTML (Launch UI dark aesthetic, Tailwind CDN), waitlist form wired to Supabase (anon key only — service key never leaked); preview + download routes
 - [x] **Stage 3** — Supabase store (`lib/supabase.ts` + one-time SQL), waitlist dashboard (signups + pre-sale vs thresholds), evaluate → `audience-brief` verdict (proceed/pivot/stop/keep-collecting) gating the phase
+- [x] **Content library** — per-platform evergreen content direction (X/Twitter, LinkedIn, Instagram, short-form video, long-form, forums); strategy, themes, hook starters, CTA direction, posting cadence; collapsible accordion UI in the kit view
 - [x] Verified: typecheck clean, HTML render validated (security check passed), all gating works
-- [ ] Live test (needs Anthropic key + a real Supabase project)
+
+**Live-test dependencies (not yet set up):**
+- [x] Anthropic API key — pasted in-app ✅ (user confirmed)
+- [ ] **Supabase** — create a free project at supabase.com → grab Project URL + anon key + service_role key → paste in-app under Phase 4 "Connect Supabase". Then run the one-time SQL it shows you in the Supabase SQL Editor.
+- [ ] **Notion token** *(optional — only needed for Phase 1 Notion intake)* — Notion integration token + page/database ID, pasted in-app
+- [ ] Full end-to-end live run: capture idea → spec → market research → pre-marketing kit
+
 - [ ] (Optional later) Scaffold a full literal Launch-UI React project instead of the self-contained HTML, if pixel-true components are wanted
 
-### Phase 5 — Product Design ⬜
-- [ ] Design spec, assets, UX direction → `design-spec`
+### Phase 5 — Product Design ✅  *(optional / skippable)*
+Produces the `design-spec` the build phase works from. Two tools vendored:
+- [x] Vendored **ui-ux-pro-max** core skill (MIT, 89k★) → `vendor/ui-ux-pro-max/` — the always-on hard-rules layer (a11y, touch targets, typography, layout, named UI styles)
+- [x] Vendored **ux-ui-agent-skills** subset (MIT via package.json) → `vendor/ux-ui-agent-skills/` — 138-system reference library (`DESIGN.md` each) + `design-taste.md` anti-slop layer; loaded by `lib/design-systems.ts` (not the SKILL.md loader, by design)
+- [x] **Stage 1** — design brief: picks 1–2 reference design systems, then generates branding (name/tagline/personality/voice/logo direction, reuses Phase-4 positioning), UX (screens w/ empty-loading-error-success states + responsive notes, flows, IA), visual tokens (exact hexes, Google fonts, spacing/radius/elevation), component inventory, do's & don'ts, open risks
+- [x] **Stage 2** — per-screen self-contained Tailwind-CDN HTML mockups from the Stage-1 tokens (preview/download/regenerate per screen, stored under `data/projects/<id>/mockups/`)
+- [x] API routes (`generate-brief`, `mockups`, `preview`, `approve`) + `ProductDesign.tsx` workspace UI; approve → `design-spec` artifact + phase complete; skippable via generic skip
+- [x] Verified: typecheck clean, route guards smoke-tested, loader sees 32 frameworks + 138 design systems
+- [ ] Live test with Anthropic key (brief + mockup quality)
 
 ### Phase 6 — Development & Engineering ⬜
 - [ ] System Design Architect: stack selection UI (Clerk vs Supabase, etc.)

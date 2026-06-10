@@ -2,6 +2,17 @@
 
 import { useEffect, useState } from "react";
 
+interface ContentPlatform {
+  platform: string;
+  content_type: string;
+  audience_on_platform: string;
+  strategy: string;
+  themes: string[];
+  posting_cadence: string;
+  hook_examples: string[];
+  cta_direction: string;
+}
+
 interface Kit {
   positioning: {
     problem_statement: string;
@@ -16,6 +27,7 @@ interface Kit {
   distribution_plan: { channel: string; tactic: string; template: string }[];
   fake_door_tests: { feature: string; copy: string }[];
   success_thresholds: { landing_conversion: string; waitlist_target: string; presale_target: string; decision_rule: string };
+  content_library?: ContentPlatform[];
 }
 
 interface Brief {
@@ -369,9 +381,88 @@ function KitView({
         </div>
       </Section>
 
+      {kit.content_library?.length ? <ContentLibraryView platforms={kit.content_library} /> : null}
+
       {frameworks?.ids?.length ? (
         <p className="text-xs text-muted">Playbooks applied: {frameworks.ids.join(", ")} · via marketing-skills</p>
       ) : null}
     </div>
+  );
+}
+
+const PLATFORM_ICONS: Record<string, string> = {
+  "X (Twitter)": "𝕏",
+  LinkedIn: "in",
+  Instagram: "▣",
+  "Short-form video": "▶",
+  "Long-form": "▤",
+  Forums: "◈",
+};
+
+function ContentLibraryView({ platforms }: { platforms: ContentPlatform[] }) {
+  const [open, setOpen] = useState<string | null>(null);
+
+  return (
+    <Section title="Content library — platform playbook">
+      <p className="text-xs text-muted mb-3">
+        Evergreen direction for each channel. Not a content calendar — a strategic brief so every post you make moves
+        people toward your landing page.
+      </p>
+      <div className="space-y-2">
+        {platforms.map((p) => {
+          const isOpen = open === p.platform;
+          const icon = PLATFORM_ICONS[p.platform] ?? "•";
+          return (
+            <div key={p.platform} className="rounded-lg border border-edge overflow-hidden">
+              <button
+                className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-edge/30 transition-colors"
+                onClick={() => setOpen(isOpen ? null : p.platform)}
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-accent2 font-bold text-sm w-5 text-center">{icon}</span>
+                  <span className="text-sm font-medium text-white">{p.platform}</span>
+                  <span className="text-[11px] text-muted">{p.content_type} · {p.posting_cadence}</span>
+                </div>
+                <span className="text-muted text-xs">{isOpen ? "▲" : "▼"}</span>
+              </button>
+
+              {isOpen && (
+                <div className="px-4 pb-4 pt-1 space-y-3 border-t border-edge">
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wider text-muted mb-1">Who you're reaching</div>
+                    <p className="text-xs text-white/80">{p.audience_on_platform}</p>
+                  </div>
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wider text-muted mb-1">Strategy & tone</div>
+                    <p className="text-xs text-white/80">{p.strategy}</p>
+                  </div>
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wider text-muted mb-1">Evergreen themes</div>
+                    <ul className="list-disc ml-5 space-y-0.5 text-xs text-white/80">
+                      {p.themes.map((t, i) => <li key={i}>{t}</li>)}
+                    </ul>
+                  </div>
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wider text-muted mb-1">Hook starters (riff on these)</div>
+                    <div className="space-y-1.5">
+                      {p.hook_examples.map((h, i) => (
+                        <div key={i} className="flex items-start gap-2 rounded bg-ink/60 px-3 py-2">
+                          <span className="text-accent2 text-[11px] mt-0.5">→</span>
+                          <p className="text-xs text-white/90 italic">"{h}"</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wider text-muted mb-1">CTA direction</div>
+                    <p className="text-xs text-white/80">{p.cta_direction}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </Section>
   );
 }

@@ -136,6 +136,34 @@ const KIT_SCHEMA = {
       },
       required: ["landing_conversion", "waitlist_target", "presale_target", "decision_rule"],
     },
+    content_library: {
+      type: "array",
+      description:
+        "Evergreen content direction for each platform — NOT specific posts, but a strategic guide: what angle to take, what themes resonate, what content types perform, and 2-3 hook starters to get going. Covers X (Twitter), LinkedIn, Instagram, Short-form video (TikTok/Reels/Shorts), Long-form (YouTube/blog), and Forums/communities.",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          platform: { type: "string", description: "Platform name, e.g. 'X (Twitter)', 'LinkedIn', 'Instagram', 'Short-form video', 'Long-form', 'Forums'." },
+          content_type: { type: "string", description: "Primary format: thread, carousel, reel, video essay, forum post, etc." },
+          audience_on_platform: { type: "string", description: "Who you're reaching here and their mindset on this platform." },
+          strategy: { type: "string", description: "The overarching angle and tone to take for this specific platform." },
+          themes: {
+            type: "array",
+            items: { type: "string" },
+            description: "3-5 evergreen content themes that will draw ICP attention and funnel to the landing page.",
+          },
+          posting_cadence: { type: "string", description: "Realistic posting frequency, e.g. '3x/week', 'daily stories + 2 feed posts/week'." },
+          hook_examples: {
+            type: "array",
+            items: { type: "string" },
+            description: "2-3 strong openers/hooks the creator can riff on — not full posts, just compelling starters.",
+          },
+          cta_direction: { type: "string", description: "How to drive people from this platform to the landing page (subtle vs direct)." },
+        },
+        required: ["platform", "content_type", "audience_on_platform", "strategy", "themes", "posting_cadence", "hook_examples", "cta_direction"],
+      },
+    },
   },
   required: [
     "positioning",
@@ -145,6 +173,7 @@ const KIT_SCHEMA = {
     "distribution_plan",
     "fake_door_tests",
     "success_thresholds",
+    "content_library",
   ],
 };
 

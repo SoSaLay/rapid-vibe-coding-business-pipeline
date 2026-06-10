@@ -2,17 +2,16 @@ import { PHASES } from "@/lib/pipeline";
 
 type PhaseState = "locked" | "available" | "active" | "complete" | "skipped";
 
-/**
- * The status / gating layer, visualized. Reflects the project's real phase_status
- * when provided: complete phases show a check, the active phase is highlighted,
- * locked phases show a lock, and "optional" phases are marked skippable.
- */
 export function PhaseRail({
   activeId,
+  selectedId,
   status,
+  onSelect,
 }: {
   activeId?: string;
+  selectedId?: string;
   status?: Record<string, PhaseState>;
+  onSelect?: (id: string) => void;
 }) {
   return (
     <div className="card p-4">
@@ -23,25 +22,29 @@ export function PhaseRail({
           const active = state === "active";
           const complete = state === "complete";
           const locked = state === "locked";
+          const selected = selectedId === p.id;
           return (
-            <li
-              key={p.id}
-              className={`flex items-center gap-3 rounded-lg px-2 py-1.5 ${
-                active ? "bg-accent/10 border border-accent/40" : ""
-              }`}
-            >
-              <span
-                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${
-                  complete ? "bg-ok text-ink" : active ? "bg-accent text-white" : "bg-edge text-muted"
-                }`}
+            <li key={p.id}>
+              <button
+                onClick={() => onSelect?.(p.id)}
+                className={`w-full flex items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-colors
+                  ${selected ? "bg-accent/20 border border-accent/60" : active ? "bg-accent/10 border border-accent/40" : ""}
+                  ${onSelect ? "hover:bg-edge/40 cursor-pointer" : "cursor-default"}
+                `}
               >
-                {complete ? "✓" : i + 1}
-              </span>
-              <span className={`flex-1 text-sm ${active ? "text-white" : locked ? "text-muted/60" : "text-muted"}`}>
-                {p.name}
-              </span>
-              {p.gate === "optional" && <span className="text-[10px] uppercase tracking-wide text-muted/70">opt</span>}
-              {locked && <span className="text-[10px] text-muted/50">🔒</span>}
+                <span
+                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${
+                    complete ? "bg-ok text-ink" : active || selected ? "bg-accent text-white" : "bg-edge text-muted"
+                  }`}
+                >
+                  {complete ? "✓" : i + 1}
+                </span>
+                <span className={`flex-1 text-sm ${active || selected ? "text-white" : locked ? "text-muted/60" : "text-muted"}`}>
+                  {p.name}
+                </span>
+                {p.gate === "optional" && <span className="text-[10px] uppercase tracking-wide text-muted/70">opt</span>}
+                {locked && <span className="text-[10px] text-muted/50">🔒</span>}
+              </button>
             </li>
           );
         })}
