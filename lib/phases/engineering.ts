@@ -191,7 +191,9 @@ export async function generateTaskGraph(
       "- Tasks must be SMALL and independently verifiable. Acceptance criteria are commands or observable behaviors, never vibes.\n" +
       "- Include test setup early (Vitest) and at least smoke tests for core flows (Playwright optional).\n" +
       "- Every screen task must implement the screen's empty/loading/error/success states from the design spec.\n" +
-      "- Final milestone: full verification pass (typecheck, tests, build) + write LAUNCH-GUIDE.md per the template in CLAUDE.md.\n" +
+      "- Security is built in, not bolted on: tasks that create API routes/forms include input-validation acceptance criteria; " +
+      "tasks that create database tables include an RLS-policy criterion; tasks behind auth include a 'rejects unauthenticated requests' criterion.\n" +
+      "- Final milestone: full verification pass (typecheck, tests, build, npm audit) + write LAUNCH-GUIDE.md per the template in CLAUDE.md.\n" +
       "- Stay strictly inside the chosen stack. Do not invent services that aren't in it.",
     effort: "high",
     schema: TASK_GRAPH_SCHEMA,
@@ -286,6 +288,16 @@ ${proposal.key_decisions.map((k) => `- ${k}`).join("\n")}
 6. Screens must implement their empty/loading/error/success states as written in the design-spec. No lorem ipsum anywhere.
 
 GSD users: \`/gsd:import --from TASKS.md\` works; keep TASKS.md checkboxes in sync — the pipeline dashboard reads them.
+
+## Security defaults (non-negotiable — apply on every task, verified again in QA)
+
+- Validate ALL external input (API route bodies, query params, form data) with zod schemas at the boundary. Reject, don't sanitize-and-hope.
+- Every Supabase table gets a row-level-security policy IN THE SAME TASK that creates it. No table ships with RLS off.
+- Auth checks happen SERVER-SIDE on every protected route/action — client-side redirects are UX, not security.
+- The service-role key never appears in client code or NEXT_PUBLIC_ env vars. Client uses the anon key only.
+- No \`dangerouslySetInnerHTML\` with user-influenced content; escape anything user-provided that gets rendered.
+- Public endpoints that write (signups, webhooks, contact forms) note rate-limiting needs in a comment if not implemented.
+- Run \`npm audit\` during the final verification milestone; fix criticals.
 
 ${tokens}
 
