@@ -5,13 +5,15 @@
 > current. This is the human-readable status board (CLAUDE.md is the architecture
 > doc for the AI agent; the `~/.claude` memory files are the running log).
 
-**Where we are now:** Phases 1–7 built. Phase 7 (QA) is the QA director: LLM QA plan
-(automated cases + OWASP-mapped security checks + human manual checklist) written into
-the app workspace as QA-PLAN.md + qa/checklist.json, agent runs one command and reports
-back via qa/results.json, manual pass is tap-through in the UI, defect fix-rounds append
-to TASKS.md, deterministic sign-off gate → `qa-report` (ship / ship-with-warnings) gates
-Deployment. Remaining live-test blockers: **Supabase project** (Phase 4 waitlist) and a
-**full live build run** (Phases 6→7). Next up: **Phase 8 — Deployment**.
+**Where we are now:** Phases 1–8 built. Phase 8 (Deployment) is the release engineer:
+deploy-target registry (AWS Amplify wired; Vercel/VPS coming_soon), per-app WAF toggle +
+optional Route 53 domain, LLM deploy plan (env-var inventory + human to-dos) + deterministic
+DEPLOY-PLAN.md runbook the agent executes (GitHub push → Amplify app → dev/UAT/prod branch
+envs → env vars → builds), auto-verified preflight (AWS CLI/creds/gh — all green on this
+machine), 20s monitor on deploy/results.json, orchestrator-side live verification (HTTPS +
+security headers on prod) → `deploy-manifest` gates Marketing. Remaining live-test blockers:
+**Supabase project** (Phase 4) and a **full live run** (Phases 6→7→8). Next up: **Phase 9 —
+Marketing & Sales**.
 
 Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 
@@ -117,10 +119,31 @@ Phase 6 baked the defaults in; QA checks they survived).
 - [ ] (Shelf) Keploy record/replay regression suites → revisit Phase 10/11 when apps have real traffic;
   vibetest-use → swap-in candidate for the browser smoke-crawl if it matures
 
-### Phase 8 — Deployment ⬜
-- [ ] Dev / UAT / Prod environments; AWS (Amplify/Lambda); IAM roles → `deploy-manifest`
-- [ ] **Security carryover from Phase 6** (platform-level slice): verify HTTPS + security headers at the host, host WAF/rate-limit config, production env vars set securely (no secrets in build logs), Route 53 + domain wiring
-- [ ] WAF decision (from Phase 7 tool eval): **AWS WAF** is the natural fit on Amplify; SafeLine (21.5k★ self-hosted WAF) only if we ever front apps with our own reverse proxy
+### Phase 8 — Deployment ✅
+Plan → preflight → one-command agent deploy → verify & sign-off. Native build (no external tools);
+hands-off everywhere honestly possible, human to-dos only where machines can't (domains, costs).
+- [x] **Deploy-target registry** (`lib/deploy/`): `DeployTarget` interface; **AWS Amplify** active
+  (WEB_COMPUTE = Next.js SSR + API routes on Lambda automatically); **Vercel** + **VPS** coming_soon stubs
+- [x] **Options at deploy time**: per-app **AWS WAF toggle** (off by default, cost stated — user decides per app),
+  optional Route 53 custom domain (free amplifyapp.com URL default)
+- [x] **Deploy plan** (`lib/phases/deployment.ts`): LLM slice = env-var inventory (from .env.example + launch
+  guide) + human to-dos + app-specific notes; deterministic slice = DEPLOY-PLAN.md runbook (idempotent,
+  check-before-create, never prints secrets, tags everything `app=<slug>`)
+- [x] **Environments**: git branches → Amplify branches (dev / uat / main=prod), auto-deploy on push
+- [x] **Preflight, auto-verified**: AWS CLI, AWS credentials (`sts get-caller-identity`), gh auth, workspace —
+  green/red lights with fix instructions (verified live: all green on this machine)
+- [x] **Agent deploy run**: one paste command; agent pushes to private GitHub repo, creates Amplify app + branches,
+  sets env vars (values from .env.local, never through the dashboard), polls builds, writes deploy/results.json +
+  DEPLOY-GUIDE.md; 20s monitor
+- [x] **Security carryover from Phase 6, automated**: orchestrator fetches the live URLs itself and verifies
+  HTTPS + 5 security headers survived to production; results stored in the manifest
+- [x] **Sign-off**: deterministic gate (prod live + reachable + no agent blockers) → `deploy-manifest`
+  (URLs, app id, region, WAF/domain status, verification, outstanding to-dos) gates Phase 9; force = recorded warnings
+- [x] Verified: typecheck clean, 4 route guards smoke-tested live, deterministic core (runbook/parse/exit) unit-smoked,
+  real preflight ran green
+- [ ] Live test: full deploy of a real built app (depends on the Phase 6→7 live run)
+- [ ] (Decision honored) root-credential detection NOT built — user handles IAM hygiene themselves (root→admin IAM
+  user + MFA + budget alarm advice given 2026-06-10)
 
 ### Phase 9 — Marketing & Sales ⬜
 - [ ] Campaigns, content, lead gen → `campaign-report`
