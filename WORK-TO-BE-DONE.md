@@ -5,15 +5,15 @@
 > current. This is the human-readable status board (CLAUDE.md is the architecture
 > doc for the AI agent; the `~/.claude` memory files are the running log).
 
-**Where we are now:** Phases 1–8 built. Phase 8 (Deployment) is the release engineer:
-deploy-target registry (AWS Amplify wired; Vercel/VPS coming_soon), per-app WAF toggle +
-optional Route 53 domain, LLM deploy plan (env-var inventory + human to-dos) + deterministic
-DEPLOY-PLAN.md runbook the agent executes (GitHub push → Amplify app → dev/UAT/prod branch
-envs → env vars → builds), auto-verified preflight (AWS CLI/creds/gh — all green on this
-machine), 20s monitor on deploy/results.json, orchestrator-side live verification (HTTPS +
-security headers on prod) → `deploy-manifest` gates Marketing. Remaining live-test blockers:
-**Supabase project** (Phase 4) and a **full live run** (Phases 6→7→8). Next up: **Phase 9 —
-Marketing & Sales**.
+**Where we are now:** Phases 1–9 built. Phase 9 (Marketing & Sales, optional) is the
+marketing director: lean campaign plan (2–3 channels hard cap, no paid ads, content pillars,
+weekly rhythm), in-depth 3-stage launch checklist (prep / launch week / momentum-to-sales,
+Marketing-for-Founders distilled), waitlist launch email, 14-day ready-to-post content
+batches in the brand voice (charlie947 craft skills + post-scorer quality bar), phone-first
+daily posting loop (Today view, copy → posted ✓, streaks) that stays live after sign-off →
+`campaign-report` gates Operations. 45 frameworks now loaded across 5 vendor sources.
+Remaining live-test blockers: **Supabase project** (Phase 4) and a **full live run**
+(Phases 6→7→8→9). Next up: **Phase 10 — Operations & Maintenance**.
 
 Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 
@@ -145,8 +145,32 @@ hands-off everywhere honestly possible, human to-dos only where machines can't (
 - [ ] (Decision honored) root-credential detection NOT built — user handles IAM hygiene themselves (root→admin IAM
   user + MFA + budget alarm advice given 2026-06-10)
 
-### Phase 9 — Marketing & Sales ⬜
-- [ ] Campaigns, content, lead gen → `campaign-report`
+### Phase 9 — Marketing & Sales ✅  *(optional / skippable)*
+Lean by design: 2–3 channels max, organic only (paid ads out of scope), pipeline writes — human posts.
+Tools: 7 evaluated → **marketing-skills** +6 playbooks (content-strategy, social, emails, video,
+community-marketing, marketing-ideas), **social-media-skills** (Charlie Hills) 6 craft skills vendored
+(voice-builder, hook-generator, post-writer, post-scorer, content-matrix, reels-scripting),
+**email-campaigns-claude** vendored (launch email), **Marketing-for-Founders** distilled into the
+strategy prompt (CC BY-SA, credited). Rejected: univa (own platform, overkill), viral-clips-crew
+(author-abandoned), goose-skills (Python/goose-harness architecture mismatch).
+- [x] **Campaign plan** (`lib/phases/marketing.ts`): channels (2-3 cap as policy) + pillars + weekly rhythm
+  + metrics; brand voice pulled from design-spec branding; builds on Phase-4 content library + positioning
+  + Phase-3 research signals
+- [x] **Launch checklist, in-depth**: 15-25 items across prep / launch week / momentum-to-sales; names real
+  directories/communities + the angle for each; covers the SALES half (pricing sanity, onboarding follow-up,
+  testimonials, first-10-customers outreach, reply-to-everything); every item has why + how
+- [x] **Waitlist launch email** (email-campaigns playbook) — generated when Phase 4 produced an audience-brief;
+  sending stays human (Resend connector = future option)
+- [x] **Content batches**: 14 days of paste-ready posts per rhythm slot, dated to the real calendar,
+  hook/body/CTA, platform-formatted, pillar-rotated, repetition guard against prior hooks, post-scorer bar
+- [x] **Posting loop UI** (phone-first): Today view w/ copy + posted ✓ per post, overdue flagging, upcoming
+  preview, streak counter, "Generate next 2 weeks" when the schedule runs low; loop stays live after sign-off
+- [x] **Sign-off**: batch exists + launch checklist done (or force w/ recorded blockers) → `campaign-report`
+- [x] Verified: typecheck clean, 4 route guards smoke-tested, 45 frameworks load (6 social-media-skills +
+  1 email-campaigns), streak/stats logic unit-smoked (pending-today, broken, complete, empty cases)
+- [ ] Live test: full campaign generation for a real deployed app
+- [ ] (Future) Resend connector for one-click waitlist email send; auto-posting deliberately rejected
+  (API cost/fragility/ban risk — human posting keeps accounts safe and content human)
 
 ### Phase 10 — Operations & Maintenance ⬜
 - [ ] Release, monitoring, error visibility → `ops-report`

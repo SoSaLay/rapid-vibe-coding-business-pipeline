@@ -73,6 +73,9 @@ Architecture details and the per-phase build pattern live in [`CLAUDE.md`](./CLA
 - Product-management playbooks vendored from **[pm-skills](https://github.com/phuryn/pm-skills)** (MIT) — see [`vendor/pm-skills/ATTRIBUTION.md`](./vendor/pm-skills/ATTRIBUTION.md).
 - Online discussion search by **[Exa](https://exa.ai)**.
 - The QA phase's security checklist is distilled from the **[OWASP Top 10 (2021)](https://owasp.org/Top10/)** and the OWASP Web Security Testing Guide / Developer Guide (CC BY-SA).
+- Social-content craft playbooks vendored from **[charlie947/social-media-skills](https://github.com/charlie947/social-media-skills)** (Charlie Hills, MIT) — see [`vendor/social-media-skills/ATTRIBUTION.md`](./vendor/social-media-skills/ATTRIBUTION.md).
+- Launch-email playbook vendored from **[irinabuht12-oss/email-campaigns-claude](https://github.com/irinabuht12-oss/email-campaigns-claude)** (MIT) — see [`vendor/email-campaigns-claude/ATTRIBUTION.md`](./vendor/email-campaigns-claude/ATTRIBUTION.md).
+- The Marketing phase's launch strategy is distilled from **[Marketing-for-Founders](https://github.com/EdoStra/Marketing-for-Founders)** (EdoStra, CC BY-SA 4.0).
 
 ## License
 

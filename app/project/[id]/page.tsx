@@ -10,6 +10,7 @@ import { ProductDesign } from "@/components/ProductDesign";
 import { Engineering } from "@/components/Engineering";
 import { QA } from "@/components/QA";
 import { Deployment } from "@/components/Deployment";
+import { Marketing } from "@/components/Marketing";
 import { PHASES } from "@/lib/pipeline";
 
 interface Artifact {
@@ -50,6 +51,7 @@ export default function ProjectWorkspace({ params }: { params: { id: string } })
   const buildManifest = artifacts.filter((a) => a.artifact_type === "build-manifest").slice(-1)[0];
   const qaReport = artifacts.filter((a) => a.artifact_type === "qa-report").slice(-1)[0];
   const deployManifest = artifacts.filter((a) => a.artifact_type === "deploy-manifest").slice(-1)[0];
+  const campaignReport = artifacts.filter((a) => a.artifact_type === "campaign-report").slice(-1)[0];
   const ideaText = rawIdea?.payload?.raw_text || "";
   const current = project.current_phase;
   const preMkt = (phaseState as any)?.["pre-marketing"] ?? null;
@@ -57,6 +59,7 @@ export default function ProjectWorkspace({ params }: { params: { id: string } })
   const engineering = (phaseState as any)?.["engineering"] ?? null;
   const qa = (phaseState as any)?.["qa"] ?? null;
   const deployment = (phaseState as any)?.["deployment"] ?? null;
+  const marketing = (phaseState as any)?.["marketing-sales"] ?? null;
 
   const phaseLabel = PHASES.find((p) => p.id === selectedPhase)?.name ?? selectedPhase;
 
@@ -147,6 +150,16 @@ export default function ProjectWorkspace({ params }: { params: { id: string } })
             hasQaReport={!!qaReport}
             state={deployment}
             manifest={deployManifest?.payload ?? null}
+            onUpdated={refresh}
+          />
+        );
+      case "marketing-sales":
+        return (
+          <Marketing
+            projectId={project.id}
+            hasDeploy={!!deployManifest}
+            state={marketing}
+            report={campaignReport?.payload ?? null}
             onUpdated={refresh}
           />
         );

@@ -13,6 +13,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const engineering = await getPhaseState(params.id, "engineering");
   const qa = await getPhaseState(params.id, "qa");
   const deployment = await getPhaseState(params.id, "deployment");
+  const marketing = await getPhaseState(params.id, "marketing-sales");
   return NextResponse.json({
     project,
     artifacts,
@@ -24,6 +25,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       engineering,
       qa,
       deployment,
+      "marketing-sales": marketing,
     },
   });
 }
