@@ -89,6 +89,13 @@ export async function createWorkspace(projectTitle: string, files: WorkspaceFile
   };
 }
 
+/** Write (or overwrite) a file inside the workspace, creating parent dirs as needed. */
+export async function writeWorkspaceFile(projectTitle: string, file: string, content: string): Promise<void> {
+  const full = path.join(workspacePath(projectTitle), file);
+  await fs.mkdir(path.dirname(full), { recursive: true });
+  await fs.writeFile(full, content, "utf8");
+}
+
 export async function readWorkspaceFile(projectTitle: string, file: string): Promise<string | null> {
   try {
     return await fs.readFile(path.join(workspacePath(projectTitle), file), "utf8");

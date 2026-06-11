@@ -5,13 +5,13 @@
 > current. This is the human-readable status board (CLAUDE.md is the architecture
 > doc for the AI agent; the `~/.claude` memory files are the running log).
 
-**Where we are now:** Phases 1–6 built. Phase 6 (Development & Engineering) is the
-architect/foreman: stack proposal (9 slots, Amplify/Route 53 defaults, "Change tech
-stack" selector), workspace generator (`~/Rapid Vibe Coding Apps/<app>/` with CLAUDE.md
-+ TASKS.md + SPECS briefing), live build monitor, and Launch Guide → build-manifest
-gates QA. Idea-type labeling (9 types) flows from capture through every phase.
-Remaining live-test blockers: **Supabase project** (Phase 4 waitlist) and a **full
-live build run** (Phase 6). Next up: **Phase 7 — QA**.
+**Where we are now:** Phases 1–7 built. Phase 7 (QA) is the QA director: LLM QA plan
+(automated cases + OWASP-mapped security checks + human manual checklist) written into
+the app workspace as QA-PLAN.md + qa/checklist.json, agent runs one command and reports
+back via qa/results.json, manual pass is tap-through in the UI, defect fix-rounds append
+to TASKS.md, deterministic sign-off gate → `qa-report` (ship / ship-with-warnings) gates
+Deployment. Remaining live-test blockers: **Supabase project** (Phase 4 waitlist) and a
+**full live build run** (Phases 6→7). Next up: **Phase 8 — Deployment**.
 
 Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 
@@ -94,12 +94,33 @@ Business Owner labels the idea at capture (Phase 1) → label flows through the 
 - [x] Trickle-down: PO dialogue + spec synthesis get the context (route-level inject); `idea_type` stamped into `product-spec` at synthesis; all downstream `specToText`s (research, pre-marketing, design, engineering) append `ideaTypeContext()` — the architect's stack proposal adapts per type (e.g. mobile → Expo deviation, AI agent → AI-model slot required, community → light task graph)
 - [x] Verified: typecheck clean; live capture smoke test confirmed label on meta + artifact
 
-### Phase 7 — QA ⬜
-- [ ] Automated tests, **manual testing** checklist, security review → `qa-report`
+### Phase 7 — QA ✅
+Plan → automated run → manual pass → sign-off (QA lifecycle collapsed for solo founder + AI agent).
+Tool decision: **zero external dependencies** — 8 tools evaluated (Keploy, vibetest-use, cve-mcp-server,
+RedAmon, VUDA, SafeLine, qa-claude-skill, claudskills qa-engineer), none adopted; patterns stolen instead
+(vibetest's crawl-and-report idea, Anytype's change-driven plan-first discipline, qa-claude-skill's
+lifecycle shape). Security content distilled from OWASP Top 10 2021 + WSTG (verification, not invention —
+Phase 6 baked the defaults in; QA checks they survived).
+- [x] **QA plan generator** (`lib/phases/qa.ts`): reads product-spec + design-spec + build-manifest →
+  automated test cases (every flow + every screen's 4 states), stack-aware OWASP security checklist
+  (only applicable categories), 5-10 item human manual checklist, exit criteria
+- [x] **Workspace briefing**: QA-PLAN.md (execution discipline + results contract) + qa/checklist.json;
+  agent runs one copy-paste command, may make small `qa-fix:` commits, writes qa/results.json + QA-RESULTS.md
+- [x] **Progress monitor**: parses qa/results.json (suite/cases/security/npm-audit), 20s polling like the build monitor
+- [x] **Manual checklist UI**: tap pass/fail/n-a + notes per item, phone-friendly, auto-saved per tap
+- [x] **Defect loop**: failures (automated + manual) → "Send fixes to builder" appends QA-R<n> fix-round
+  milestone to TASKS.md → rebuild → re-run QA
+- [x] **Sign-off**: deterministic exit gate (suite green, 0 failed cases/security, 0 critical audit, manual done)
+  → `qa-report` with ship / ship-with-warnings verdict (force = sign off anyway, blockers recorded) → gates Deployment
+- [x] Verified: typecheck clean, all 5 route guards smoke-tested, deterministic core (parse/exit/renderers) unit-smoked
+- [ ] Live test: full QA run against a real built app (depends on the Phase 6 live build)
+- [ ] (Shelf) Keploy record/replay regression suites → revisit Phase 10/11 when apps have real traffic;
+  vibetest-use → swap-in candidate for the browser smoke-crawl if it matures
 
 ### Phase 8 — Deployment ⬜
 - [ ] Dev / UAT / Prod environments; AWS (Amplify/Lambda); IAM roles → `deploy-manifest`
 - [ ] **Security carryover from Phase 6** (platform-level slice): verify HTTPS + security headers at the host, host WAF/rate-limit config, production env vars set securely (no secrets in build logs), Route 53 + domain wiring
+- [ ] WAF decision (from Phase 7 tool eval): **AWS WAF** is the natural fit on Amplify; SafeLine (21.5k★ self-hosted WAF) only if we ever front apps with our own reverse proxy
 
 ### Phase 9 — Marketing & Sales ⬜
 - [ ] Campaigns, content, lead gen → `campaign-report`

@@ -72,6 +72,7 @@ Architecture details and the per-phase build pattern live in [`CLAUDE.md`](./CLA
 
 - Product-management playbooks vendored from **[pm-skills](https://github.com/phuryn/pm-skills)** (MIT) — see [`vendor/pm-skills/ATTRIBUTION.md`](./vendor/pm-skills/ATTRIBUTION.md).
 - Online discussion search by **[Exa](https://exa.ai)**.
+- The QA phase's security checklist is distilled from the **[OWASP Top 10 (2021)](https://owasp.org/Top10/)** and the OWASP Web Security Testing Guide / Developer Guide (CC BY-SA).
 
 ## License
 

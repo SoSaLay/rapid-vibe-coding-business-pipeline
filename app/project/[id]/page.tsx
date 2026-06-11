@@ -8,6 +8,7 @@ import { IdeaValidation } from "@/components/IdeaValidation";
 import { PreMarketing } from "@/components/PreMarketing";
 import { ProductDesign } from "@/components/ProductDesign";
 import { Engineering } from "@/components/Engineering";
+import { QA } from "@/components/QA";
 import { PHASES } from "@/lib/pipeline";
 
 interface Artifact {
@@ -46,11 +47,13 @@ export default function ProjectWorkspace({ params }: { params: { id: string } })
   const audienceBrief = artifacts.filter((a) => a.artifact_type === "audience-brief").slice(-1)[0];
   const designSpec = artifacts.filter((a) => a.artifact_type === "design-spec").slice(-1)[0];
   const buildManifest = artifacts.filter((a) => a.artifact_type === "build-manifest").slice(-1)[0];
+  const qaReport = artifacts.filter((a) => a.artifact_type === "qa-report").slice(-1)[0];
   const ideaText = rawIdea?.payload?.raw_text || "";
   const current = project.current_phase;
   const preMkt = (phaseState as any)?.["pre-marketing"] ?? null;
   const design = (phaseState as any)?.["product-design"] ?? null;
   const engineering = (phaseState as any)?.["engineering"] ?? null;
+  const qa = (phaseState as any)?.["qa"] ?? null;
 
   const phaseLabel = PHASES.find((p) => p.id === selectedPhase)?.name ?? selectedPhase;
 
@@ -121,6 +124,16 @@ export default function ProjectWorkspace({ params }: { params: { id: string } })
             hasSpec={!!productSpec}
             state={engineering}
             manifest={buildManifest?.payload ?? null}
+            onUpdated={refresh}
+          />
+        );
+      case "qa":
+        return (
+          <QA
+            projectId={project.id}
+            hasManifest={!!buildManifest}
+            state={qa}
+            report={qaReport?.payload ?? null}
             onUpdated={refresh}
           />
         );
