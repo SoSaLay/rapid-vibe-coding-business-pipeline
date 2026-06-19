@@ -7,7 +7,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "seed-demo": "DATA_DIR=data-demo npx -y tsx scripts/seed-demo.ts",
+    "demo": "DATA_DIR=data-demo MOCK_LLM=1 next dev -p 3002"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.102.0",

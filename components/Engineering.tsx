@@ -74,7 +74,7 @@ export function Engineering({
     return (
       <div className="space-y-4">
         <div className="card p-4 border border-ok/30">
-          <span className="rounded-full bg-ok px-3 py-1 text-sm font-semibold text-ink">build complete</span>
+          <span className="rounded-full bg-ok px-3 py-1 text-sm font-semibold text-onbright">build complete</span>
           <span className="ml-3 text-xs text-muted">
             {manifest.tasks_done}/{manifest.tasks_total} tasks{manifest.forced ? " (completed manually)" : ""} · QA unlocked
           </span>
@@ -134,7 +134,7 @@ function Copyable({ text, label }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
-      className="text-[11px] text-accent2 hover:text-white"
+      className="text-[11px] text-accent2 hover:text-fg"
       onClick={() =>
         navigator.clipboard.writeText(text).then(() => {
           setCopied(true);
@@ -199,7 +199,7 @@ function StackView({
             </button>
           )}
         </div>
-        <p className="mt-2 text-sm text-white/90">{proposal.architecture_summary}</p>
+        <p className="mt-2 text-sm text-fg/90">{proposal.architecture_summary}</p>
 
         <div className="mt-4 grid gap-2 sm:grid-cols-2">
           {STACK_SLOTS.map((slot) => {
@@ -211,7 +211,7 @@ function StackView({
               <div key={slot.id} className="rounded-lg border border-edge p-3">
                 <div className="text-[10px] uppercase tracking-wider text-muted">{slot.label}</div>
                 <div className="mt-0.5 flex items-center gap-2">
-                  <span className="text-sm font-medium text-white">{opt?.label}</span>
+                  <span className="text-sm font-medium text-fg">{opt?.label}</span>
                   {isDefault ? (
                     <span className="rounded-full bg-edge/60 px-2 py-0.5 text-[10px] text-muted">default</span>
                   ) : (
@@ -226,7 +226,7 @@ function StackView({
         </div>
 
         {proposal.key_decisions.length > 0 && (
-          <ul className="mt-4 list-disc ml-5 space-y-0.5 text-xs text-white/80">
+          <ul className="mt-4 list-disc ml-5 space-y-0.5 text-xs text-fg/80">
             {proposal.key_decisions.map((k, i) => (
               <li key={i}>{k}</li>
             ))}
@@ -250,7 +250,7 @@ function StackView({
           <div className="space-y-4">
             {STACK_SLOTS.map((slot) => (
               <div key={slot.id}>
-                <div className="text-xs font-medium text-white mb-1.5">{slot.label}</div>
+                <div className="text-xs font-medium text-fg mb-1.5">{slot.label}</div>
                 <div className="grid gap-1.5 sm:grid-cols-3">
                   {slot.options.map((o) => {
                     const selected = (choices[slot.id] ?? slot.default) === o.id;
@@ -264,7 +264,7 @@ function StackView({
                           selected ? "border-accent2 bg-accent2/10" : "border-edge hover:bg-edge/30"
                         } ${soon ? "opacity-40" : ""}`}
                       >
-                        <div className="text-xs text-white">
+                        <div className="text-xs text-fg">
                           {o.label}
                           {o.id === slot.default && <span className="ml-1 text-[10px] text-muted">(default)</span>}
                           {soon && <span className="ml-1 text-[10px] text-muted">(coming soon)</span>}
@@ -290,7 +290,7 @@ function ScaffoldPanel({ busy, onScaffold }: { busy: boolean; onScaffold: () => 
   return (
     <Section title="Create the app workspace">
       <div className="rounded-lg border border-accent2/30 bg-accent2/5 p-3 mb-3">
-        <p className="text-xs text-white/85">
+        <p className="text-xs text-fg/85">
           ℹ️ Heads up: this creates a folder on your computer at{" "}
           <span className="text-accent2 font-medium">~/Rapid Vibe Coding Apps/</span> — the home for every application
           this pipeline builds. Inside it, this project gets its own folder with the full build briefing: the specs,
@@ -351,10 +351,10 @@ function BuildPanel({
           Open a terminal, paste this, and your coding agent takes it from there — it reads the briefing and works
           through the task list. You never write code; just answer its occasional questions.
         </p>
-        <pre className="rounded bg-ink p-2.5 text-xs text-white/90 overflow-x-auto">{workspace.startCommand}</pre>
+        <pre className="rounded bg-ink p-2.5 text-xs text-fg/90 overflow-x-auto">{workspace.startCommand}</pre>
         <p className="mt-2 text-[11px] text-muted">
-          Recommended power-up (one-time install): <span className="text-white/70">npx get-shit-done-cc@latest</span>{" "}
-          <Copyable text="npx get-shit-done-cc@latest" /> — then run <span className="text-white/70">/gsd:import --from TASKS.md</span>{" "}
+          Recommended power-up (one-time install): <span className="text-fg/70">npx get-shit-done-cc@latest</span>{" "}
+          <Copyable text="npx get-shit-done-cc@latest" /> — then run <span className="text-fg/70">/gsd:import --from TASKS.md</span>{" "}
           inside Claude Code for fresh-context-per-task execution.
         </p>
       </Section>
@@ -362,7 +362,7 @@ function BuildPanel({
       <Section
         title="Build progress"
         action={
-          <button className="text-[11px] text-accent2 hover:text-white" onClick={refresh}>
+          <button className="text-[11px] text-accent2 hover:text-fg" onClick={refresh}>
             refresh
           </button>
         }
@@ -375,7 +375,7 @@ function BuildPanel({
               <div className="h-2 flex-1 overflow-hidden rounded-full bg-edge/50">
                 <div className="h-full rounded-full bg-ok transition-all" style={{ width: `${pct}%` }} />
               </div>
-              <span className="text-xs text-white whitespace-nowrap">
+              <span className="text-xs text-fg whitespace-nowrap">
                 {progress.done}/{progress.total} · {pct}%
               </span>
             </div>
@@ -387,7 +387,7 @@ function BuildPanel({
             <div className="mt-3 space-y-1">
               {progress.milestones.map((m, i) => (
                 <div key={i} className="flex items-center justify-between text-[11px]">
-                  <span className={m.done === m.total && m.total > 0 ? "text-ok" : "text-white/80"}>
+                  <span className={m.done === m.total && m.total > 0 ? "text-ok" : "text-fg/80"}>
                     {m.done === m.total && m.total > 0 ? "✓ " : ""}
                     {m.name}
                   </span>
@@ -441,7 +441,7 @@ function LaunchGuideView({ guide, path }: { guide: string; path: string }) {
         Your app lives at <span className="text-accent2">{path}</span>. This guide (also saved there as
         LAUNCH-GUIDE.md) walks through keys, running locally, and what to verify.
       </p>
-      <pre className="whitespace-pre-wrap rounded bg-ink p-3 text-xs text-white/85 max-h-[32rem] overflow-y-auto">{guide}</pre>
+      <pre className="whitespace-pre-wrap rounded bg-ink p-3 text-xs text-fg/85 max-h-[32rem] overflow-y-auto">{guide}</pre>
     </Section>
   );
 }

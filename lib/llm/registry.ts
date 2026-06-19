@@ -6,21 +6,29 @@
 
 import { LlmProvider, LlmProviderInfo } from "./types";
 import { anthropicProvider } from "./anthropic";
+import { mockProvider } from "./mock";
+
+/** Demo mode (MOCK_LLM=1): every phase runs on canned/sample outputs, no key needed. */
+function mockMode(): boolean {
+  return !!process.env.MOCK_LLM;
+}
 
 export const PROVIDERS: LlmProvider[] = [anthropicProvider];
 
 /** The provider phases use by default. */
 export function activeProvider(): LlmProvider {
-  return anthropicProvider;
+  return mockMode() ? mockProvider : anthropicProvider;
 }
 
 export function getProvider(id: string): LlmProvider | undefined {
+  if (mockMode()) return mockProvider;
   return PROVIDERS.find((p) => p.id === id);
 }
 
 export async function listProviderInfo(): Promise<LlmProviderInfo[]> {
+  const providers = mockMode() ? [mockProvider] : PROVIDERS;
   return Promise.all(
-    PROVIDERS.map(async (p) => ({
+    providers.map(async (p) => ({
       id: p.id,
       name: p.name,
       status: p.status,

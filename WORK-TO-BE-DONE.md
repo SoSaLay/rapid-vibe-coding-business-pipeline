@@ -5,15 +5,14 @@
 > current. This is the human-readable status board (CLAUDE.md is the architecture
 > doc for the AI agent; the `~/.claude` memory files are the running log).
 
-**Where we are now:** Phases 1–9 built. Phase 9 (Marketing & Sales, optional) is the
-marketing director: lean campaign plan (2–3 channels hard cap, no paid ads, content pillars,
-weekly rhythm), in-depth 3-stage launch checklist (prep / launch week / momentum-to-sales,
-Marketing-for-Founders distilled), waitlist launch email, 14-day ready-to-post content
-batches in the brand voice (charlie947 craft skills + post-scorer quality bar), phone-first
-daily posting loop (Today view, copy → posted ✓, streaks) that stays live after sign-off →
-`campaign-report` gates Operations. 45 frameworks now loaded across 5 vendor sources.
-Remaining live-test blockers: **Supabase project** (Phase 4) and a **full live run**
-(Phases 6→7→8→9). Next up: **Phase 10 — Operations & Maintenance**.
+**Where we are now: ALL 11 PHASES BUILT.** Phase 11 Iteration closes the loop: voice/text check-in
+(7 core PO questions + app-specific ones, auto-pulled pipeline signals) → honest traction read +
+ranked next moves → owner's decision gate (start next cycle → PO re-opens with the data as the new
+raw input, spec v2; keep collecting; or cancel & archive — flag-only, reversible, learnings saved).
+Cycle counter + Active/Archived dashboard split. The business is never finished until the owner says
+so. Remaining work is **live-testing the whole machine**: Supabase project (Phase 4), full live run
+(capture → spec → … → deploy → ops → iterate, Phases 6→11), plus the cross-cutting features and the
+deferred cycle-2 engineering append. Next session: start the live run.
 
 Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 
@@ -172,14 +171,73 @@ strategy prompt (CC BY-SA, credited). Rejected: univa (own platform, overkill), 
 - [ ] (Future) Resend connector for one-click waitlist email send; auto-posting deliberately rejected
   (API cost/fragility/ban risk — human posting keeps accounts safe and content human)
 
-### Phase 10 — Operations & Maintenance ⬜
-- [ ] Release, monitoring, error visibility → `ops-report`
-- [ ] **Security carryover from Phase 6** (process slice): surface the auth-failure/5xx logs the apps already emit; MVP incident response = alert the owner when something breaks (cross-app critical-errors view is already a cross-cutting goal)
+### Phase 10 — Operations & Maintenance ✅
+Design (user's call, option A enhanced): NOT a live dashboard — a **recurring tool-grouped checklist**
+tailored to what was actually deployed (stack-selection + deploy-manifest). Each item = one concrete
+check inside one tool's console, with a daily/weekly/monthly cadence that **resets on a timer** after
+check-off (24h / 7d / 30d), plus a deep link to that console. Stays live after sign-off (like the
+Phase 9 posting loop). Live API pulls (CloudWatch/Supabase) deliberately rejected — native dashboards
+do it better; pipeline links out instead.
+- [x] `lib/phases/operations.ts` — LLM generates tools[] (name/url/role/checks w/ cadence) + release
+  process + incident response; real console URLs from manifest ids (Amplify app_id + region); stable
+  check ids assigned server-side; writes OPS-GUIDE.md to app workspace
+- [x] `lib/ops-cadence.ts` — pure shared cadence math (isDue / resetsIn), client-safe
+- [x] API routes: `plan` (generate, resets timers) + `track` (check off / undo, validates item id)
+  + `complete` (sign-off w/ checklist stats / skip)
+- [x] `components/Operations.tsx` — due-now rollup, tool cards w/ Open ↗ links, tap-to-check with
+  optimistic UI + countdown badges, release/incident runbooks, sign-off; checklist keeps running after
+- [x] Wired into workspace page + project route (phaseState `operations`)
+- [x] Verified: typecheck clean, cadence + stable-id logic unit-smoked (10 cases)
+- [ ] Live test: full ops report for a real deployed app (depends on Phase 6→7→8 live run)
 
-### Phase 11 — Iteration ⬜
-- [ ] Loop learnings back to the Product Owner → `iteration-brief`
+### Phase 11 — Iteration ✅
+The loop-closer. Check-in → honest synthesis → owner's decision gate. Loop-back target decided:
+**Product Owner** (check-in data replaces Phase 1 as the new raw input; PO interrogates it → spec v2).
+- [x] **Check-in** (`lib/phases/iteration.ts`): 7 fixed core questions (users, retention, revenue,
+  feedback extremes, marketing, time sinks, gut check) + 3-5 LLM questions specific to THIS app;
+  answers by **voice or text** (VoiceInput reused per question, new `label` prop); auto-pulled
+  signals so the owner never retypes what the pipeline knows (P9 posting streak, P10 checklist
+  discipline, P4 audience verdict)
+- [x] **Synthesis**: traction read (strong/promising/weak/**too-early** is legit) + 3-5 ranked next
+  moves (growth/product/fix, effort-tagged, small-steps-compound bias) + recommended 1-3 focus
+- [x] **Decision gate** (always the owner's): next-cycle / keep-collecting / cancel-&-archive
+- [x] **Next cycle**: `iteration-brief` artifact (incl. pre-rendered `po_handoff`) → `startNextCycle`
+  (cycle++, PO active w/ fresh dialogue, downstream re-locked, artifacts untouched → v2s); PO start
+  route injects the handoff when cycle > 1; cycle badge in workspace header + dashboard
+- [x] **Archive**: flag-only + reversible (`setArchived`), nothing deleted, learnings + optional note
+  recorded in a final brief; UI warns the deployed app stays live on hosting; dashboard splits
+  Active/Archived w/ unarchive; `/api/projects/[id]/archive` toggle
+- [x] Routes: iteration/{checkin,synthesize,decide} + archive; wired into workspace page + project GET
+- [x] Verified: typecheck clean; store cycle/archive/PO-handoff logic smoke-tested end-to-end (12 asserts)
+- [ ] Live test: full check-in + synthesis with real data (depends on a deployed app)
+- [x] **Cycle-2 engineering (iteration mode)**: when cycle ≥2 reaches Phase 6 with an existing
+  workspace — propose route **reuses** the prior stack-selection instantly (no LLM; migrating a live
+  app's stack is a rewrite, not an iteration); scaffold route **appends** an `IT<cycle>` milestone to
+  the existing TASKS.md (build history + checked boxes + QA fix rounds preserved, ids forced to
+  IT<n>.1…, no-scaffold/no-redo rules, regression criteria, final verification task) driven by the
+  iteration-brief focus moves + current task history; SPECS/*.json refreshed to latest versions;
+  greenfield path untouched. Verified: typecheck clean + append/parse compatibility smoke-tested
+  (monitor + completion gate read the merged tracker correctly)
 
 ---
+
+## Demo mode (built 2026-06-11)
+Validate the whole pipeline on a separate localhost with zero keys:
+- [x] `pnpm seed-demo` → writes the **FridgeChef** demo project (hand-written realistic artifacts for
+  all 10 phases + phase states, landing on Iteration active) into `data-demo/` (gitignored; real
+  `data/` never touched; re-running resets the demo)
+- [x] `pnpm demo` → http://localhost:3002 with `DATA_DIR=data-demo` + `MOCK_LLM=1`
+- [x] **Mock LLM provider** (`lib/llm/mock.ts`) behind the same `LlmProvider` interface — masquerades
+  as the configured provider so every "Generate" button works: canned outputs on the demo path (PO
+  turn/spec, iteration questions/brief, IT task graph, stack proposal) + generic schema-filler
+  fallback for every other phase (nothing can crash)
+- [x] `DATA_DIR` env override in `lib/store.ts`; `MOCK_LLM` switch in `lib/llm/registry.ts`
+- [x] Verified live end-to-end on :3002: project renders all phases → check-in (11 Qs + 3 auto-pulled
+  signals) → brief (promising, 4 moves) → next cycle (cycle 2, PO active, downstream re-locked) →
+  PO reopens with mock pushback; demo then re-seeded to pristine
+- Demo limits: Exa re-run in Phase 3 still needs a real key (phase is seeded complete); walking
+  cycle 2 all the way to Engineering creates a real (mock-briefing) workspace folder under
+  `~/Rapid Vibe Coding Apps/`
 
 ## Cross-cutting features (not tied to one phase)
 - [x] `git init` + first commit + **pushed to GitHub** — private repo `SoSaLay/rapid-vibe-coding-pipeline`, branch `main`. README + MIT LICENSE + `.env.example` + tight `.gitignore`. Remote verified clean (no `data/`, no secrets). Flip to public when ready to open-source.

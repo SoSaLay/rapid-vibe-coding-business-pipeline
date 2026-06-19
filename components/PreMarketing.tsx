@@ -119,10 +119,10 @@ export function PreMarketing({
 
 function BriefView({ brief }: { brief: Brief }) {
   const style: Record<string, string> = {
-    proceed: "text-ink bg-ok",
-    pivot: "text-ink bg-warn",
-    stop: "text-white bg-bad",
-    "keep-collecting": "text-white bg-edge",
+    proceed: "text-onbright bg-ok",
+    pivot: "text-onbright bg-warn",
+    stop: "text-fg bg-bad",
+    "keep-collecting": "text-fg bg-edge",
   };
   return (
     <div className="card p-5 border border-ok/30">
@@ -133,7 +133,7 @@ function BriefView({ brief }: { brief: Brief }) {
           {brief.metrics ? ` · ${brief.metrics.signups} signups · ${brief.metrics.presale_interest} pre-sale` : ""}
         </span>
       </div>
-      <p className="mt-3 text-sm text-white/90">{brief.demand_summary}</p>
+      <p className="mt-3 text-sm text-fg/90">{brief.demand_summary}</p>
       <p className="mt-2 text-sm text-muted">{brief.recommendation}</p>
     </div>
   );
@@ -155,7 +155,7 @@ function Copyable({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
-      className="text-[11px] text-accent2 hover:text-white"
+      className="text-[11px] text-accent2 hover:text-fg"
       onClick={() => navigator.clipboard.writeText(text).then(() => {
         setCopied(true);
         setTimeout(() => setCopied(false), 1500);
@@ -263,7 +263,7 @@ function LaunchPanel({ projectId, kit, onUpdated }: { projectId: string; kit: Ki
           <p className="text-xs text-muted mb-2">
             {tableMissing ? "Table not found — " : ""}Paste this once in Supabase → SQL Editor → Run.
           </p>
-          <pre className="whitespace-pre-wrap rounded bg-ink p-2 text-[11px] text-white/80">{sql}</pre>
+          <pre className="whitespace-pre-wrap rounded bg-ink p-2 text-[11px] text-fg/80">{sql}</pre>
         </Section>
       )}
 
@@ -291,17 +291,17 @@ function LaunchPanel({ projectId, kit, onUpdated }: { projectId: string; kit: Ki
             </div>
           </Section>
 
-          <Section title="Waitlist dashboard" action={<button className="text-[11px] text-accent2 hover:text-white" onClick={refreshSignups}>refresh</button>}>
+          <Section title="Waitlist dashboard" action={<button className="text-[11px] text-accent2 hover:text-fg" onClick={refreshSignups}>refresh</button>}>
             {!metrics ? (
               <p className="text-xs text-muted">Drive traffic to your deployed page, then refresh to see signups.</p>
             ) : (
               <div className="grid grid-cols-2 gap-3">
                 <div className="rounded-lg bg-edge/40 p-3">
-                  <div className="text-2xl font-semibold text-white">{metrics.total}</div>
+                  <div className="text-2xl font-semibold text-fg">{metrics.total}</div>
                   <div className="text-xs text-muted">signups · target {kit.success_thresholds.waitlist_target}</div>
                 </div>
                 <div className="rounded-lg bg-edge/40 p-3">
-                  <div className="text-2xl font-semibold text-white">{metrics.presale_interest}</div>
+                  <div className="text-2xl font-semibold text-fg">{metrics.presale_interest}</div>
                   <div className="text-xs text-muted">pre-sale interest · target {kit.success_thresholds.presale_target}</div>
                 </div>
               </div>
@@ -346,21 +346,21 @@ function KitView({
             {busy ? "…" : "Regenerate"}
           </button>
         </div>
-        <h3 className="mt-2 text-xl font-semibold text-white">{p.headline}</h3>
+        <h3 className="mt-2 text-xl font-semibold text-fg">{p.headline}</h3>
         <p className="text-sm text-muted">{p.subheadline}</p>
         <p className="mt-2 text-xs text-muted italic">{p.problem_statement}</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Section title="Benefit bullets">
-          <ul className="list-disc ml-5 space-y-0.5 text-sm text-white/85">
+          <ul className="list-disc ml-5 space-y-0.5 text-sm text-fg/85">
             {p.benefit_bullets.map((b, i) => (
               <li key={i}>{b}</li>
             ))}
           </ul>
         </Section>
         <Section title="The offer (money signal)">
-          <div className="text-sm text-white">{kit.offer.headline}</div>
+          <div className="text-sm text-fg">{kit.offer.headline}</div>
           <div className="text-xs text-muted mt-1">{kit.offer.details}</div>
           <div className="text-xs text-accent2 mt-2">Test price: {kit.offer.price_hypothesis}</div>
         </Section>
@@ -371,11 +371,11 @@ function KitView({
           {kit.distribution_plan.map((d, i) => (
             <div key={i} className="rounded-lg border border-edge p-3">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-white">{d.channel}</span>
+                <span className="text-sm font-medium text-fg">{d.channel}</span>
                 <Copyable text={d.template} />
               </div>
               <div className="text-xs text-muted">{d.tactic}</div>
-              <pre className="mt-2 whitespace-pre-wrap rounded bg-ink p-2 text-xs text-white/80">{d.template}</pre>
+              <pre className="mt-2 whitespace-pre-wrap rounded bg-ink p-2 text-xs text-fg/80">{d.template}</pre>
             </div>
           ))}
         </div>
@@ -420,7 +420,7 @@ function ContentLibraryView({ platforms }: { platforms: ContentPlatform[] }) {
               >
                 <div className="flex items-center gap-3">
                   <span className="text-accent2 font-bold text-sm w-5 text-center">{icon}</span>
-                  <span className="text-sm font-medium text-white">{p.platform}</span>
+                  <span className="text-sm font-medium text-fg">{p.platform}</span>
                   <span className="text-[11px] text-muted">{p.content_type} · {p.posting_cadence}</span>
                 </div>
                 <span className="text-muted text-xs">{isOpen ? "▲" : "▼"}</span>
@@ -430,15 +430,15 @@ function ContentLibraryView({ platforms }: { platforms: ContentPlatform[] }) {
                 <div className="px-4 pb-4 pt-1 space-y-3 border-t border-edge">
                   <div>
                     <div className="text-[11px] uppercase tracking-wider text-muted mb-1">Who you're reaching</div>
-                    <p className="text-xs text-white/80">{p.audience_on_platform}</p>
+                    <p className="text-xs text-fg/80">{p.audience_on_platform}</p>
                   </div>
                   <div>
                     <div className="text-[11px] uppercase tracking-wider text-muted mb-1">Strategy & tone</div>
-                    <p className="text-xs text-white/80">{p.strategy}</p>
+                    <p className="text-xs text-fg/80">{p.strategy}</p>
                   </div>
                   <div>
                     <div className="text-[11px] uppercase tracking-wider text-muted mb-1">Evergreen themes</div>
-                    <ul className="list-disc ml-5 space-y-0.5 text-xs text-white/80">
+                    <ul className="list-disc ml-5 space-y-0.5 text-xs text-fg/80">
                       {p.themes.map((t, i) => <li key={i}>{t}</li>)}
                     </ul>
                   </div>
@@ -448,14 +448,14 @@ function ContentLibraryView({ platforms }: { platforms: ContentPlatform[] }) {
                       {p.hook_examples.map((h, i) => (
                         <div key={i} className="flex items-start gap-2 rounded bg-ink/60 px-3 py-2">
                           <span className="text-accent2 text-[11px] mt-0.5">→</span>
-                          <p className="text-xs text-white/90 italic">"{h}"</p>
+                          <p className="text-xs text-fg/90 italic">"{h}"</p>
                         </div>
                       ))}
                     </div>
                   </div>
                   <div>
                     <div className="text-[11px] uppercase tracking-wider text-muted mb-1">CTA direction</div>
-                    <p className="text-xs text-white/80">{p.cta_direction}</p>
+                    <p className="text-xs text-fg/80">{p.cta_direction}</p>
                   </div>
                 </div>
               )}

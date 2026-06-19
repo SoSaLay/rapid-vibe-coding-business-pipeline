@@ -208,6 +208,91 @@ export async function generateTaskGraph(
   });
 }
 
+/* ---------------- Iteration cycles (cycle ≥2 — append, never re-scaffold) ---------------- */
+
+/**
+ * Cycle ≥2 task graph: ONE milestone of changes to the EXISTING app, driven by
+ * the owner's chosen focus moves from the iteration brief. The app is built and
+ * deployed — nothing here may scaffold, rename, or restart it.
+ */
+export async function generateIterationTaskGraph(args: {
+  spec: Record<string, any>;
+  design: Record<string, any> | null;
+  choices: StackChoice[];
+  productTitle: string;
+  cycle: number;
+  iterationBrief: Record<string, any> | null;
+  currentTasksMd: string;
+}): Promise<TaskGraph> {
+  const provider = activeProvider();
+  const { spec, design, choices, productTitle, cycle, iterationBrief, currentTasksMd } = args;
+
+  const focusIds: string[] = iterationBrief?.focus_ids ?? [];
+  const moves = (iterationBrief?.next_moves ?? []).filter((m: any) => focusIds.includes(m.id));
+  const focusText = moves.length
+    ? moves.map((m: any) => `- [${m.type}] ${m.title} — ${m.why} (expected: ${m.expected_impact})`).join("\n")
+    : "(no iteration brief on file — derive the changes from what's new in the spec vs. the existing task history)";
+  const traction = iterationBrief?.traction_read
+    ? `Traction read (${iterationBrief.traction_read.verdict}): ${iterationBrief.traction_read.summary}`
+    : "";
+
+  const graph = await provider.completeJson<TaskGraph>({
+    system:
+      "You are a tech lead planning an ITERATION on an app that is already BUILT and DEPLOYED. " +
+      "An AI coding agent (Claude Code) will execute your tasks one per fresh session inside the existing codebase. Rules:\n" +
+      `- Produce EXACTLY ONE milestone with id "IT${cycle}" and task ids "IT${cycle}.1", "IT${cycle}.2", … Nothing else.\n` +
+      "- NO scaffolding, NO re-creating what exists. Every task modifies or extends the current code. The existing task " +
+      "history below tells you what's already there — read it and build on it.\n" +
+      "- Cover ONLY the owner's chosen focus moves. Resist scope creep; if a move is big, slice it into small verifiable tasks.\n" +
+      "- Tasks must be SMALL and independently verifiable. Acceptance criteria are commands or observable behaviors, never vibes.\n" +
+      "- Follow the codebase's existing conventions and the stack as chosen — do not introduce new services or libraries " +
+      "unless a focus move is impossible without one (and say so in the task details).\n" +
+      "- Same security defaults as the original build: validated input, RLS on new tables, server-side auth checks.\n" +
+      "- Any task that changes existing behavior gets a regression criterion: existing tests + typecheck still pass.\n" +
+      `- The LAST task of IT${cycle} is a verification pass (typecheck, tests, build, npm audit) and updates LAUNCH-GUIDE.md ` +
+      "if setup steps, env vars, or core flows changed.",
+    effort: "high",
+    schema: TASK_GRAPH_SCHEMA,
+    messages: [
+      {
+        role: "user",
+        content:
+          `PRODUCT: ${productTitle} (iteration cycle ${cycle} — the app is live)\n\n` +
+          `CURRENT SPEC (v${cycle}):\n${specToText(spec)}\n\n` +
+          `STACK (unchanged):\n${stackToText(choices)}\n\n` +
+          (traction ? `${traction}\n\n` : "") +
+          `OWNER'S CHOSEN FOCUS FOR THIS CYCLE:\n${focusText}\n\n` +
+          `DESIGN:\n${designToText(design)}\n\n` +
+          `EXISTING TASK HISTORY (everything already built — do not redo any of it):\n${currentTasksMd}\n\n` +
+          `Produce the IT${cycle} milestone.`,
+      },
+    ],
+  });
+
+  // Hard guarantee on ids even if the model drifts: one milestone, IT<cycle> naming.
+  const milestones = (graph.milestones ?? []).slice(0, 1).map((m) => ({
+    ...m,
+    id: `IT${cycle}`,
+    tasks: (m.tasks ?? []).map((t, i) => ({ ...t, id: `IT${cycle}.${i + 1}` })),
+  }));
+  return { milestones };
+}
+
+/** Render milestone sections only (no file header) — appended to the existing TASKS.md. */
+export function renderIterationMilestones(graph: TaskGraph): string {
+  const lines: string[] = [""];
+  for (const m of graph.milestones) {
+    lines.push(`## ${m.id} — ${m.name}`, "", `Goal: ${m.goal}`, "");
+    for (const t of m.tasks) {
+      lines.push(`- [ ] **${t.id}** ${t.title}`);
+      lines.push(`  - ${t.details}`);
+      for (const ac of t.acceptance_criteria) lines.push(`  - ✓ ${ac}`);
+    }
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+
 /* ---------------- Briefing renderers (deterministic) ---------------- */
 
 export function renderTasksMd(graph: TaskGraph, productTitle: string): string {

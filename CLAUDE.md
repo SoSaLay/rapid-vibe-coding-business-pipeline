@@ -55,3 +55,10 @@ Node 22, Next.js 14 (App Router), React 18, TypeScript, Tailwind v3. Local file 
 - Every new tool/provider goes behind an interface + registry so it's swappable.
 - Mobile-friendly UI (the owner drives this from a phone).
 - After code changes, `npx tsc --noEmit` must pass.
+
+## Token efficiency (agent workflow)
+
+Two skills are vendored in `.claude/skills/` from [BuilderIO/skills](https://github.com/BuilderIO/skills) (MIT — see `.claude/skills/ATTRIBUTION.md`):
+
+- **efficient-fable** — for token-heavy work (broad repo scans, long logs/test output, bulk docs reading, repetitive bounded edits), delegate to cheaper subagents (`model: haiku`) and keep the frontier model for decomposition, architecture, integration, and final review. **Standing authorization from the owner: spawning cheaper subagents for this purpose is pre-approved — no need to ask.** Tiny tasks and judgment-sensitive validation stay local; verify subagent findings before acting on them.
+- **stay-within-limits** — before launching large parallel waves, check usage (`npx -y ccusage@latest blocks --active --json`) and pause new waves at ≥95% of the 5-hour/weekly window.

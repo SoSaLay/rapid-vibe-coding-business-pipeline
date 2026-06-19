@@ -2,15 +2,50 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ----------------------------------------------------------------------------
+   Theme tokens. Channels are space-separated RGB so Tailwind's /opacity works
+   (see tailwind.config.ts). :root is the default (dark); .light overrides.
+---------------------------------------------------------------------------- */
 :root {
+  --c-ink: 11 13 18; /* sunken wells / code / inputs */
+  --c-panel: 17 20 28; /* cards / sheet */
+  --c-edge: 30 35 48; /* hairline borders */
+  --c-muted: 139 147 167; /* secondary text */
+  --c-fg: 230 232 238; /* primary text */
+  --c-accent: 99 102 241;
+  --c-accent2: 34 211 238;
+  --c-ok: 52 211 153;
+  --c-warn: 251 191 36;
+  --c-bad: 248 113 113;
+  --c-onbright: 11 16 24; /* dark text sits on the bright badges */
+
+  --page-bg: 11 13 18;
   color-scheme: dark;
+}
+
+.light {
+  --c-ink: 240 242 246; /* soft gray well */
+  --c-panel: 255 255 255; /* white sheet */
+  --c-edge: 224 228 236; /* light hairline */
+  --c-muted: 90 100 120; /* readable secondary */
+  --c-fg: 24 28 38; /* near-black primary */
+  --c-accent: 79 70 229; /* indigo-600 — reads on white */
+  --c-accent2: 8 145 178; /* cyan-700 — reads on white */
+  --c-ok: 5 150 105; /* emerald-600 */
+  --c-warn: 180 83 9; /* amber-700 */
+  --c-bad: 220 38 38; /* red-600 */
+  --c-onbright: 255 255 255; /* badges darken in light mode → white text */
+
+  --page-bg: 244 245 248;
+  color-scheme: light;
 }
 
 html,
 body {
-  background: #0b0d12;
-  color: #e6e8ee;
+  background: rgb(var(--page-bg));
+  color: rgb(var(--c-fg));
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.2s ease;
 }
 
 * {
@@ -30,9 +65,65 @@ body {
 }
 
 .btn-ghost {
-  @apply btn border border-edge text-muted hover:text-white hover:border-accent;
+  @apply btn border border-edge text-muted hover:text-fg hover:border-accent;
 }
 
 .input {
-  @apply w-full bg-ink border border-edge rounded-lg px-3 py-2 text-sm text-white placeholder:text-muted/60 focus:outline-none focus:border-accent;
+  @apply w-full bg-ink border border-edge rounded-lg px-3 py-2 text-sm text-fg placeholder:text-muted/60 focus:outline-none focus:border-accent;
+}
+
+/* ----------------------------------------------------------------------------
+   White-paper reading surface. In light mode the main column is a white sheet
+   with a soft shadow floating over the gray page; in dark mode it stays flat.
+---------------------------------------------------------------------------- */
+.paper {
+  font-feature-settings: "kern" 1, "liga" 1;
+}
+
+.light .paper-sheet {
+  background: rgb(var(--c-panel));
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.04), 0 12px 32px -12px rgb(15 23 42 / 0.12);
+}
+
+/* Eyebrow / section number label above headings */
+.wp-eyebrow {
+  @apply text-[11px] font-semibold uppercase tracking-[0.18em] text-accent;
+}
+
+.wp-title {
+  @apply text-2xl font-semibold tracking-tight text-fg;
+}
+
+.wp-lede {
+  @apply text-sm leading-relaxed text-muted;
+}
+
+/* Sticky document outline (the side "Contents" nav) */
+.wp-contents {
+  @apply text-[10px] font-semibold uppercase tracking-[0.18em] text-muted;
+}
+
+/* ----------------------------------------------------------------------------
+   Theme switch — circular reveal driven by the View Transitions API.
+   We cancel the default cross-fade so the clip-path animation (set in
+   ThemeToggle.tsx) is what the user sees: the new theme irises out from the
+   toggle button.
+---------------------------------------------------------------------------- */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-new(root) {
+  z-index: 1;
+}
+::view-transition-old(root) {
+  z-index: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html,
+  body {
+    transition: none;
+  }
 }

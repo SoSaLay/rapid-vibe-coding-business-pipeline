@@ -134,8 +134,8 @@ export function IdeaCapture({ onCreated }: { onCreated: () => void }) {
               title={t.blurb}
               className={`rounded-full border px-3 py-1 text-xs transition-colors ${
                 ideaType === t.id
-                  ? "border-accent2 bg-accent2/15 text-white"
-                  : "border-edge text-muted hover:text-white hover:bg-edge/30"
+                  ? "border-accent2 bg-accent2/15 text-fg"
+                  : "border-edge text-muted hover:text-fg hover:bg-edge/30"
               }`}
             >
               {t.icon} {t.label}
@@ -198,7 +198,7 @@ export function IdeaCapture({ onCreated }: { onCreated: () => void }) {
 
           {activeConnector === "notion" && !notion?.configured && (
             <div className="space-y-2 rounded-lg border border-edge bg-ink p-4">
-              <p className="text-sm text-white">Connect Notion</p>
+              <p className="text-sm text-fg">Connect Notion</p>
               <p className="text-xs text-muted">
                 Create an internal integration at notion.so/my-integrations, share your target pages/databases with it,
                 then paste the secret here.
@@ -239,7 +239,7 @@ export function IdeaCapture({ onCreated }: { onCreated: () => void }) {
                     }`}
                   >
                     <span className="text-muted">{s.type === "database" ? "🗄️" : "📄"}</span>
-                    <span className="flex-1 text-white">{s.title}</span>
+                    <span className="flex-1 text-fg">{s.title}</span>
                     {selectedSource?.id === s.id && <span className="text-accent2 text-xs">selected</span>}
                   </button>
                 ))}

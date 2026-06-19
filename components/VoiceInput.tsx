@@ -11,7 +11,13 @@ import { useEffect, useRef, useState } from "react";
  * and accumulate the final text across those restarts. The user stays in control
  * — it only stops when they tap stop (or the browser denies the mic).
  */
-export function VoiceInput({ onTranscript }: { onTranscript: (text: string) => void }) {
+export function VoiceInput({
+  onTranscript,
+  label = "Speak your idea",
+}: {
+  onTranscript: (text: string) => void;
+  label?: string;
+}) {
   const [supported, setSupported] = useState(true);
   const [listening, setListening] = useState(false);
 
@@ -117,7 +123,7 @@ export function VoiceInput({ onTranscript }: { onTranscript: (text: string) => v
       className={listening ? "btn-primary animate-pulse" : "btn-ghost"}
     >
       <span className={`h-2.5 w-2.5 rounded-full ${listening ? "bg-white" : "bg-bad"}`} />
-      {listening ? "Listening… tap to stop" : "Speak your idea"}
+      {listening ? "Listening… tap to stop" : label}
     </button>
   );
 }

@@ -140,7 +140,7 @@ export function Marketing({
     <div className="space-y-4">
       {report && (
         <div className={`card p-4 border ${report.forced ? "border-warn/30" : "border-ok/30"}`}>
-          <span className={`rounded-full px-3 py-1 text-sm font-semibold ${report.forced ? "bg-warn" : "bg-ok"} text-ink`}>
+          <span className={`rounded-full px-3 py-1 text-sm font-semibold ${report.forced ? "bg-warn" : "bg-ok"} text-onbright`}>
             {report.forced ? "launched with open items" : "launched"}
           </span>
           <span className="ml-3 text-xs text-muted">The posting loop below stays live — consistency is the strategy.</span>
@@ -199,7 +199,7 @@ function Copyable({ text, label }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
-      className="text-[11px] text-accent2 hover:text-white"
+      className="text-[11px] text-accent2 hover:text-fg"
       onClick={() =>
         navigator.clipboard.writeText(text).then(() => {
           setCopied(true);
@@ -325,14 +325,14 @@ function PostCard({ p, overdue, busy, onPosted }: { p: Post; overdue: boolean; b
         </span>
         <Copyable text={p.body} label="copy post" />
       </div>
-      <p className="mt-1 text-xs font-medium text-white">{p.hook}</p>
-      <button className="mt-1 text-[11px] text-accent2 hover:text-white" onClick={() => setOpen((o) => !o)}>
+      <p className="mt-1 text-xs font-medium text-fg">{p.hook}</p>
+      <button className="mt-1 text-[11px] text-accent2 hover:text-fg" onClick={() => setOpen((o) => !o)}>
         {open ? "hide" : "show full post"}
       </button>
-      {open && <pre className="mt-2 whitespace-pre-wrap rounded bg-ink p-2.5 text-[11px] text-white/85">{p.body}</pre>}
+      {open && <pre className="mt-2 whitespace-pre-wrap rounded bg-ink p-2.5 text-[11px] text-fg/85">{p.body}</pre>}
       <div className="mt-2 flex items-center justify-between">
         <span className="text-[10px] text-muted truncate">CTA: {p.cta}</span>
-        <button className="rounded-full bg-ok px-3 py-1 text-[11px] font-semibold text-ink" disabled={busy} onClick={onPosted}>
+        <button className="rounded-full bg-ok px-3 py-1 text-[11px] font-semibold text-onbright" disabled={busy} onClick={onPosted}>
           posted ✓
         </button>
       </div>
@@ -401,7 +401,7 @@ function ChecklistRow({
         <input type="checkbox" className="mt-0.5" checked={checked} disabled={busy} onChange={(e) => onToggle(e.target.checked)} />
         <div className="min-w-0 flex-1">
           <button
-            className={`text-left text-xs ${checked ? "text-muted line-through" : "text-white"}`}
+            className={`text-left text-xs ${checked ? "text-muted line-through" : "text-fg"}`}
             onClick={() => setOpen((o) => !o)}
           >
             {item.title}
@@ -411,7 +411,7 @@ function ChecklistRow({
               <p className="text-[11px] text-muted">
                 <span className="text-accent2">Why:</span> {item.why}
               </p>
-              <p className="text-[11px] text-white/80">
+              <p className="text-[11px] text-fg/80">
                 <span className="text-accent2">How:</span> {item.how}
               </p>
             </div>
@@ -428,9 +428,9 @@ function WaitlistEmailView({ email }: { email: WaitlistEmail }) {
   const full = `Subject: ${email.subject}\nPreview: ${email.preview_text}\n\n${email.body_markdown}`;
   return (
     <Section title="Launch email — your waitlist" action={<Copyable text={full} label="copy email" />}>
-      <p className="text-xs text-white font-medium">{email.subject}</p>
+      <p className="text-xs text-fg font-medium">{email.subject}</p>
       <p className="text-[11px] text-muted mb-2">{email.preview_text}</p>
-      <pre className="whitespace-pre-wrap rounded bg-ink p-2.5 text-[11px] text-white/85 max-h-64 overflow-y-auto">{email.body_markdown}</pre>
+      <pre className="whitespace-pre-wrap rounded bg-ink p-2.5 text-[11px] text-fg/85 max-h-64 overflow-y-auto">{email.body_markdown}</pre>
       <p className="mt-2 text-[10px] text-muted">
         These are the warmest leads you'll ever have — send this on launch day (your email tool, or a Resend connector
         later).
@@ -445,15 +445,15 @@ function StrategyView({ plan }: { plan: Plan }) {
     <Section
       title="Strategy"
       action={
-        <button className="text-[11px] text-accent2 hover:text-white" onClick={() => setOpen((o) => !o)}>
+        <button className="text-[11px] text-accent2 hover:text-fg" onClick={() => setOpen((o) => !o)}>
           {open ? "collapse" : "expand"}
         </button>
       }
     >
-      <p className="text-sm text-white/90">{plan.strategy_summary}</p>
+      <p className="text-sm text-fg/90">{plan.strategy_summary}</p>
       <div className="mt-2 flex flex-wrap gap-1.5">
         {plan.channels.map((c) => (
-          <span key={c.name} className="rounded-full bg-edge/60 px-2.5 py-0.5 text-[11px] text-white">
+          <span key={c.name} className="rounded-full bg-edge/60 px-2.5 py-0.5 text-[11px] text-fg">
             {c.name} · {c.cadence}
           </span>
         ))}
@@ -462,7 +462,7 @@ function StrategyView({ plan }: { plan: Plan }) {
         <div className="mt-3 space-y-3">
           {plan.channels.map((c) => (
             <div key={c.name} className="rounded-lg border border-edge p-3">
-              <div className="text-xs font-medium text-white">{c.name}</div>
+              <div className="text-xs font-medium text-fg">{c.name}</div>
               <p className="text-[11px] text-muted mt-0.5">{c.why_this_channel}</p>
               <p className="text-[11px] text-muted">Mindset: {c.audience_mindset}</p>
               <p className="text-[11px] text-muted">Formats: {c.content_types.join(", ")}</p>
@@ -472,7 +472,7 @@ function StrategyView({ plan }: { plan: Plan }) {
             <div className="text-[10px] uppercase tracking-wider text-muted mb-1">Content pillars</div>
             {plan.content_pillars.map((p) => (
               <div key={p.name} className="mb-2">
-                <p className="text-xs text-white">{p.name}</p>
+                <p className="text-xs text-fg">{p.name}</p>
                 <p className="text-[11px] text-muted">{p.description}</p>
                 <p className="text-[11px] text-muted/80">Angles: {p.example_angles.join(" · ")}</p>
               </div>
@@ -481,7 +481,7 @@ function StrategyView({ plan }: { plan: Plan }) {
           <div>
             <div className="text-[10px] uppercase tracking-wider text-muted mb-1">Weekly rhythm</div>
             {plan.weekly_rhythm.map((r, i) => (
-              <p key={i} className="text-[11px] text-white/85">
+              <p key={i} className="text-[11px] text-fg/85">
                 {r.day} — {r.channel} ({r.format})
               </p>
             ))}
@@ -489,7 +489,7 @@ function StrategyView({ plan }: { plan: Plan }) {
           <div>
             <div className="text-[10px] uppercase tracking-wider text-muted mb-1">Metrics worth watching</div>
             {plan.metrics_to_watch.map((m, i) => (
-              <p key={i} className="text-[11px] text-white/85">
+              <p key={i} className="text-[11px] text-fg/85">
                 · {m}
               </p>
             ))}

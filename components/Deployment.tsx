@@ -141,7 +141,7 @@ function Copyable({ text, label }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
-      className="text-[11px] text-accent2 hover:text-white"
+      className="text-[11px] text-accent2 hover:text-fg"
       onClick={() =>
         navigator.clipboard.writeText(text).then(() => {
           setCopied(true);
@@ -181,7 +181,7 @@ function OptionsPanel({
       </p>
 
       <div>
-        <div className="text-xs font-medium text-white mb-1.5">Hosting target</div>
+        <div className="text-xs font-medium text-fg mb-1.5">Hosting target</div>
         <div className="grid gap-1.5 sm:grid-cols-3">
           {TARGETS.map((t) => {
             const soon = t.status === "coming_soon";
@@ -195,7 +195,7 @@ function OptionsPanel({
                   selected ? "border-accent2 bg-accent2/10" : "border-edge hover:bg-edge/30"
                 } ${soon ? "opacity-40" : ""}`}
               >
-                <div className="text-xs text-white">
+                <div className="text-xs text-fg">
                   {t.label}
                   {t.id === "amplify" && <span className="ml-1 text-[10px] text-muted">(default)</span>}
                   {soon && <span className="ml-1 text-[10px] text-muted">(coming soon)</span>}
@@ -211,7 +211,7 @@ function OptionsPanel({
         <label className="flex items-start gap-2.5 cursor-pointer">
           <input type="checkbox" checked={waf} onChange={(e) => setWaf(e.target.checked)} className="mt-0.5" />
           <span>
-            <span className="text-xs text-white">Add AWS WAF (web application firewall)</span>
+            <span className="text-xs text-fg">Add AWS WAF (web application firewall)</span>
             <span className="block text-[11px] text-muted">
               A managed bouncer in front of the app: blocks attack patterns, bad bots, and request floods before your
               code runs. Costs ~$5–10/month — worth it once an app has real users; skip for experiments. The app-level
@@ -222,9 +222,9 @@ function OptionsPanel({
       </div>
 
       <div>
-        <div className="text-xs font-medium text-white mb-1">Custom domain (optional)</div>
+        <div className="text-xs font-medium text-fg mb-1">Custom domain (optional)</div>
         <input
-          className="w-full rounded bg-ink px-3 py-2 text-xs text-white placeholder:text-muted/60 border border-edge"
+          className="w-full rounded bg-ink px-3 py-2 text-xs text-fg placeholder:text-muted/60 border border-edge"
           placeholder="myapp.com — leave empty for the free amplifyapp.com URL"
           value={domain}
           onChange={(e) => setDomain(e.target.value)}
@@ -300,13 +300,13 @@ function DeployRunView({
   return (
     <div className="space-y-4">
       <Section title="Deploy plan">
-        <p className="text-sm text-white/90">{plan.summary}</p>
+        <p className="text-sm text-fg/90">{plan.summary}</p>
         <p className="mt-2 text-xs text-muted">
           AWS Amplify · 3 environments (dev / UAT / prod) · WAF {options.waf ? "on" : "off"} · domain{" "}
           {options.domain || "free amplifyapp.com URL"}
         </p>
         {plan.notes.length > 0 && (
-          <ul className="mt-2 list-disc ml-5 space-y-0.5 text-[11px] text-white/80">
+          <ul className="mt-2 list-disc ml-5 space-y-0.5 text-[11px] text-fg/80">
             {plan.notes.map((n, i) => (
               <li key={i}>{n}</li>
             ))}
@@ -317,7 +317,7 @@ function DeployRunView({
       <Section title={`Environment variables (${plan.env_vars.length})`}>
         <div className="space-y-1">
           {plan.env_vars.map((v) => (
-            <p key={v.name} className="text-[11px] text-white/85">
+            <p key={v.name} className="text-[11px] text-fg/85">
               <span className="font-mono text-accent2">{v.name}</span>
               {v.secret && <span className="ml-1 rounded bg-warn/20 px-1 text-[9px] text-warn">secret</span>}
               {!v.required && <span className="ml-1 text-[10px] text-muted">(optional)</span>}
@@ -335,7 +335,7 @@ function DeployRunView({
         <Section title="Your to-dos (the agent can't do these)">
           <ul className="space-y-1">
             {plan.human_todos.map((t, i) => (
-              <li key={i} className="text-xs text-white/85">
+              <li key={i} className="text-xs text-fg/85">
                 ☐ {t}
               </li>
             ))}
@@ -346,7 +346,7 @@ function DeployRunView({
       <Section
         title="Preflight"
         action={
-          <button className="text-[11px] text-accent2 hover:text-white" onClick={preflight}>
+          <button className="text-[11px] text-accent2 hover:text-fg" onClick={preflight}>
             re-check
           </button>
         }
@@ -359,7 +359,7 @@ function DeployRunView({
               <div key={c.id} className="flex items-start gap-2">
                 <Light ok={c.ok} />
                 <div className="-mt-0.5">
-                  <span className="text-xs text-white">{c.label}</span>
+                  <span className="text-xs text-fg">{c.label}</span>
                   <span className="ml-2 text-[11px] text-muted">{c.detail}</span>
                   {!c.ok && c.fix && <p className="text-[11px] text-warn">→ {c.fix}</p>}
                 </div>
@@ -375,13 +375,13 @@ function DeployRunView({
             ? "Preflight green. Paste this in a terminal — the agent pushes to GitHub, creates the Amplify app, wires all three environments, sets env vars, and reports back here."
             : "Fix the red preflight items first, then paste this in a terminal."}
         </p>
-        <pre className="rounded bg-ink p-2.5 text-xs text-white/90 overflow-x-auto">{startCommand}</pre>
+        <pre className="rounded bg-ink p-2.5 text-xs text-fg/90 overflow-x-auto">{startCommand}</pre>
       </Section>
 
       <Section
         title="Deploy progress"
         action={
-          <button className="text-[11px] text-accent2 hover:text-white" onClick={refresh}>
+          <button className="text-[11px] text-accent2 hover:text-fg" onClick={refresh}>
             refresh
           </button>
         }
@@ -395,7 +395,7 @@ function DeployRunView({
                 const v = verifications.find((x) => x.name === e.name);
                 return (
                   <div key={e.name} className="flex items-center justify-between">
-                    <span className="text-xs text-white">
+                    <span className="text-xs text-fg">
                       {e.name} <span className="text-muted">({e.branch})</span>
                       {e.url && (
                         <a className="ml-2 text-accent2 hover:underline" href={e.url.startsWith("http") ? e.url : `https://${e.url}`} target="_blank" rel="noreferrer">
@@ -476,7 +476,7 @@ function ManifestView({ manifest }: { manifest: DeployManifest }) {
   return (
     <div className="space-y-4">
       <div className={`card p-4 border ${manifest.forced ? "border-warn/30" : "border-ok/30"}`}>
-        <span className={`rounded-full px-3 py-1 text-sm font-semibold ${manifest.forced ? "bg-warn" : "bg-ok"} text-ink`}>
+        <span className={`rounded-full px-3 py-1 text-sm font-semibold ${manifest.forced ? "bg-warn" : "bg-ok"} text-onbright`}>
           {manifest.forced ? "deployed with warnings" : "live"}
         </span>
         {prod?.url && (
@@ -509,7 +509,7 @@ function ManifestView({ manifest }: { manifest: DeployManifest }) {
             const v = manifest.verification.find((x) => x.name === e.name);
             return (
               <div key={e.name} className="flex items-center justify-between">
-                <span className="text-xs text-white">
+                <span className="text-xs text-fg">
                   {e.name} <span className="text-muted">({e.branch})</span>
                   {e.url && (
                     <a className="ml-2 text-accent2 hover:underline" href={e.url.startsWith("http") ? e.url : `https://${e.url}`} target="_blank" rel="noreferrer">
@@ -536,12 +536,12 @@ function ManifestView({ manifest }: { manifest: DeployManifest }) {
       {(manifest.waf?.requested || manifest.domain?.requested) && (
         <Section title="Extras">
           {manifest.waf?.requested && (
-            <p className="text-xs text-white/85">
+            <p className="text-xs text-fg/85">
               WAF: {manifest.waf.enabled ? "✓ attached" : `requested — ${manifest.waf.notes || "pending"}`}
             </p>
           )}
           {manifest.domain?.requested && (
-            <p className="text-xs text-white/85">
+            <p className="text-xs text-fg/85">
               Domain {manifest.domain.requested}: {manifest.domain.status}
             </p>
           )}
@@ -552,7 +552,7 @@ function ManifestView({ manifest }: { manifest: DeployManifest }) {
         <Section title="Outstanding to-dos">
           <ul className="space-y-1">
             {manifest.human_todos.map((t, i) => (
-              <li key={i} className="text-xs text-white/85">
+              <li key={i} className="text-xs text-fg/85">
                 ☐ {t}
               </li>
             ))}

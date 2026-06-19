@@ -145,7 +145,7 @@ export function ProductOwner({
   if (aiReady === false) {
     return (
       <div className="card p-5 space-y-3">
-        <h3 className="text-white font-medium">Connect Claude</h3>
+        <h3 className="text-fg font-medium">Connect Claude</h3>
         <p className="text-xs text-muted">
           The Product Owner uses Claude to interrogate and structure your idea. Paste your Anthropic API key
           (from console.anthropic.com). It’s stored locally and never leaves your machine.
@@ -169,7 +169,7 @@ export function ProductOwner({
     <div className="space-y-4">
       <div className="card p-4">
         <div className="text-xs uppercase tracking-wider text-muted mb-1">The idea</div>
-        <p className="text-sm text-white/90 whitespace-pre-wrap">{ideaText}</p>
+        <p className="text-sm text-fg/90 whitespace-pre-wrap">{ideaText}</p>
       </div>
 
       {!dialogue && (
@@ -188,7 +188,7 @@ export function ProductOwner({
           <div className="flex items-center justify-between">
             <div className="text-[11px] uppercase tracking-wider text-muted">Playbooks the PO is applying</div>
             <button
-              className="text-xs text-accent2 hover:text-white"
+              className="text-xs text-accent2 hover:text-fg"
               onClick={() => {
                 setDraftIds(dialogue.frameworks?.ids ?? []);
                 setEditingFw((v) => !v);
@@ -202,7 +202,7 @@ export function ProductOwner({
             <>
               <div className="mt-2 flex flex-wrap gap-2">
                 {(dialogue.frameworks.ids.length ? dialogue.frameworks.ids : ["(none)"]).map((id) => (
-                  <span key={id} className="rounded-full bg-edge px-3 py-1 text-xs text-white/90">
+                  <span key={id} className="rounded-full bg-edge px-3 py-1 text-xs text-fg/90">
                     {id === "(none)" ? "None" : nameFor(id)}
                   </span>
                 ))}
@@ -228,7 +228,7 @@ export function ProductOwner({
                       }
                     />
                     <span>
-                      <span className="text-sm text-white">{f.name}</span>
+                      <span className="text-sm text-fg">{f.name}</span>
                       <span className="block text-xs text-muted">{f.description}</span>
                     </span>
                   </label>
@@ -249,12 +249,12 @@ export function ProductOwner({
               {turn.role === "po" ? (
                 <div className="card p-4 border-l-2 border-l-accent">
                   <div className="text-[11px] uppercase tracking-wider text-accent2 mb-2">Product Owner</div>
-                  {turn.assessment && <p className="text-sm text-white/90 mb-3">{turn.assessment}</p>}
+                  {turn.assessment && <p className="text-sm text-fg/90 mb-3">{turn.assessment}</p>}
                   {(turn.questions ?? []).length > 0 && (
                     <ul className="space-y-2">
                       {turn.questions!.map((q) => (
                         <li key={q.id} className="text-sm">
-                          <span className="text-white">• {q.question}</span>
+                          <span className="text-fg">• {q.question}</span>
                           <span className="block text-xs text-muted ml-3">{q.rationale}</span>
                         </li>
                       ))}
@@ -264,7 +264,7 @@ export function ProductOwner({
               ) : (
                 <div className="rounded-lg bg-edge/40 p-3 ml-6">
                   <div className="text-[11px] uppercase tracking-wider text-muted mb-1">You</div>
-                  <p className="text-sm text-white/90 whitespace-pre-wrap">{turn.text}</p>
+                  <p className="text-sm text-fg/90 whitespace-pre-wrap">{turn.text}</p>
                 </div>
               )}
             </div>
@@ -272,7 +272,7 @@ export function ProductOwner({
 
           {dialogue.ready ? (
             <div className="card p-5 text-center space-y-3 border border-ok/40">
-              <p className="text-sm text-white">
+              <p className="text-sm text-fg">
                 The Product Owner has enough to write the spec. You can answer more, or generate it now.
               </p>
               <div className="flex justify-center gap-3">
@@ -316,14 +316,14 @@ function SpecView({ spec }: { spec: Record<string, any> }) {
     <ul className="space-y-1">
       {(items ?? []).map((f, i) => (
         <li key={i} className="text-sm">
-          <span className="text-white">{f.name}</span>
+          <span className="text-fg">{f.name}</span>
           <span className="block text-xs text-muted">{f.description}</span>
         </li>
       ))}
     </ul>
   );
   const List = ({ items }: { items: any[] }) => (
-    <ul className="list-disc ml-5 space-y-0.5 text-sm text-white/85">
+    <ul className="list-disc ml-5 space-y-0.5 text-sm text-fg/85">
       {(items ?? []).map((x, i) => (
         <li key={i}>{x}</li>
       ))}
@@ -340,14 +340,14 @@ function SpecView({ spec }: { spec: Record<string, any> }) {
     <div className="space-y-4">
       <div className="card p-5 border border-ok/40">
         <div className="text-[11px] uppercase tracking-wider text-ok mb-2">Product Spec — complete</div>
-        <p className="text-sm text-white/90">{spec.summary}</p>
+        <p className="text-sm text-fg/90">{spec.summary}</p>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Section title="Problem">
-          <p className="text-sm text-white/85">{spec.problem_statement}</p>
+          <p className="text-sm text-fg/85">{spec.problem_statement}</p>
         </Section>
         <Section title="Value proposition">
-          <p className="text-sm text-white/85">{spec.value_proposition}</p>
+          <p className="text-sm text-fg/85">{spec.value_proposition}</p>
         </Section>
         <Section title="Target users">
           <List items={spec.target_users} />
@@ -374,10 +374,10 @@ function SpecView({ spec }: { spec: Record<string, any> }) {
           <List items={spec.open_questions} />
         </Section>
         <Section title="Monetization">
-          <p className="text-sm text-white/85">{spec.monetization}</p>
+          <p className="text-sm text-fg/85">{spec.monetization}</p>
         </Section>
         <Section title="PO recommendation">
-          <p className="text-sm text-white/85">{spec.recommendation}</p>
+          <p className="text-sm text-fg/85">{spec.recommendation}</p>
         </Section>
       </div>
       {Array.isArray(spec.frameworks_applied) && spec.frameworks_applied.length > 0 && (

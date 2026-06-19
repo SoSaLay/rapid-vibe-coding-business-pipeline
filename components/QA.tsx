@@ -144,7 +144,7 @@ function Copyable({ text, label }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
-      className="text-[11px] text-accent2 hover:text-white"
+      className="text-[11px] text-accent2 hover:text-fg"
       onClick={() =>
         navigator.clipboard.writeText(text).then(() => {
           setCopied(true);
@@ -214,7 +214,7 @@ function QaRunView({
   return (
     <div className="space-y-4">
       <Section title="QA plan">
-        <p className="text-sm text-white/90">{plan.scope_summary}</p>
+        <p className="text-sm text-fg/90">{plan.scope_summary}</p>
         <p className="mt-2 text-xs text-muted">
           {plan.test_cases.length} automated cases · {plan.security_checks.length} security checks ·{" "}
           {plan.manual_checklist.length} manual items{fixRound > 0 ? ` · fix round ${fixRound}` : ""}
@@ -226,13 +226,13 @@ function QaRunView({
           Open a terminal, paste this, and your coding agent runs the whole automated pass — writing any missing
           tests, attacking the security checklist, and reporting back here. Re-run it after every fix round.
         </p>
-        <pre className="rounded bg-ink p-2.5 text-xs text-white/90 overflow-x-auto">{startCommand}</pre>
+        <pre className="rounded bg-ink p-2.5 text-xs text-fg/90 overflow-x-auto">{startCommand}</pre>
       </Section>
 
       <Section
         title="Automated results"
         action={
-          <button className="text-[11px] text-accent2 hover:text-white" onClick={refresh}>
+          <button className="text-[11px] text-accent2 hover:text-fg" onClick={refresh}>
             refresh
           </button>
         }
@@ -249,7 +249,7 @@ function QaRunView({
                 <StatusPill ok={results.npm_audit.critical === 0} label={`audit ${results.npm_audit.critical} critical / ${results.npm_audit.high} high`} />
               )}
             </div>
-            <p className="mt-2 text-xs text-white/80">
+            <p className="mt-2 text-xs text-fg/80">
               Cases: {(results.cases ?? []).filter((c) => c.status === "pass").length} pass · {failedCases.length} fail ·{" "}
               {(results.cases ?? []).filter((c) => c.status === "skip").length} skip — Security:{" "}
               {(results.security ?? []).filter((s) => s.status === "pass").length} pass · {failedSec.length} fail ·{" "}
@@ -297,7 +297,7 @@ function QaRunView({
         <Section title={`Defects (${defects.length})`}>
           <div className="space-y-1 mb-3">
             {defects.map((d) => (
-              <p key={d.id} className="text-xs text-white/85">
+              <p key={d.id} className="text-xs text-fg/85">
                 <span className="text-bad">✗ {d.id}</span> {d.title}
                 {d.notes ? <span className="text-muted"> — {d.notes}</span> : null}
               </p>
@@ -368,7 +368,7 @@ function ManualItemRow({
 
   return (
     <div className="rounded-lg border border-edge p-3">
-      <div className="text-xs font-medium text-white">
+      <div className="text-xs font-medium text-fg">
         {item.id} — {item.title}
       </div>
       <p className="mt-0.5 text-[11px] text-muted">{item.instructions}</p>
@@ -381,18 +381,18 @@ function ManualItemRow({
             className={`rounded-full px-3 py-1 text-[11px] transition-colors ${
               status === s
                 ? s === "pass"
-                  ? "bg-ok text-ink font-semibold"
+                  ? "bg-ok text-onbright font-semibold"
                   : s === "fail"
                     ? "bg-bad text-white font-semibold"
-                    : "bg-edge text-white font-semibold"
-                : "border border-edge text-muted hover:text-white"
+                    : "bg-edge text-fg font-semibold"
+                : "border border-edge text-muted hover:text-fg"
             }`}
           >
             {s === "na" ? "n/a" : s}
           </button>
         ))}
         <input
-          className="ml-1 flex-1 min-w-[120px] rounded bg-ink px-2 py-1 text-[11px] text-white placeholder:text-muted/60 border border-edge"
+          className="ml-1 flex-1 min-w-[120px] rounded bg-ink px-2 py-1 text-[11px] text-fg placeholder:text-muted/60 border border-edge"
           placeholder="note (optional — required context for fails)"
           value={note}
           onChange={(e) => setNote(e.target.value)}
@@ -410,7 +410,7 @@ function ReportView({ report }: { report: QaReport }) {
   return (
     <div className="space-y-4">
       <div className={`card p-4 border ${ship ? "border-ok/30" : "border-warn/30"}`}>
-        <span className={`rounded-full px-3 py-1 text-sm font-semibold ${ship ? "bg-ok text-ink" : "bg-warn text-ink"}`}>
+        <span className={`rounded-full px-3 py-1 text-sm font-semibold ${ship ? "bg-ok text-onbright" : "bg-warn text-onbright"}`}>
           {ship ? "ship" : "ship with warnings"}
         </span>
         <span className="ml-3 text-xs text-muted">
@@ -433,7 +433,7 @@ function ReportView({ report }: { report: QaReport }) {
       )}
 
       <Section title="Summary">
-        <p className="text-sm text-white/90">{report.scope_summary}</p>
+        <p className="text-sm text-fg/90">{report.scope_summary}</p>
         <div className="mt-3 flex flex-wrap gap-1.5">
           <StatusPill ok={report.cases.failed === 0} label={`cases ${report.cases.passed} pass / ${report.cases.failed} fail / ${report.cases.skipped} skip`} />
           <StatusPill ok={report.security.failed === 0} label={`security ${report.security.passed} pass / ${report.security.failed} fail / ${report.security.na} n/a`} />
@@ -457,7 +457,7 @@ function ReportView({ report }: { report: QaReport }) {
       {report.open_defects.length > 0 && (
         <Section title="Open defects (carried into Deployment)">
           {report.open_defects.map((d) => (
-            <p key={d.id} className="text-xs text-white/85">
+            <p key={d.id} className="text-xs text-fg/85">
               <span className="text-warn">⚠ {d.id}</span> {d.title}
               {d.notes ? <span className="text-muted"> — {d.notes}</span> : null}
             </p>

@@ -15,7 +15,8 @@ import path from "path";
 import crypto from "crypto";
 import { PHASES, PhaseId, FIRST_PHASE } from "./pipeline";
 
-const DATA_ROOT = path.join(process.cwd(), "data");
+/** DATA_DIR override lets demo mode use a separate store (e.g. data-demo/) without touching real projects. */
+const DATA_ROOT = path.join(process.cwd(), process.env.DATA_DIR || "data");
 const PROJECTS_ROOT = path.join(DATA_ROOT, "projects");
 
 export type ArtifactStatus = "draft" | "complete" | "rejected";
@@ -44,6 +45,11 @@ export interface ProjectMeta {
   updated_at: string;
   current_phase: PhaseId;
   phase_status: Record<string, PhaseState>;
+  /** Iteration loop counter. Missing on legacy projects = 1 (first pass). */
+  cycle?: number;
+  /** Archived = pipeline stopped by the owner at the Iteration gate. Reversible; nothing is deleted. */
+  archived?: boolean;
+  archived_at?: string;
 }
 
 async function ensureDir(dir: string) {
@@ -210,6 +216,46 @@ export async function completePhase(projectId: string, phase: PhaseId): Promise<
     meta.phase_status[next.id] = "active";
     meta.current_phase = next.id;
   }
+  await writeMeta(meta);
+  return meta;
+}
+
+/** Remove a phase's working scratchpad (used when a new cycle restarts a phase fresh). */
+export async function clearPhaseState(projectId: string, phaseId: PhaseId): Promise<void> {
+  try {
+    await fs.unlink(path.join(phaseStateDir(projectId), `${phaseId}.json`));
+  } catch {
+    /* nothing to clear */
+  }
+}
+
+/**
+ * Iteration loop-back: start the next cycle at the Product Owner.
+ * Business Owner stays complete (the idea exists; the check-in data is the new
+ * raw input). Product Owner becomes active with a fresh dialogue; everything
+ * downstream re-locks. Artifacts are never touched — re-runs produce v2+.
+ */
+export async function startNextCycle(projectId: string): Promise<ProjectMeta | null> {
+  const meta = await getProject(projectId);
+  if (!meta) return null;
+  meta.cycle = (meta.cycle ?? 1) + 1;
+  const poIdx = PHASES.findIndex((p) => p.id === "product-owner");
+  PHASES.forEach((p, i) => {
+    if (i === poIdx) meta.phase_status[p.id] = "active";
+    else if (i > poIdx) meta.phase_status[p.id] = "locked";
+  });
+  meta.current_phase = "product-owner";
+  await writeMeta(meta);
+  await clearPhaseState(projectId, "product-owner");
+  return meta;
+}
+
+/** Archive (or unarchive) a project. Flag-only — every file stays on disk. */
+export async function setArchived(projectId: string, archived: boolean): Promise<ProjectMeta | null> {
+  const meta = await getProject(projectId);
+  if (!meta) return null;
+  meta.archived = archived;
+  meta.archived_at = archived ? new Date().toISOString() : undefined;
   await writeMeta(meta);
   return meta;
 }

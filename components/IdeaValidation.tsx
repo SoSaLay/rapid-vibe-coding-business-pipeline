@@ -25,10 +25,10 @@ interface ValidationReport {
 }
 
 const VERDICT_STYLE: Record<string, { label: string; cls: string }> = {
-  build: { label: "Build it", cls: "text-ink bg-ok" },
-  refine: { label: "Refine first", cls: "text-ink bg-warn" },
-  reject: { label: "Reject", cls: "text-white bg-bad" },
-  archive: { label: "Archive", cls: "text-white bg-edge" },
+  build: { label: "Build it", cls: "text-onbright bg-ok" },
+  refine: { label: "Refine first", cls: "text-onbright bg-warn" },
+  reject: { label: "Reject", cls: "text-fg bg-bad" },
+  archive: { label: "Archive", cls: "text-fg bg-edge" },
 };
 
 export function IdeaValidation({
@@ -94,7 +94,7 @@ export function IdeaValidation({
   if (exaReady === false) {
     return (
       <div className="card p-5 space-y-3">
-        <h3 className="text-white font-medium">Connect Exa</h3>
+        <h3 className="text-fg font-medium">Connect Exa</h3>
         <p className="text-xs text-muted">
           Idea Validation searches real forum/community discussion via Exa to see what people actually say about the
           problem. Get a free key at exa.ai → API keys. Stored locally.
@@ -124,7 +124,7 @@ export function IdeaValidation({
         </p>
       </div>
       <p className="text-sm text-muted text-center">
-        Search forums for real demand signal <span className="text-white/70">and</span> research the market —
+        Search forums for real demand signal <span className="text-fg/70">and</span> research the market —
         competitors, sizing, segments, positioning — then deliver an evidence-grounded verdict.
       </p>
       <div className="flex items-center justify-center gap-3">
@@ -149,7 +149,7 @@ function ReportView({ report, onRerun, busy }: { report: ValidationReport; onRer
     </div>
   );
   const List = ({ items }: { items: string[] }) => (
-    <ul className="list-disc ml-5 space-y-0.5 text-sm text-white/85">
+    <ul className="list-disc ml-5 space-y-0.5 text-sm text-fg/85">
       {(items ?? []).map((x, i) => (
         <li key={i}>{x}</li>
       ))}
@@ -170,14 +170,14 @@ function ReportView({ report, onRerun, busy }: { report: ValidationReport; onRer
             {busy ? "Re-running…" : "Re-run"}
           </button>
         </div>
-        <p className="mt-3 text-sm text-white/90">{report.summary}</p>
+        <p className="mt-3 text-sm text-fg/90">{report.summary}</p>
       </div>
 
       <Section title="What people are saying">
         <div className="space-y-3">
           {report.themes.map((t, i) => (
             <div key={i}>
-              <div className="text-sm text-white">{t.theme}</div>
+              <div className="text-sm text-fg">{t.theme}</div>
               <div className="text-xs text-muted">{t.detail}</div>
             </div>
           ))}
@@ -188,7 +188,7 @@ function ReportView({ report, onRerun, busy }: { report: ValidationReport; onRer
         <div className="space-y-3">
           {report.representative_quotes.map((q, i) => (
             <blockquote key={i} className="border-l-2 border-l-accent pl-3">
-              <p className="text-sm text-white/90 italic">“{q.quote}”</p>
+              <p className="text-sm text-fg/90 italic">“{q.quote}”</p>
               <a href={q.url} target="_blank" rel="noreferrer" className="text-xs text-accent2 hover:underline">
                 {q.source}
               </a>
@@ -199,10 +199,10 @@ function ReportView({ report, onRerun, busy }: { report: ValidationReport; onRer
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Section title="Market overview">
-          <p className="text-sm text-white/85">{report.market_overview}</p>
+          <p className="text-sm text-fg/85">{report.market_overview}</p>
         </Section>
         <Section title="Market size">
-          <p className="text-sm text-white/85">{report.market_size}</p>
+          <p className="text-sm text-fg/85">{report.market_size}</p>
         </Section>
       </div>
 
@@ -210,10 +210,10 @@ function ReportView({ report, onRerun, busy }: { report: ValidationReport; onRer
         <div className="space-y-3">
           {report.competitive_landscape.map((c, i) => (
             <div key={i} className="rounded-lg border border-edge p-3">
-              <div className="text-sm font-medium text-white">{c.name}</div>
+              <div className="text-sm font-medium text-fg">{c.name}</div>
               <div className="text-xs text-muted">{c.positioning}</div>
               <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-1 text-xs">
-                <span className="text-white/80">💪 {c.strengths}</span>
+                <span className="text-fg/80">💪 {c.strengths}</span>
                 <span className="text-accent2">🎯 Gap: {c.gaps}</span>
               </div>
             </div>
@@ -226,23 +226,23 @@ function ReportView({ report, onRerun, busy }: { report: ValidationReport; onRer
           <ul className="space-y-1">
             {report.target_segments.map((s, i) => (
               <li key={i} className="text-sm">
-                <span className="text-white">{s.segment}</span>
+                <span className="text-fg">{s.segment}</span>
                 <span className="block text-xs text-muted">{s.description}</span>
               </li>
             ))}
           </ul>
         </Section>
         <Section title="Recommended positioning">
-          <p className="text-sm text-white/85">{report.positioning}</p>
+          <p className="text-sm text-fg/85">{report.positioning}</p>
         </Section>
         <Section title="Pricing signal">
-          <p className="text-sm text-white/85">{report.pricing_signal}</p>
+          <p className="text-sm text-fg/85">{report.pricing_signal}</p>
         </Section>
         <Section title="Sentiment">
-          <p className="text-sm text-white/85">{report.sentiment}</p>
+          <p className="text-sm text-fg/85">{report.sentiment}</p>
         </Section>
         <Section title="Pain intensity">
-          <p className="text-sm text-white/85">{report.pain_intensity}</p>
+          <p className="text-sm text-fg/85">{report.pain_intensity}</p>
         </Section>
         <Section title="What must be true">
           <List items={report.what_must_be_true} />
@@ -256,7 +256,7 @@ function ReportView({ report, onRerun, busy }: { report: ValidationReport; onRer
       </div>
 
       <Section title="Recommendation">
-        <p className="text-sm text-white/85">{report.recommendation}</p>
+        <p className="text-sm text-fg/85">{report.recommendation}</p>
       </Section>
 
       {report.sources && report.sources.length > 0 && (

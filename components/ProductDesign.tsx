@@ -124,7 +124,7 @@ export function ProductDesign({
     <div className="space-y-4">
       {approved && (
         <div className="card p-4 border border-ok/30">
-          <span className="rounded-full bg-ok px-3 py-1 text-sm font-semibold text-ink">design-spec saved</span>
+          <span className="rounded-full bg-ok px-3 py-1 text-sm font-semibold text-onbright">design-spec saved</span>
           <span className="ml-3 text-xs text-muted">Phase complete — Engineering unlocked.</span>
         </div>
       )}
@@ -132,7 +132,7 @@ export function ProductDesign({
       <BrandingCard brief={brief} busy={busy} onRegen={() => post("product-design/generate-brief")} />
       {direction && (
         <Section title="Design direction">
-          <p className="text-sm text-white/90">
+          <p className="text-sm text-fg/90">
             Reference system{direction.system_ids.length > 1 ? "s" : ""}:{" "}
             <span className="text-accent2">{direction.system_ids.join(", ")}</span>
           </p>
@@ -191,20 +191,20 @@ function BrandingCard({ brief, busy, onRegen }: { brief: Brief; busy: boolean; o
           {busy ? "…" : "Regenerate"}
         </button>
       </div>
-      <h3 className="mt-2 text-2xl font-semibold text-white">{b.name}</h3>
+      <h3 className="mt-2 text-2xl font-semibold text-fg">{b.name}</h3>
       <p className="text-sm text-muted">{b.tagline}</p>
       <div className="mt-3 flex flex-wrap gap-1.5">
         {b.personality.map((p) => (
-          <span key={p} className="rounded-full border border-edge px-2.5 py-0.5 text-[11px] text-white/80">
+          <span key={p} className="rounded-full border border-edge px-2.5 py-0.5 text-[11px] text-fg/80">
             {p}
           </span>
         ))}
       </div>
       <p className="mt-3 text-xs text-muted">
-        <span className="text-white/70">Voice:</span> {b.voice}
+        <span className="text-fg/70">Voice:</span> {b.voice}
       </p>
       <p className="mt-1 text-xs text-muted">
-        <span className="text-white/70">Logo direction:</span> {b.logo_direction}
+        <span className="text-fg/70">Logo direction:</span> {b.logo_direction}
       </p>
       <p className="mt-1 text-[11px] text-muted italic">{b.name_rationale}</p>
     </div>
@@ -214,15 +214,15 @@ function BrandingCard({ brief, busy, onRegen }: { brief: Brief; busy: boolean; o
 function VisualCard({ visual }: { visual: Brief["visual"] }) {
   return (
     <Section title="Visual direction & tokens">
-      <p className="text-sm text-white/90">
+      <p className="text-sm text-fg/90">
         {visual.style} · {visual.mode} mode · mood: <span className="text-accent2">{visual.mood}</span>
       </p>
       <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
         {visual.colors.map((c) => (
           <div key={c.name} className="flex items-center gap-2 rounded-lg border border-edge p-2">
-            <span className="h-7 w-7 shrink-0 rounded border border-white/20" style={{ backgroundColor: c.hex }} />
+            <span className="h-7 w-7 shrink-0 rounded border border-fg/20" style={{ backgroundColor: c.hex }} />
             <div className="min-w-0">
-              <div className="truncate text-xs text-white">{c.name}</div>
+              <div className="truncate text-xs text-fg">{c.name}</div>
               <div className="text-[10px] text-muted">{c.hex}</div>
             </div>
           </div>
@@ -230,11 +230,11 @@ function VisualCard({ visual }: { visual: Brief["visual"] }) {
       </div>
       <div className="mt-3 grid gap-2 text-xs text-muted sm:grid-cols-2">
         <p>
-          <span className="text-white/70">Type:</span> {visual.typography.heading_font} /{" "}
+          <span className="text-fg/70">Type:</span> {visual.typography.heading_font} /{" "}
           {visual.typography.body_font} · scale {visual.typography.type_scale}
         </p>
         <p>
-          <span className="text-white/70">Shape:</span> {visual.spacing_and_shape.spacing_scale} ·{" "}
+          <span className="text-fg/70">Shape:</span> {visual.spacing_and_shape.spacing_scale} ·{" "}
           {visual.spacing_and_shape.radius} · {visual.spacing_and_shape.elevation}
         </p>
       </div>
@@ -247,13 +247,13 @@ function UxCard({ ux }: { ux: Brief["ux"] }) {
   return (
     <Section title="UX — screens & flows">
       <p className="text-xs text-muted">{ux.target_user_summary}</p>
-      <ul className="mt-2 list-disc ml-5 text-xs text-white/80 space-y-0.5">
+      <ul className="mt-2 list-disc ml-5 text-xs text-fg/80 space-y-0.5">
         {ux.core_jobs.map((j, i) => (
           <li key={i}>{j}</li>
         ))}
       </ul>
       <p className="mt-2 text-xs text-muted">
-        <span className="text-white/70">Architecture:</span> {ux.information_architecture}
+        <span className="text-fg/70">Architecture:</span> {ux.information_architecture}
       </p>
 
       <div className="mt-3 space-y-2">
@@ -266,30 +266,30 @@ function UxCard({ ux }: { ux: Brief["ux"] }) {
                 onClick={() => setOpen(isOpen ? null : s.id)}
               >
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-sm font-medium text-white truncate">{s.name}</span>
+                  <span className="text-sm font-medium text-fg truncate">{s.name}</span>
                   {s.is_key_screen && <span className="text-[10px] text-accent2 shrink-0">★ key</span>}
                 </div>
                 <span className="text-muted text-xs shrink-0">{isOpen ? "▲" : "▼"}</span>
               </button>
               {isOpen && (
                 <div className="px-4 pb-4 pt-1 space-y-2 border-t border-edge text-xs">
-                  <p className="text-white/80">{s.purpose}</p>
+                  <p className="text-fg/80">{s.purpose}</p>
                   <p className="text-muted">
-                    <span className="text-white/70">Primary action:</span> {s.primary_action}
+                    <span className="text-fg/70">Primary action:</span> {s.primary_action}
                   </p>
                   <p className="text-muted">
-                    <span className="text-white/70">Elements:</span> {s.key_elements.join(" · ")}
+                    <span className="text-fg/70">Elements:</span> {s.key_elements.join(" · ")}
                   </p>
                   <div className="grid gap-1.5 sm:grid-cols-2">
                     {(["empty", "loading", "error", "success"] as const).map((k) => (
                       <div key={k} className="rounded bg-ink/60 px-2.5 py-1.5">
                         <span className="text-[10px] uppercase tracking-wider text-accent2">{k}</span>
-                        <p className="text-white/80">{s.states[k]}</p>
+                        <p className="text-fg/80">{s.states[k]}</p>
                       </div>
                     ))}
                   </div>
                   <p className="text-muted">
-                    <span className="text-white/70">Responsive:</span> {s.responsive_notes}
+                    <span className="text-fg/70">Responsive:</span> {s.responsive_notes}
                   </p>
                 </div>
               )}
@@ -302,7 +302,7 @@ function UxCard({ ux }: { ux: Brief["ux"] }) {
         <div className="mt-3 space-y-2">
           {ux.flows.map((f, i) => (
             <div key={i} className="rounded-lg bg-edge/30 p-3">
-              <div className="text-xs font-medium text-white">{f.name}</div>
+              <div className="text-xs font-medium text-fg">{f.name}</div>
               <p className="mt-1 text-[11px] text-muted">{f.steps.join(" → ")}</p>
             </div>
           ))}
@@ -340,7 +340,7 @@ function MockupPanel({
           const ready = !!done[s.id];
           return (
             <div key={s.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-edge px-3 py-2.5">
-              <span className="text-sm text-white">{s.name}</span>
+              <span className="text-sm text-fg">{s.name}</span>
               <div className="flex items-center gap-2">
                 {ready && (
                   <>
@@ -380,7 +380,7 @@ function ComponentsCard({ components }: { components: Brief["components"] }) {
         {components.map((c, i) => (
           <div key={i} className="rounded-lg bg-edge/30 px-3 py-2">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-medium text-white">{c.name}</span>
+              <span className="text-xs font-medium text-fg">{c.name}</span>
               <span className="text-[10px] text-muted shrink-0">{c.used_on.join(", ")}</span>
             </div>
             <p className="text-[11px] text-muted">{c.description}</p>
@@ -395,7 +395,7 @@ function DosDontsCard({ d }: { d: Brief["dos_and_donts"] }) {
   return (
     <Section title="Do's & don'ts — read by the build agent">
       <div className="grid gap-3 sm:grid-cols-2">
-        <ul className="space-y-1 text-xs text-white/85">
+        <ul className="space-y-1 text-xs text-fg/85">
           {d.dos.map((x, i) => (
             <li key={i} className="flex gap-2">
               <span className="text-ok shrink-0">✓</span>
@@ -403,7 +403,7 @@ function DosDontsCard({ d }: { d: Brief["dos_and_donts"] }) {
             </li>
           ))}
         </ul>
-        <ul className="space-y-1 text-xs text-white/85">
+        <ul className="space-y-1 text-xs text-fg/85">
           {d.donts.map((x, i) => (
             <li key={i} className="flex gap-2">
               <span className="text-bad shrink-0">✕</span>
