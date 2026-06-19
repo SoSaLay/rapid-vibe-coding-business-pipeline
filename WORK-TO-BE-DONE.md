@@ -57,6 +57,10 @@ Validation stage 2: landing page + waitlist + pre-sell offer to prove real inten
 - [x] **Stage 2** — landing-page generator: self-contained deployable HTML (Launch UI dark aesthetic, Tailwind CDN), waitlist form wired to Supabase (anon key only — service key never leaked); preview + download routes
 - [x] **Stage 3** — Supabase store (`lib/supabase.ts` + one-time SQL), waitlist dashboard (signups + pre-sale vs thresholds), evaluate → `audience-brief` verdict (proceed/pivot/stop/keep-collecting) gating the phase
 - [x] **Content library** — per-platform evergreen content direction (X/Twitter, LinkedIn, Instagram, short-form video, long-form, forums); strategy, themes, hook starters, CTA direction, posting cadence; collapsible accordion UI in the kit view
+- [x] **Creative direction picker** (`lib/brand-direction.ts`): "show me the thinking first" — proposes 3 distinct text directions (vibe/color/logo/UI feel), nothing generated until the founder picks one; the choice is stored project-wide (`settings.brandDirection`) and seeds every asset + UI prompt (forward-flow: Pre-Marketing → Product Design → Marketing)
+- [x] **Brand assets (Nano Banana)** (`lib/brand-assets.ts` + `pre-marketing/assets` route): auto-seed logo + hero + OG from the positioning, embedded inline into the landing page; carried forward and locked in Product Design
+- [x] **Pipeline-wide model selector** (`components/EngineSelector.tsx` + `settings` route): Google (default) / Claude for UI generation; images stay Google-only (noted in UI)
+- [x] **Animated landing page**: always-on lightweight motion (CSS aurora, IntersectionObserver scroll-reveal, hover lifts), `prefers-reduced-motion`-aware, + an opt-in Three.js/WebGL shader hero (`three@0.158.0`, explicit-context init w/ graceful CSS fallback). Verified in browser (WebGL paints, reveals fire, reduced-motion guarded)
 - [x] Verified: typecheck clean, HTML render validated (security check passed), all gating works
 
 **Live-test dependencies (not yet set up):**
@@ -73,9 +77,12 @@ Produces the `design-spec` the build phase works from. Two tools vendored:
 - [x] Vendored **ux-ui-agent-skills** subset (MIT via package.json) → `vendor/ux-ui-agent-skills/` — 138-system reference library (`DESIGN.md` each) + `design-taste.md` anti-slop layer; loaded by `lib/design-systems.ts` (not the SKILL.md loader, by design)
 - [x] **Stage 1** — design brief: picks 1–2 reference design systems, then generates branding (name/tagline/personality/voice/logo direction, reuses Phase-4 positioning), UX (screens w/ empty-loading-error-success states + responsive notes, flows, IA), visual tokens (exact hexes, Google fonts, spacing/radius/elevation), component inventory, do's & don'ts, open risks
 - [x] **Stage 2** — per-screen self-contained Tailwind-CDN HTML mockups from the Stage-1 tokens (preview/download/regenerate per screen, stored under `data/projects/<id>/mockups/`)
+- [x] **Stage 2 is now a pluggable design engine** (`lib/design/engine.ts`): `claude-html` (original) + `google-stitch` (Stitch-mode). Stitch has no public API, so Stitch-mode replicates it via the Gemini 2.5 REST API — Stage-1 brief rendered as a "DESIGN LOCK" + per-screen Stitch prompt (platform→context→emotional goal→elements→states→theme). `activeDesignEngine()` prefers Stitch when Google is connected, else falls back to Claude. Both engines share the same HTML contract (preview/storage/UI unchanged). Each mockup records which engine produced it (`mockupEngines` map → badge in UI)
+- [x] **Google AI (Gemini) provider** (`lib/google/genai.ts`, key stored `data/connectors/google-ai.json` or `GOOGLE_AI_API_KEY`/`GEMINI_API_KEY`); configure routes `app/api/google/{route,configure}`; in-app "Unlock Stitch-mode" connect row in `ProductDesign.tsx`. Same key is the planned surface for Nano Banana (images) + Veo (video) later
 - [x] API routes (`generate-brief`, `mockups`, `preview`, `approve`) + `ProductDesign.tsx` workspace UI; approve → `design-spec` artifact + phase complete; skippable via generic skip
-- [x] Verified: typecheck clean, route guards smoke-tested, loader sees 32 frameworks + 138 design systems
+- [x] Verified: typecheck clean, route guards smoke-tested, loader sees 32 frameworks + 138 design systems; Stitch-mode UI verified in browser (connect row + engine badges + backward-compat with pre-existing mockups)
 - [ ] Live test with Anthropic key (brief + mockup quality)
+- [ ] Live test Stitch-mode with a real Gemini key (screen HTML quality vs Claude engine)
 
 ### Phase 6 — Development & Engineering — Part A ✅ / Part B ⬜
 **Part A — the build pipeline.** Tool decision: **GSD** recommended as a one-time global install (`npx get-shit-done-cc`), NOT vendored (24MB, fast-moving canary releases, installs to `~/.claude`) — the workspace briefing is agent-agnostic (`TASKS.md` + `CLAUDE.md`), works with bare Claude Code, and the monitor detects GSD's `.planning/` when present. OpenSpec deferred to Phase 11; boilerplates (open-saas/ixartz) rejected — clean scaffold + briefing beats stripping kitchen-sink code.
@@ -165,9 +172,17 @@ strategy prompt (CC BY-SA, credited). Rejected: univa (own platform, overkill), 
 - [x] **Posting loop UI** (phone-first): Today view w/ copy + posted ✓ per post, overdue flagging, upcoming
   preview, streak counter, "Generate next 2 weeks" when the schedule runs low; loop stays live after sign-off
 - [x] **Sign-off**: batch exists + launch checklist done (or force w/ recorded blockers) → `campaign-report`
+- [x] **Campaign media (Nano Banana + Veo)**: per-post **image** generation (Nano Banana, brand-grounded, reuses the
+  logo as a reference) + **auto-seed** of the first few once a batch exists; per-post **video on-demand** (Veo 3.1,
+  `veo-3.1-generate-preview`, async start→poll→download, ~$0.10–0.60/clip — shown in the hint) for reel/short formats;
+  prompts derived from the post's own script + brand direction (no manual entry). Routes `marketing/image`, `marketing/video`
+- [x] **Google Pomelli handoff**: Pomelli has no API (web-only), so a card builds a ready campaign brief from the plan
+  (URL + positioning + pillars) + an "Open Pomelli ↗" deep link + copy buttons — paste-and-go
 - [x] Verified: typecheck clean, 4 route guards smoke-tested, 45 frameworks load (6 social-media-skills +
-  1 email-campaigns), streak/stats logic unit-smoked (pending-today, broken, complete, empty cases)
+  1 email-campaigns), streak/stats logic unit-smoked; Marketing media UI verified in browser (Pomelli card renders, posts
+  render, media controls correctly hidden when Google not connected)
 - [ ] Live test: full campaign generation for a real deployed app
+- [ ] Live test Nano Banana images + Veo video with a real Gemini key (Veo is async + paid — verify the poll/download path)
 - [ ] (Future) Resend connector for one-click waitlist email send; auto-posting deliberately rejected
   (API cost/fragility/ban risk — human posting keeps accounts safe and content human)
 

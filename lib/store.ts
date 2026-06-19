@@ -199,6 +199,37 @@ export async function getPhaseState<T>(projectId: string, phaseId: PhaseId): Pro
   }
 }
 
+/**
+ * Project-wide settings (not phase-specific): the chosen UI generation engine
+ * and the locked brand direction. Set early (Pre-Marketing) and read everywhere.
+ */
+export interface ProjectSettings {
+  /** Which engine renders UI screens: "google-stitch" | "claude-html". Unset = auto. */
+  designEngine?: string;
+  /** The chosen creative direction, seeded into asset + UI prompts across phases. */
+  brandDirection?: Record<string, unknown>;
+}
+
+function settingsPath(id: string) {
+  return path.join(projectDir(id), "settings.json");
+}
+
+export async function getProjectSettings(projectId: string): Promise<ProjectSettings> {
+  try {
+    return JSON.parse(await fs.readFile(settingsPath(projectId), "utf8")) as ProjectSettings;
+  } catch {
+    return {};
+  }
+}
+
+export async function saveProjectSettings(projectId: string, patch: ProjectSettings): Promise<ProjectSettings> {
+  const current = await getProjectSettings(projectId);
+  const next = { ...current, ...patch };
+  await ensureDir(projectDir(projectId));
+  await fs.writeFile(settingsPath(projectId), JSON.stringify(next, null, 2), "utf8");
+  return next;
+}
+
 export async function latestArtifact(projectId: string, artifactType: string): Promise<ArtifactEnvelope | null> {
   const all = await listArtifacts(projectId);
   const matching = all.filter((a) => a.artifact_type === artifactType);

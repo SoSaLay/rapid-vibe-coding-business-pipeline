@@ -1,6 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+type AssetRef = { file: string; at: string };
+type PostAssets = Record<string, { image?: AssetRef; video?: AssetRef }>;
+type VideoOps = Record<string, { op: string; status: string; startedAt: string }>;
+
+const VIDEO_FORMATS = /reel|video|short|tiktok|youtube/i;
 
 interface Channel {
   name: string;
@@ -72,12 +78,28 @@ export function Marketing({
 }: {
   projectId: string;
   hasDeploy: boolean;
-  state: { plan?: Plan | null; posts?: Post[]; postedIds?: string[]; checklistDone?: string[] } | null;
+  state: {
+    plan?: Plan | null;
+    posts?: Post[];
+    postedIds?: string[];
+    checklistDone?: string[];
+    postAssets?: PostAssets;
+    videoOps?: VideoOps;
+    prodUrl?: string;
+  } | null;
   report: Report | null;
   onUpdated: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [googleReady, setGoogleReady] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/google")
+      .then((r) => r.json())
+      .then((d) => setGoogleReady(!!d.configured))
+      .catch(() => setGoogleReady(false));
+  }, []);
 
   async function post(path: string, body?: any): Promise<any | null> {
     setBusy(true);
@@ -153,7 +175,14 @@ export function Marketing({
         postedIds={state?.postedIds ?? []}
         busy={busy}
         post={post}
+        projectId={projectId}
+        googleReady={googleReady}
+        postAssets={state?.postAssets ?? {}}
+        videoOps={state?.videoOps ?? {}}
+        onUpdated={onUpdated}
       />
+
+      <PomelliCard plan={plan} prodUrl={state?.prodUrl ?? "(deploy URL pending)"} />
 
       <LaunchChecklist
         items={plan.launch_checklist}
@@ -220,13 +249,42 @@ function PostingLoop({
   postedIds,
   busy,
   post,
+  projectId,
+  googleReady,
+  postAssets,
+  videoOps,
+  onUpdated,
 }: {
   plan: Plan;
   posts: Post[];
   postedIds: string[];
   busy: boolean;
   post: (path: string, body?: any) => Promise<any | null>;
+  projectId: string;
+  googleReady: boolean;
+  postAssets: PostAssets;
+  videoOps: VideoOps;
+  onUpdated: () => void;
 }) {
+  // After a batch exists, auto-seed a few campaign images once (images are cheap;
+  // videos stay on-demand). Guarded so it fires at most once per mount.
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (seededRef.current) return;
+    if (!googleReady || posts.length === 0) return;
+    const anyImage = Object.values(postAssets).some((a) => a?.image);
+    if (anyImage) return;
+    seededRef.current = true;
+    fetch(`/api/projects/${projectId}/marketing/image`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ seed: true }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && onUpdated())
+      .catch(() => {});
+  }, [googleReady, posts.length, postAssets, projectId, onUpdated]);
+
   const posted = useMemo(() => new Set(postedIds), [postedIds]);
   const today = new Date().toISOString().slice(0, 10);
   const due = posts.filter((p) => p.date <= today && !posted.has(p.id));
@@ -286,7 +344,18 @@ function PostingLoop({
       ) : (
         <div className="space-y-3">
           {due.map((p) => (
-            <PostCard key={p.id} p={p} overdue={p.date < today} busy={busy} onPosted={() => post("track", { postId: p.id })} />
+            <PostCard
+              key={p.id}
+              p={p}
+              overdue={p.date < today}
+              busy={busy}
+              onPosted={() => post("track", { postId: p.id })}
+              projectId={projectId}
+              googleReady={googleReady}
+              assets={postAssets[p.id]}
+              videoPending={!!videoOps[p.id]}
+              onUpdated={onUpdated}
+            />
           ))}
         </div>
       )}
@@ -314,8 +383,32 @@ function PostingLoop({
   );
 }
 
-function PostCard({ p, overdue, busy, onPosted }: { p: Post; overdue: boolean; busy: boolean; onPosted: () => void }) {
+function PostCard({
+  p,
+  overdue,
+  busy,
+  onPosted,
+  projectId,
+  googleReady,
+  assets,
+  videoPending,
+  onUpdated,
+}: {
+  p: Post;
+  overdue: boolean;
+  busy: boolean;
+  onPosted: () => void;
+  projectId: string;
+  googleReady: boolean;
+  assets?: { image?: AssetRef; video?: AssetRef };
+  videoPending: boolean;
+  onUpdated: () => void;
+}) {
   const [open, setOpen] = useState(false);
+  const isVideo = VIDEO_FORMATS.test(p.format);
+  const imgUrl = assets?.image ? `/api/projects/${projectId}/assets?file=${assets.image.file}` : null;
+  const vidUrl = assets?.video ? `/api/projects/${projectId}/assets?file=${assets.video.file}` : null;
+
   return (
     <div className={`rounded-lg border p-3 ${overdue ? "border-warn/40" : "border-edge"}`}>
       <div className="flex items-center justify-between gap-2">
@@ -330,6 +423,18 @@ function PostCard({ p, overdue, busy, onPosted }: { p: Post; overdue: boolean; b
         {open ? "hide" : "show full post"}
       </button>
       {open && <pre className="mt-2 whitespace-pre-wrap rounded bg-ink p-2.5 text-[11px] text-fg/85">{p.body}</pre>}
+
+      <PostMedia
+        projectId={projectId}
+        postId={p.id}
+        googleReady={googleReady}
+        isVideo={isVideo}
+        imgUrl={imgUrl}
+        vidUrl={vidUrl}
+        videoPending={videoPending}
+        onUpdated={onUpdated}
+      />
+
       <div className="mt-2 flex items-center justify-between">
         <span className="text-[10px] text-muted truncate">CTA: {p.cta}</span>
         <button className="rounded-full bg-ok px-3 py-1 text-[11px] font-semibold text-onbright" disabled={busy} onClick={onPosted}>
@@ -337,6 +442,122 @@ function PostCard({ p, overdue, busy, onPosted }: { p: Post; overdue: boolean; b
         </button>
       </div>
     </div>
+  );
+}
+
+function PostMedia({
+  projectId,
+  postId,
+  googleReady,
+  isVideo,
+  imgUrl,
+  vidUrl,
+  videoPending,
+  onUpdated,
+}: {
+  projectId: string;
+  postId: string;
+  googleReady: boolean;
+  isVideo: boolean;
+  imgUrl: string | null;
+  vidUrl: string | null;
+  videoPending: boolean;
+  onUpdated: () => void;
+}) {
+  const [working, setWorking] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  // While a Veo render is pending, poll the status endpoint every 12s.
+  useEffect(() => {
+    if (!videoPending) return;
+    let alive = true;
+    const tick = () => {
+      fetch(`/api/projects/${projectId}/marketing/video?postId=${postId}`)
+        .then((r) => r.json())
+        .then((d) => {
+          if (!alive) return;
+          if (d.status === "done") onUpdated();
+          else if (d.status === "error") setErr(d.error || "Video failed.");
+        })
+        .catch(() => {});
+    };
+    const id = setInterval(tick, 12000);
+    tick();
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [videoPending, projectId, postId, onUpdated]);
+
+  async function gen(kind: "image" | "video") {
+    setWorking(kind);
+    setErr(null);
+    const res = await fetch(`/api/projects/${projectId}/marketing/${kind}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ postId }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setWorking(null);
+    if (!res.ok) return setErr(d.error || `Failed to generate ${kind}.`);
+    onUpdated();
+  }
+
+  if (!googleReady) return null;
+
+  return (
+    <div className="mt-2 space-y-2">
+      {imgUrl && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={imgUrl} alt="campaign image" className="w-full max-w-xs rounded-lg border border-edge" />
+      )}
+      {vidUrl && <video src={vidUrl} controls className="w-full max-w-xs rounded-lg border border-edge" />}
+      <div className="flex flex-wrap items-center gap-2">
+        <button className="btn-ghost text-[11px]" disabled={!!working} onClick={() => gen("image")}>
+          {working === "image" ? "Generating…" : imgUrl ? "Regenerate image" : "Generate image"}
+        </button>
+        {isVideo && (
+          <button
+            className="btn-ghost text-[11px]"
+            disabled={!!working || videoPending}
+            onClick={() => gen("video")}
+            title="Veo 3.1 — ~$0.10–0.60 and 1–2 min per clip"
+          >
+            {videoPending ? "Rendering video… (~1–2 min)" : working === "video" ? "Starting…" : vidUrl ? "Regenerate video" : "Generate video"}
+          </button>
+        )}
+      </div>
+      {err && <p className="text-[11px] text-bad">{err}</p>}
+    </div>
+  );
+}
+
+function PomelliCard({ plan, prodUrl }: { plan: Plan; prodUrl: string }) {
+  const brief =
+    `Website: ${prodUrl}\n` +
+    `Positioning: ${plan.strategy_summary}\n` +
+    `Content themes: ${plan.content_pillars.map((p) => p.name).join(", ")}\n` +
+    `Goal: generate a batch of on-brand launch campaign assets (social posts + ad creatives).`;
+  return (
+    <Section title="Google Pomelli — campaign assets (external)">
+      <p className="text-xs text-muted mb-2">
+        Pomelli builds on-brand campaigns from your live site. It’s a web tool (no API), so here’s a ready brief to paste
+        — copy it, open Pomelli, and point it at your URL.
+      </p>
+      <pre className="whitespace-pre-wrap rounded bg-ink p-2.5 text-[11px] text-fg/85">{brief}</pre>
+      <div className="mt-2 flex flex-wrap items-center gap-3">
+        <a
+          className="btn-primary text-[11px]"
+          href="https://labs.google.com/pomelli"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Open Pomelli ↗
+        </a>
+        <Copyable text={brief} label="copy brief" />
+        <Copyable text={prodUrl} label="copy URL" />
+      </div>
+    </Section>
   );
 }
 

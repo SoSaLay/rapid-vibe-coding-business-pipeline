@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "fs";
 import path from "path";
 import { getPhaseState, savePhaseState } from "@/lib/store";
-import { generateScreenMockup } from "@/lib/phases/product-design";
+import { activeDesignEngine } from "@/lib/design/engine";
 
 function mockupDir(projectId: string) {
   return path.join(process.cwd(), "data", "projects", projectId, "mockups");
@@ -26,16 +26,19 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (targets.length === 0) return NextResponse.json({ error: "No matching screen in the brief." }, { status: 400 });
 
   try {
+    const engine = await activeDesignEngine(params.id);
     const dir = mockupDir(params.id);
     await fs.mkdir(dir, { recursive: true });
     const mockups: Record<string, string> = { ...(state.mockups || {}) };
+    const mockupEngines: Record<string, string> = { ...(state.mockupEngines || {}) };
     for (const screen of targets) {
-      const html = await generateScreenMockup(state.brief, screen);
+      const html = await engine.generateScreen(state.brief, screen);
       await fs.writeFile(path.join(dir, `${safeName(screen.id)}.html`), html, "utf8");
       mockups[screen.id] = new Date().toISOString();
+      mockupEngines[screen.id] = engine.id;
     }
-    await savePhaseState(params.id, "product-design", { ...state, mockups });
-    return NextResponse.json({ mockups });
+    await savePhaseState(params.id, "product-design", { ...state, mockups, mockupEngines });
+    return NextResponse.json({ mockups, mockupEngines, engine: engine.id });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Failed to generate mockup." }, { status: 500 });
   }

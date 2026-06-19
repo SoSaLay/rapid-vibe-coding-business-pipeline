@@ -134,6 +134,8 @@ export default function ProjectWorkspace({ params }: { params: { id: string } })
             brief={design?.brief ?? null}
             direction={design?.direction ?? null}
             mockups={design?.mockups ?? null}
+            mockupEngines={design?.mockupEngines ?? null}
+            logo={design?.logo ?? null}
             approved={!!designSpec}
             onUpdated={refresh}
           />

@@ -64,17 +64,101 @@ const FORM_SCRIPT = `
 })();
 </script>`;
 
+// Curated motion layer — always on, lightweight, mobile-safe, and fully disabled
+// under prefers-reduced-motion. Makes the page feel alive without a perf tax.
+const MOTION_STYLE = `<style>
+body{background:#05070d}
+@keyframes auroraMove{0%{transform:translate(-8%,-6%) rotate(0deg)}50%{transform:translate(8%,4%) rotate(6deg)}100%{transform:translate(-8%,-6%) rotate(0deg)}}
+@keyframes floatY{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+.aurora{animation:auroraMove 20s ease-in-out infinite}
+.floaty{animation:floatY 6s ease-in-out infinite}
+.reveal{opacity:0;transform:translateY(20px);transition:opacity .7s ease,transform .7s cubic-bezier(.2,.7,.2,1)}
+.reveal.is-visible{opacity:1;transform:none}
+.lift{transition:transform .25s ease,box-shadow .25s ease}
+.lift:hover{transform:translateY(-4px);box-shadow:0 16px 44px -16px rgba(99,102,241,.5)}
+@media (prefers-reduced-motion: reduce){
+  .aurora,.floaty{animation:none!important}
+  .reveal{opacity:1!important;transform:none!important;transition:none!important}
+  #bg3d{display:none!important}
+}
+</style>`;
+
+const MOTION_SCRIPT = `<script>
+(function(){
+  var els=document.querySelectorAll('.reveal');
+  if(!('IntersectionObserver' in window)){els.forEach(function(e){e.classList.add('is-visible')});return;}
+  var io=new IntersectionObserver(function(es){es.forEach(function(en){if(en.isIntersecting){en.target.classList.add('is-visible');io.unobserve(en.target);}})},{threshold:.12});
+  els.forEach(function(e){io.observe(e)});
+})();
+</script>`;
+
+// Opt-in WebGL hero: a flowing brand-coloured gradient shader on one full-bleed
+// quad. Cheap (single draw), skipped on reduced-motion / no-WebGL, degrades to
+// the CSS aurora underneath.
+const THREE_HERO = `<canvas id="bg3d" class="pointer-events-none absolute inset-0 -z-10 h-full w-full opacity-70"></canvas>
+<script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+<script>
+(function(){
+  try{
+    if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches)return;
+    var canvas=document.getElementById('bg3d'); if(!canvas||!window.THREE)return;
+    // Create the context ourselves so THREE never retries with a conflicting type;
+    // if WebGL is unavailable, bail to the CSS aurora underneath (no error).
+    var ctx=canvas.getContext('webgl2')||canvas.getContext('webgl'); if(!ctx)return;
+    var renderer=new THREE.WebGLRenderer({canvas:canvas,context:ctx,alpha:true,antialias:true});
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+    var scene=new THREE.Scene();
+    var cam=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
+    var u={u_time:{value:0},u_res:{value:new THREE.Vector2(1,1)},
+      u_c1:{value:new THREE.Color(0x6366f1)},u_c2:{value:new THREE.Color(0x22d3ee)},u_c3:{value:new THREE.Color(0x8b5cf6)}};
+    var frag='precision highp float;uniform float u_time;uniform vec2 u_res;uniform vec3 u_c1,u_c2,u_c3;'+
+      'void main(){vec2 uv=gl_FragCoord.xy/u_res.xy;float t=u_time;'+
+      'float w1=0.5+0.5*sin(uv.x*3.0+t)*cos(uv.y*2.0-t*0.7);'+
+      'float w2=0.5+0.5*sin(uv.y*3.5-t*0.8)*cos(uv.x*2.5+t*0.5);'+
+      'vec3 col=mix(u_c1,u_c2,clamp(w1,0.0,1.0));col=mix(col,u_c3,clamp(w2*0.6,0.0,1.0));'+
+      'float d=distance(uv,vec2(0.5));col=mix(col,vec3(0.02,0.027,0.051),smoothstep(0.15,0.95,d));'+
+      'gl_FragColor=vec4(col,0.6);}';
+    var mat=new THREE.ShaderMaterial({uniforms:u,fragmentShader:frag,vertexShader:'void main(){gl_Position=vec4(position,1.0);}',transparent:true});
+    scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2,2),mat));
+    function resize(){var w=canvas.clientWidth||window.innerWidth,h=canvas.clientHeight||window.innerHeight;renderer.setSize(w,h,false);u.u_res.value.set(w,h);}
+    window.addEventListener('resize',resize);resize();
+    function loop(ts){u.u_time.value=ts*0.0004;renderer.render(scene,cam);requestAnimationFrame(loop);}
+    requestAnimationFrame(loop);
+  }catch(e){}
+})();
+</script>`;
+
 export function renderLandingPage(
   kit: Kit,
-  opts: { url: string; anonKey: string; projectId: string; brand: string }
+  opts: {
+    url: string;
+    anonKey: string;
+    projectId: string;
+    brand: string;
+    /** Optional Nano Banana brand assets as data URIs (kept inline so the page stays self-contained). */
+    assets?: { logo?: string; hero?: string; og?: string };
+    /** Opt-in WebGL (Three.js) animated hero. Off = lightweight CSS motion only. */
+    threeHero?: boolean;
+  }
 ): string {
   const p = kit.positioning;
   const cfg = JSON.stringify({ url: opts.url, anonKey: opts.anonKey, projectId: opts.projectId });
+  const a = opts.assets || {};
+
+  const logoMark = a.logo
+    ? `<img src="${a.logo}" alt="${esc(opts.brand)} logo" class="floaty mx-auto mb-8 h-14 w-14 rounded-xl object-contain" />`
+    : "";
+  const heroArt = a.hero
+    ? `<img src="${a.hero}" alt="" class="mx-auto mt-10 w-full max-w-2xl rounded-2xl border border-white/10 object-cover" />`
+    : "";
+  const ogMeta = a.og
+    ? `<meta property="og:image" content="${a.og}" /><meta name="twitter:card" content="summary_large_image" />`
+    : "";
 
   const bullets = p.benefit_bullets
     .map(
       (b) =>
-        `<div class="rounded-xl border border-white/10 bg-white/5 p-5"><div class="text-cyan-400 mb-2">✦</div><p class="text-slate-200">${esc(
+        `<div class="lift reveal rounded-xl border border-white/10 bg-white/5 p-5"><div class="text-cyan-400 mb-2">✦</div><p class="text-slate-200">${esc(
           b
         )}</p></div>`
     )
@@ -83,7 +167,7 @@ export function renderLandingPage(
   const quotes = kit.social_proof
     .map(
       (s) =>
-        `<figure class="rounded-xl border border-white/10 bg-white/5 p-5"><blockquote class="text-slate-200 italic">“${esc(
+        `<figure class="lift reveal rounded-xl border border-white/10 bg-white/5 p-5"><blockquote class="text-slate-200 italic">“${esc(
           s.quote
         )}”</blockquote><figcaption class="mt-2 text-xs text-slate-400">— ${esc(s.source)}</figcaption></figure>`
     )
@@ -115,17 +199,20 @@ export function renderLandingPage(
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${esc(p.headline)} — ${esc(opts.brand)}</title>
 <meta name="description" content="${esc(p.subheadline)}" />
+${ogMeta}
 <script src="https://cdn.tailwindcss.com"></script>
 <script>window.__RVC = ${cfg};</script>
-<style>body{background:#05070d}</style>
+${MOTION_STYLE}
 </head>
 <body class="bg-[#05070d] text-slate-100 antialiased">
   <div class="relative overflow-hidden">
-    <div class="pointer-events-none absolute -top-40 left-1/2 -translate-x-1/2 h-[36rem] w-[36rem] rounded-full bg-indigo-600/20 blur-[120px]"></div>
+    ${opts.threeHero ? THREE_HERO : ""}
+    <div class="aurora pointer-events-none absolute -top-40 left-1/2 -translate-x-1/2 h-[36rem] w-[36rem] rounded-full bg-indigo-600/20 blur-[120px]"></div>
     <main class="relative mx-auto max-w-3xl px-5 py-20">
 
       <!-- Hero -->
       <section class="text-center">
+        ${logoMark}
         <h1 class="text-4xl md:text-5xl font-semibold tracking-tight bg-gradient-to-b from-white to-slate-400 bg-clip-text text-transparent">${esc(
           p.headline
         )}</h1>
@@ -139,10 +226,11 @@ export function renderLandingPage(
           <button class="w-full rounded-lg bg-indigo-600 hover:bg-indigo-500 px-4 py-3 font-medium text-white transition">Join the waitlist</button>
         </form>
         <div id="thanks" style="display:none" class="mx-auto mt-8 max-w-md rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-5 text-emerald-300">You're on the list 🎉 We'll be in touch.</div>
+        ${heroArt}
       </section>
 
       <!-- Benefits -->
-      <section class="mt-20">
+      <section class="mt-20 reveal">
         <h2 class="text-sm uppercase tracking-widest text-slate-500 text-center mb-6">Why it matters</h2>
         <div class="grid gap-4 sm:grid-cols-2">${bullets}</div>
       </section>
@@ -154,7 +242,7 @@ export function renderLandingPage(
       }
 
       <!-- Offer -->
-      <section class="mt-20 rounded-2xl border border-indigo-500/30 bg-indigo-500/5 p-8 text-center">
+      <section class="mt-20 reveal lift rounded-2xl border border-indigo-500/30 bg-indigo-500/5 p-8 text-center">
         <h2 class="text-2xl font-semibold text-white">${esc(kit.offer.headline)}</h2>
         <p class="mt-3 text-slate-300">${esc(kit.offer.details)}</p>
         <p class="mt-3 text-cyan-400 font-medium">${esc(kit.offer.price_hypothesis)}</p>
@@ -169,6 +257,7 @@ export function renderLandingPage(
     </main>
   </div>
   ${FORM_SCRIPT}
+  ${MOTION_SCRIPT}
 </body>
 </html>`;
 }

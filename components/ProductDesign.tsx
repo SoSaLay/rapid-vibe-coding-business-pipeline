@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { EngineSelector } from "./EngineSelector";
 
 interface ScreenStates {
   empty: string;
@@ -60,6 +61,8 @@ export function ProductDesign({
   brief,
   direction,
   mockups,
+  mockupEngines,
+  logo,
   approved,
   onUpdated,
 }: {
@@ -68,11 +71,35 @@ export function ProductDesign({
   brief: Brief | null;
   direction: Direction | null;
   mockups: Record<string, string> | null;
+  mockupEngines: Record<string, string> | null;
+  logo: { file: string; at: string } | null;
   approved: boolean;
   onUpdated: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [googleReady, setGoogleReady] = useState(false);
+  const [inheritedLogo, setInheritedLogo] = useState<{ file: string; at: string } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/google")
+      .then((r) => r.json())
+      .then((d) => setGoogleReady(!!d.configured))
+      .catch(() => setGoogleReady(false));
+    // Forward-inherit: if Pre-Marketing already made a logo, show it until this phase regenerates.
+    if (!logo) {
+      fetch(`/api/projects/${projectId}/assets?kind=logo`)
+        .then((r) => r.json())
+        .then((d) => {
+          const list = d.assets || [];
+          const last = list[list.length - 1];
+          if (last) setInheritedLogo({ file: last.file, at: last.createdAt });
+        })
+        .catch(() => {});
+    }
+  }, [projectId, logo]);
+
+  const effectiveLogo = logo ?? inheritedLogo;
 
   async function post(path: string, body?: any) {
     setBusy(true);
@@ -129,7 +156,15 @@ export function ProductDesign({
         </div>
       )}
 
-      <BrandingCard brief={brief} busy={busy} onRegen={() => post("product-design/generate-brief")} />
+      <BrandingCard
+        brief={brief}
+        busy={busy}
+        onRegen={() => post("product-design/generate-brief")}
+        projectId={projectId}
+        logo={effectiveLogo}
+        googleReady={googleReady}
+        onLogo={() => post("product-design/logo")}
+      />
       {direction && (
         <Section title="Design direction">
           <p className="text-sm text-fg/90">
@@ -141,7 +176,14 @@ export function ProductDesign({
       )}
       <VisualCard visual={brief.visual} />
       <UxCard ux={brief.ux} />
-      <MockupPanel projectId={projectId} screens={brief.ux.screens} mockups={mockups} busy={busy} post={post} />
+      <MockupPanel
+        projectId={projectId}
+        screens={brief.ux.screens}
+        mockups={mockups}
+        mockupEngines={mockupEngines}
+        busy={busy}
+        post={post}
+      />
       <ComponentsCard components={brief.components} />
       <DosDontsCard d={brief.dos_and_donts} />
       {brief.open_risks.length > 0 && (
@@ -181,8 +223,25 @@ function Section({ title, children, action }: { title: string; children: React.R
   );
 }
 
-function BrandingCard({ brief, busy, onRegen }: { brief: Brief; busy: boolean; onRegen: () => void }) {
+function BrandingCard({
+  brief,
+  busy,
+  onRegen,
+  projectId,
+  logo,
+  googleReady,
+  onLogo,
+}: {
+  brief: Brief;
+  busy: boolean;
+  onRegen: () => void;
+  projectId: string;
+  logo: { file: string; at: string } | null;
+  googleReady: boolean;
+  onLogo: () => void;
+}) {
   const b = brief.branding;
+  const logoUrl = logo ? `/api/projects/${projectId}/assets?file=${logo.file}` : null;
   return (
     <div className="card p-5">
       <div className="flex items-center justify-between">
@@ -191,8 +250,35 @@ function BrandingCard({ brief, busy, onRegen }: { brief: Brief; busy: boolean; o
           {busy ? "…" : "Regenerate"}
         </button>
       </div>
-      <h3 className="mt-2 text-2xl font-semibold text-fg">{b.name}</h3>
-      <p className="text-sm text-muted">{b.tagline}</p>
+
+      <div className="mt-2 flex items-start gap-4">
+        <div className="min-w-0 flex-1">
+          <h3 className="text-2xl font-semibold text-fg">{b.name}</h3>
+          <p className="text-sm text-muted">{b.tagline}</p>
+        </div>
+        <div className="shrink-0 text-center">
+          {logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={logoUrl}
+              alt={`${b.name} logo`}
+              className="h-20 w-20 rounded-lg border border-edge object-contain bg-ink/40"
+            />
+          ) : (
+            <div className="flex h-20 w-20 items-center justify-center rounded-lg border border-dashed border-edge text-[10px] text-muted">
+              no logo
+            </div>
+          )}
+          {googleReady ? (
+            <button className="btn-ghost mt-1.5 text-[11px]" disabled={busy} onClick={onLogo}>
+              {busy ? "…" : logo ? "Regenerate" : "Generate logo"}
+            </button>
+          ) : (
+            <p className="mt-1.5 max-w-[5rem] text-[10px] leading-tight text-muted">Connect Google below for a logo</p>
+          )}
+        </div>
+      </div>
+
       <div className="mt-3 flex flex-wrap gap-1.5">
         {b.personality.map((p) => (
           <span key={p} className="rounded-full border border-edge px-2.5 py-0.5 text-[11px] text-fg/80">
@@ -312,35 +398,125 @@ function UxCard({ ux }: { ux: Brief["ux"] }) {
   );
 }
 
+function StitchConnect() {
+  const [ready, setReady] = useState<boolean | null>(null);
+  const [apiKey, setApiKey] = useState("");
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/google")
+      .then((r) => r.json())
+      .then((d) => setReady(!!d.configured))
+      .catch(() => setReady(false));
+  }, []);
+
+  async function connect() {
+    setBusy(true);
+    setError(null);
+    const res = await fetch("/api/google/configure", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apiKey }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!d.ok) return setError(d.error || "Failed to connect Google AI.");
+    setReady(true);
+    setOpen(false);
+  }
+
+  if (ready === null) return null;
+
+  if (ready) {
+    return (
+      <div className="mb-3 flex items-center gap-2 rounded-lg border border-accent2/30 bg-accent2/5 px-3 py-2">
+        <span className="text-[11px] font-semibold text-accent2">✦ Stitch-mode on</span>
+        <span className="text-[11px] text-muted">New mockups generate via Gemini.</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-3 rounded-lg border border-edge bg-edge/20 p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] text-muted">
+          <span className="text-fg/80 font-medium">Unlock Stitch-mode.</span> Connect Google (Gemini) to generate
+          screens via Stitch-style AI instead of Claude HTML. Get a free key at aistudio.google.com → API keys.
+        </p>
+        <button className="btn-ghost shrink-0" onClick={() => setOpen((v) => !v)}>
+          {open ? "Cancel" : "Connect"}
+        </button>
+      </div>
+      {open && (
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <input
+            className="input"
+            type="password"
+            placeholder="Google AI (Gemini) API key"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+          />
+          <button className="btn-primary shrink-0" disabled={busy || !apiKey} onClick={connect}>
+            {busy ? "Connecting…" : "Connect"}
+          </button>
+        </div>
+      )}
+      {error && <p className="text-sm text-bad">{error}</p>}
+    </div>
+  );
+}
+
+const ENGINE_LABEL: Record<string, string> = {
+  "google-stitch": "Stitch",
+  "claude-html": "Claude",
+};
+
 function MockupPanel({
   projectId,
   screens,
   mockups,
+  mockupEngines,
   busy,
   post,
 }: {
   projectId: string;
   screens: Screen[];
   mockups: Record<string, string> | null;
+  mockupEngines: Record<string, string> | null;
   busy: boolean;
   post: (path: string, body?: any) => Promise<boolean>;
 }) {
   const keyScreens = screens.filter((s) => s.is_key_screen).slice(0, 4);
   const done = mockups || {};
+  const engines = mockupEngines || {};
   const previewUrl = (id: string) => `/api/projects/${projectId}/product-design/preview?screen=${id}`;
 
   return (
     <Section title="HTML mockups — key screens">
       <p className="text-xs text-muted mb-3">
-        High-fidelity static previews built from the tokens above. Open them in a browser, regenerate any screen you
-        don’t like, or download the HTML.
+        High-fidelity, animated previews built from the tokens above — purposeful motion (scroll reveals, hover, subtle
+        WebGL where it fits), reduced-motion aware. Open them in a browser, regenerate any screen, or download the HTML.
       </p>
+      <div className="mb-3">
+        <EngineSelector projectId={projectId} />
+      </div>
+      <StitchConnect />
       <div className="space-y-2">
         {keyScreens.map((s) => {
           const ready = !!done[s.id];
+          const engineLabel = ENGINE_LABEL[engines[s.id]] || null;
           return (
             <div key={s.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-edge px-3 py-2.5">
-              <span className="text-sm text-fg">{s.name}</span>
+              <span className="flex items-center gap-2 text-sm text-fg">
+                {s.name}
+                {ready && engineLabel && (
+                  <span className="rounded-full border border-edge px-2 py-0.5 text-[10px] text-muted">
+                    {engineLabel}
+                  </span>
+                )}
+              </span>
               <div className="flex items-center gap-2">
                 {ready && (
                   <>

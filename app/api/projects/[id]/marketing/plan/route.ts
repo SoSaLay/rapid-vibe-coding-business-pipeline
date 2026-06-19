@@ -38,6 +38,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     await savePhaseState(params.id, "marketing-sales", {
       ...prior,
       plan,
+      prodUrl,
       posts: prior.posts ?? [],
       postedIds: prior.postedIds ?? [],
       checklistDone: prior.checklistDone ?? [],

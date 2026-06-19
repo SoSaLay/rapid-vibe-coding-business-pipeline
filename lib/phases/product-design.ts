@@ -243,7 +243,8 @@ export async function generateDesignBrief(
   market: Record<string, any> | null,
   kit: Record<string, any> | null,
   systemIds: string[],
-  productTitle: string
+  productTitle: string,
+  brandDirection?: Record<string, any> | null
 ): Promise<Record<string, unknown>> {
   const provider = activeProvider();
   const [rules, reference] = await Promise.all([
@@ -260,6 +261,12 @@ export async function generateDesignBrief(
     (rules ? `\n\n---\n\n${rules}` : "") +
     (reference ? `\n\n---\n\n${reference}` : "");
 
+  const directionBlock = brandDirection
+    ? `CHOSEN BRAND DIRECTION (the founder already picked this — honor it in palette, type, logo, and overall feel):\n` +
+      `${brandDirection.name || ""}: ${brandDirection.vibe || ""} | colors: ${brandDirection.color_feel || ""} | ` +
+      `logo: ${brandDirection.logo_concept || ""} | UI feel: ${brandDirection.ui_feel || ""}\n\n`
+    : "";
+
   return provider.completeJson<Record<string, unknown>>({
     system,
     effort: "high",
@@ -271,6 +278,7 @@ export async function generateDesignBrief(
           `WORKING TITLE: ${productTitle}\n\nPRODUCT SPEC:\n${specToText(spec)}\n\n` +
           `MARKET RESEARCH:\n${marketToText(market)}\n\n` +
           `PRE-MARKETING (validated positioning):\n${kitToText(kit)}\n\n` +
+          directionBlock +
           "Produce the design spec.",
       },
     ],
@@ -285,8 +293,9 @@ const MOCKUP_SCHEMA = {
       type: "string",
       description:
         "A complete, self-contained HTML5 document for this one screen: <!doctype html> through </html>. " +
-        "Tailwind via https://cdn.tailwindcss.com, fonts via Google Fonts <link>. No other external resources, " +
-        "no JavaScript beyond what Tailwind's CDN needs. Realistic content — never lorem ipsum.",
+        "Tailwind via https://cdn.tailwindcss.com, fonts via Google Fonts <link>. A small amount of inline " +
+        "JavaScript IS allowed for tasteful animation (scroll-reveal via IntersectionObserver, micro-interactions); " +
+        "a lightweight Three.js hero accent via CDN is allowed only where it genuinely fits. Realistic content — never lorem ipsum.",
     },
   },
   required: ["html"],
@@ -317,7 +326,12 @@ export async function generateScreenMockup(
     "It must look like a real, shipped product — realistic data, real microcopy in the brand voice, " +
     "polished spacing and hierarchy. Obey the design tokens EXACTLY (hex values, fonts, radius, elevation). " +
     "Honor the responsive notes with Tailwind breakpoints (design mobile-first). " +
-    "Accessibility is non-negotiable: 4.5:1 contrast, 44px touch targets, visible labels, real SVG icons (never emoji)." +
+    "Accessibility is non-negotiable: 4.5:1 contrast, 44px touch targets, visible labels, real SVG icons (never emoji).\n\n" +
+    "MOTION: the screen must feel alive, not static. Add purposeful, performant animation where it helps — " +
+    "scroll-reveal entrances (IntersectionObserver), hover/press micro-interactions, loading shimmer/skeletons, " +
+    "smooth 150–300ms transitions, and a subtle animated gradient or (where it truly fits) a lightweight Three.js/WebGL " +
+    "hero accent. CSS-first; keep it tasteful, never distracting. ALWAYS wrap motion in a " +
+    "`@media (prefers-reduced-motion: reduce)` guard that disables it." +
     (taste ? `\n\n---\n\n${taste}` : "");
 
   const result = await provider.completeJson<{ html: string }>({

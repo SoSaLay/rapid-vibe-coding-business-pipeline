@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { EngineSelector } from "./EngineSelector";
 
 interface ContentPlatform {
   platform: string;
@@ -87,6 +88,7 @@ export function PreMarketing({
       <div className="space-y-4">
         {brief && <BriefView brief={brief} />}
         <KitView kit={kit} frameworks={frameworks} onRegen={generate} busy={busy} />
+        <BrandVisuals projectId={projectId} />
         <LaunchPanel projectId={projectId} kit={kit} onUpdated={onUpdated} />
       </div>
     );
@@ -167,6 +169,252 @@ function Copyable({ text }: { text: string }) {
 }
 
 /* ---------------- Stage 2 + 3: launch, track, decide ---------------- */
+type AssetRef = { file: string; at: string };
+const ASSET_KINDS: { key: "logo" | "hero" | "og"; label: string }[] = [
+  { key: "logo", label: "Logo" },
+  { key: "hero", label: "Hero image" },
+  { key: "og", label: "Share / OG image" },
+];
+
+interface DirectionOption {
+  id: string;
+  name: string;
+  vibe: string;
+  color_feel: string;
+  logo_concept: string;
+  ui_feel: string;
+  why_fits: string;
+}
+
+function DirectionPicker({ projectId, onSelected }: { projectId: string; onSelected: () => void }) {
+  const [options, setOptions] = useState<DirectionOption[]>([]);
+  const [selected, setSelected] = useState<DirectionOption | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/projects/${projectId}/pre-marketing/directions`)
+      .then((r) => r.json())
+      .then((d) => {
+        setOptions(d.options || []);
+        setSelected(d.selected || null);
+      })
+      .catch(() => {});
+  }, [projectId]);
+
+  async function explore() {
+    setBusy("explore");
+    setError(null);
+    const res = await fetch(`/api/projects/${projectId}/pre-marketing/directions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "propose" }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setBusy(null);
+    if (!res.ok) return setError(d.error || "Failed to explore directions.");
+    setOptions(d.options || []);
+  }
+
+  async function pick(id: string) {
+    setBusy(id);
+    setError(null);
+    const res = await fetch(`/api/projects/${projectId}/pre-marketing/directions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "select", id }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setBusy(null);
+    if (!res.ok) return setError(d.error || "Failed to select direction.");
+    setSelected(d.selected || null);
+    onSelected();
+  }
+
+  return (
+    <div className="rounded-lg border border-edge bg-edge/10 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[11px] uppercase tracking-wider text-muted">Creative direction</div>
+        <button className="btn-ghost text-[11px]" disabled={!!busy} onClick={explore}>
+          {busy === "explore" ? "Thinking…" : options.length ? "Re-explore" : "Explore directions"}
+        </button>
+      </div>
+      <p className="mt-1 text-[11px] text-muted">
+        See the thinking before anything is generated. Pick one — it seeds your logo, assets, landing page, and the
+        product UI.
+      </p>
+
+      {options.length > 0 && (
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          {options.map((o) => {
+            const isSel = selected?.id === o.id;
+            return (
+              <div
+                key={o.id}
+                className={`rounded-lg border p-3 ${isSel ? "border-accent2 bg-accent2/10" : "border-edge bg-ink/30"}`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-fg">{o.name}</span>
+                  {isSel && <span className="text-[10px] text-accent2">✓ chosen</span>}
+                </div>
+                <p className="mt-1 text-[11px] text-muted">{o.vibe}</p>
+                <p className="mt-1 text-[10px] text-muted">
+                  <span className="text-fg/70">Colors:</span> {o.color_feel}
+                </p>
+                <p className="mt-0.5 text-[10px] text-muted">
+                  <span className="text-fg/70">Logo:</span> {o.logo_concept}
+                </p>
+                <p className="mt-0.5 text-[10px] text-muted">
+                  <span className="text-fg/70">UI:</span> {o.ui_feel}
+                </p>
+                <button
+                  className={isSel ? "btn-ghost mt-2 text-[11px]" : "btn-primary mt-2 text-[11px]"}
+                  disabled={!!busy}
+                  onClick={() => pick(o.id)}
+                >
+                  {busy === o.id ? "…" : isSel ? "Chosen" : "Use this"}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {selected && options.length === 0 && (
+        <p className="mt-2 text-[11px] text-fg/80">
+          Direction: <span className="text-accent2">{selected.name}</span> — {selected.vibe}
+        </p>
+      )}
+      {error && <p className="mt-2 text-sm text-bad">{error}</p>}
+    </div>
+  );
+}
+
+function BrandVisuals({ projectId }: { projectId: string }) {
+  const [googleReady, setGoogleReady] = useState<boolean | null>(null);
+  const [apiKey, setApiKey] = useState("");
+  const [open, setOpen] = useState(false);
+  const [assets, setAssets] = useState<Record<string, AssetRef>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/google")
+      .then((r) => r.json())
+      .then((d) => setGoogleReady(!!d.configured))
+      .catch(() => setGoogleReady(false));
+    fetch(`/api/projects/${projectId}/pre-marketing/assets`)
+      .then((r) => r.json())
+      .then((d) => setAssets(d.assets || {}))
+      .catch(() => {});
+  }, [projectId]);
+
+  async function connect() {
+    setBusy("connect");
+    setError(null);
+    const res = await fetch("/api/google/configure", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apiKey }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setBusy(null);
+    if (!d.ok) return setError(d.error || "Failed to connect Google AI.");
+    setGoogleReady(true);
+    setOpen(false);
+  }
+
+  async function generate(kind: "all" | "logo" | "hero" | "og") {
+    setBusy(kind);
+    setError(null);
+    const res = await fetch(`/api/projects/${projectId}/pre-marketing/assets`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setBusy(null);
+    if (!res.ok) return setError(d.error || "Failed to generate brand visuals.");
+    setAssets(d.assets || {});
+  }
+
+  if (googleReady === null) return null;
+  const assetUrl = (file: string) => `/api/projects/${projectId}/assets?file=${file}`;
+
+  return (
+    <Section title="Brand visuals (Nano Banana)">
+      <p className="text-xs text-muted mb-3">
+        Generate a logo, hero, and share image from your positioning — they’re embedded straight into the landing page,
+        then carried forward and locked in Product Design.
+      </p>
+
+      <div className="mb-3 space-y-3">
+        <EngineSelector projectId={projectId} />
+        <DirectionPicker projectId={projectId} onSelected={() => {}} />
+      </div>
+
+      {!googleReady ? (
+        <div className="rounded-lg border border-edge bg-edge/20 p-3 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[11px] text-muted">
+              <span className="text-fg/80 font-medium">Connect Google (Gemini)</span> to generate brand visuals. Free
+              key at aistudio.google.com → API keys. Stored locally, reused by every phase.
+            </p>
+            <button className="btn-ghost shrink-0" onClick={() => setOpen((v) => !v)}>
+              {open ? "Cancel" : "Connect"}
+            </button>
+          </div>
+          {open && (
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <input
+                className="input"
+                type="password"
+                placeholder="Google AI (Gemini) API key"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+              />
+              <button className="btn-primary shrink-0" disabled={busy === "connect" || !apiKey} onClick={connect}>
+                {busy === "connect" ? "Connecting…" : "Connect"}
+              </button>
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-2">
+            {ASSET_KINDS.map(({ key, label }) => {
+              const a = assets[key];
+              return (
+                <div key={key} className="rounded-lg border border-edge p-2 text-center">
+                  {a ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={assetUrl(a.file)} alt={label} className="mx-auto h-20 w-full rounded object-contain bg-ink/40" />
+                  ) : (
+                    <div className="flex h-20 items-center justify-center rounded border border-dashed border-edge text-[10px] text-muted">
+                      {label}
+                    </div>
+                  )}
+                  <button
+                    className="btn-ghost mt-1.5 text-[11px]"
+                    disabled={!!busy}
+                    onClick={() => generate(key)}
+                  >
+                    {busy === key ? "…" : a ? "Regenerate" : "Generate"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          <button className="btn-primary mt-3" disabled={!!busy} onClick={() => generate("all")}>
+            {busy === "all" ? "Generating… (logo → hero → share)" : "Generate all brand visuals"}
+          </button>
+        </>
+      )}
+      {error && <p className="mt-2 text-sm text-bad">{error}</p>}
+    </Section>
+  );
+}
+
 function LaunchPanel({ projectId, kit, onUpdated }: { projectId: string; kit: Kit; onUpdated: () => void }) {
   const [sbReady, setSbReady] = useState<boolean | null>(null);
   const [sql, setSql] = useState("");
@@ -175,6 +423,7 @@ function LaunchPanel({ projectId, kit, onUpdated }: { projectId: string; kit: Ki
   const [serviceKey, setServiceKey] = useState("");
   const [tableMissing, setTableMissing] = useState(false);
   const [landingReady, setLandingReady] = useState(false);
+  const [threeHero, setThreeHero] = useState(false);
   const [metrics, setMetrics] = useState<{ total: number; presale_interest: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -209,7 +458,11 @@ function LaunchPanel({ projectId, kit, onUpdated }: { projectId: string; kit: Ki
   async function genLanding() {
     setBusy(true);
     setError(null);
-    const res = await fetch(`/api/projects/${projectId}/pre-marketing/landing`, { method: "POST" });
+    const res = await fetch(`/api/projects/${projectId}/pre-marketing/landing`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threeHero }),
+    });
     const d = await res.json();
     setBusy(false);
     if (!res.ok) return setError(d.error || "Failed to generate landing page.");
@@ -271,9 +524,14 @@ function LaunchPanel({ projectId, kit, onUpdated }: { projectId: string; kit: Ki
         <>
           <Section title="Landing page (Launch UI style)">
             <p className="text-xs text-muted mb-2">
-              Generates a self-contained page from your kit, with the waitlist form wired to Supabase. Preview it, then
+              Generates a self-contained page from your kit, with the waitlist form wired to Supabase. Tasteful motion is
+              always on (scroll reveals, animated gradient, hover lifts) and respects reduced-motion. Preview it, then
               deploy the HTML anywhere (Vercel / Netlify / Amplify / S3).
             </p>
+            <label className="mb-2 flex items-center gap-2 text-xs text-fg/80">
+              <input type="checkbox" className="accent-accent2" checked={threeHero} onChange={(e) => setThreeHero(e.target.checked)} />
+              Add a 3D animated hero (Three.js / WebGL) — heavier, best on a strong-visual brand
+            </label>
             <div className="flex flex-wrap items-center gap-3">
               <button className="btn-primary" disabled={busy} onClick={genLanding}>
                 {busy ? "Generating…" : landingReady ? "Regenerate page" : "Generate landing page"}
