@@ -424,6 +424,9 @@ function LaunchPanel({ projectId, kit, onUpdated }: { projectId: string; kit: Ki
   const [tableMissing, setTableMissing] = useState(false);
   const [landingReady, setLandingReady] = useState(false);
   const [threeHero, setThreeHero] = useState(false);
+  const [deployedUrl, setDeployedUrl] = useState<string | null>(null);
+  const [deploying, setDeploying] = useState(false);
+  const [deployLog, setDeployLog] = useState<string[]>([]);
   const [metrics, setMetrics] = useState<{ total: number; presale_interest: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -437,6 +440,10 @@ function LaunchPanel({ projectId, kit, onUpdated }: { projectId: string; kit: Ki
       })
       .catch(() => setSbReady(false));
     fetch(`/api/projects/${projectId}/pre-marketing/landing`).then((r) => setLandingReady(r.ok));
+    fetch(`/api/projects/${projectId}/pre-marketing/deploy`)
+      .then((r) => r.json())
+      .then((d) => setDeployedUrl(d.url || null))
+      .catch(() => {});
   }, [projectId]);
 
   async function connectSupabase() {
@@ -467,6 +474,18 @@ function LaunchPanel({ projectId, kit, onUpdated }: { projectId: string; kit: Ki
     setBusy(false);
     if (!res.ok) return setError(d.error || "Failed to generate landing page.");
     setLandingReady(true);
+  }
+
+  async function deploy() {
+    setDeploying(true);
+    setError(null);
+    setDeployLog([]);
+    const res = await fetch(`/api/projects/${projectId}/pre-marketing/deploy`, { method: "POST" });
+    const d = await res.json().catch(() => ({}));
+    setDeploying(false);
+    setDeployLog(d.log || []);
+    if (!res.ok) return setError(d.error || "Failed to deploy landing page.");
+    setDeployedUrl(d.url || null);
   }
 
   async function refreshSignups() {
@@ -547,6 +566,34 @@ function LaunchPanel({ projectId, kit, onUpdated }: { projectId: string; kit: Ki
                 </>
               )}
             </div>
+
+            {landingReady && (
+              <div className="mt-3 rounded-lg border border-edge bg-edge/10 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[11px] text-muted">
+                    <span className="text-fg/80 font-medium">Quick deploy</span> — ships this page to AWS Amplify at its
+                    own URL using your local <code className="text-accent2">aws</code> CLI (same setup Phase 8 uses). The
+                    live URL is baked in as the canonical/share URL.
+                  </p>
+                  <button className="btn-primary shrink-0" disabled={busy || deploying} onClick={deploy}>
+                    {deploying ? "Deploying… (~1–2 min)" : deployedUrl ? "Redeploy" : "Deploy to AWS Amplify"}
+                  </button>
+                </div>
+                {deployedUrl && (
+                  <p className="mt-2 text-xs text-fg/80">
+                    Live at{" "}
+                    <a className="text-accent2 hover:text-fg" href={deployedUrl} target="_blank" rel="noreferrer">
+                      {deployedUrl} ↗
+                    </a>
+                  </p>
+                )}
+                {deployLog.length > 0 && (
+                  <pre className="mt-2 whitespace-pre-wrap rounded bg-ink p-2 text-[11px] text-fg/70">
+                    {deployLog.join("\n")}
+                  </pre>
+                )}
+              </div>
+            )}
           </Section>
 
           <Section title="Waitlist dashboard" action={<button className="text-[11px] text-accent2 hover:text-fg" onClick={refreshSignups}>refresh</button>}>

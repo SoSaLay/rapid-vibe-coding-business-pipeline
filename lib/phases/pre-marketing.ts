@@ -55,6 +55,21 @@ const KIT_SCHEMA = {
       type: "object",
       additionalProperties: false,
       properties: {
+        primary_keyword: {
+          type: "string",
+          description:
+            "The single bottom-of-funnel / commercial-intent search query this page targets (what a ready-to-act ICP would actually type, e.g. 'AI meal planner for busy parents'). Specific long-tail, not a broad head term.",
+        },
+        seo_title: {
+          type: "string",
+          description:
+            "SEO title tag, 50-60 characters. Front-load the primary_keyword, then a concrete promise. NOT the marketing headline — this is for search snippets. e.g. 'AI Meal Planner for Busy Parents — Dinner in 5 Min'.",
+        },
+        seo_description: {
+          type: "string",
+          description:
+            "Meta description, 150-160 characters. Use the primary_keyword naturally, promise a specific outcome, end with a soft CTA. This is the search snippet that earns the click.",
+        },
         problem_statement: { type: "string", description: "Specific audience + problem + outcome, one sentence." },
         headline: { type: "string", description: "Outcome-focused, ≤10 words." },
         subheadline: { type: "string", description: "The mechanism / how it works." },
@@ -69,7 +84,7 @@ const KIT_SCHEMA = {
           },
         },
       },
-      required: ["problem_statement", "headline", "subheadline", "benefit_bullets", "faq"],
+      required: ["primary_keyword", "seo_title", "seo_description", "problem_statement", "headline", "subheadline", "benefit_bullets", "faq"],
     },
     offer: {
       type: "object",
@@ -270,7 +285,13 @@ export async function generateKit(
     "You are a SaaS marketer creating a pre-launch validation campaign: a landing page, a waitlist, and a " +
     "de-risking pre-sell offer designed to prove real demand with a small budget. Write sharp, specific, " +
     "conversion-focused copy grounded in the real evidence provided. Reuse the real quotes as social proof. " +
-    "Money is the strongest signal — make the offer ask for a real commitment." +
+    "Money is the strongest signal — make the offer ask for a real commitment.\n\n" +
+    "SEO matters: the page must be findable by AND convert ready-to-act searchers. Choose a single bottom-of-funnel, " +
+    "commercial-intent primary_keyword (specific long-tail, what an ICP about to act would actually type — not a broad " +
+    "head term). Write the seo_title (50-60 chars, keyword front-loaded) and seo_description (150-160 chars, keyword used " +
+    "naturally, specific outcome, soft CTA) for the search snippet — these are distinct from the on-page marketing headline. " +
+    "Write the faq answers to directly resolve real conversion-blocking objections in plain, specific language so they can " +
+    "also be cited by AI search engines." +
     (frameworks ? `\n\n---\n\n${frameworks}` : "");
 
   return provider.completeJson<Record<string, unknown>>({
