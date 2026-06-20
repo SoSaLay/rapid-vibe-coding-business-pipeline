@@ -41,6 +41,15 @@ export default function Home() {
     refresh();
   }
 
+  async function archiveProject(id: string) {
+    await fetch(`/api/projects/${id}/archive`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ archived: true }),
+    });
+    refresh();
+  }
+
   return (
     <main className="paper mx-auto max-w-6xl px-4 py-8">
       <header className="mb-8 flex items-start justify-between gap-4">
@@ -73,12 +82,11 @@ export default function Home() {
                 </div>
               )}
               {active.map((p) => (
-                <Link
+                <div
                   key={p.id}
-                  href={`/project/${p.id}`}
-                  className="card flex items-center justify-between p-4 hover:border-accent transition-colors"
+                  className="card flex items-center justify-between gap-3 p-4 hover:border-accent transition-colors"
                 >
-                  <div>
+                  <Link href={`/project/${p.id}`} className="min-w-0 flex-1">
                     <div className="text-sm font-medium text-fg">
                       {p.title}
                       {(p.cycle ?? 1) > 1 && (
@@ -90,9 +98,23 @@ export default function Home() {
                     <div className="text-xs text-muted">
                       {new Date(p.created_at).toLocaleString()} · at {p.current_phase}
                     </div>
+                  </Link>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      onClick={() => archiveProject(p.id)}
+                      className="rounded-full bg-edge px-3 py-1 text-xs text-muted hover:text-fg"
+                    >
+                      Archive
+                    </button>
+                    <DeleteIdea id={p.id} title={p.title} onDeleted={refresh} />
+                    <Link
+                      href={`/project/${p.id}`}
+                      className="rounded-full bg-edge px-3 py-1 text-xs text-muted hover:text-fg"
+                    >
+                      Open →
+                    </Link>
                   </div>
-                  <span className="rounded-full bg-edge px-3 py-1 text-xs text-muted">Open →</span>
-                </Link>
+                </div>
               ))}
             </div>
           </section>
@@ -115,12 +137,15 @@ export default function Home() {
                           {new Date(p.created_at).toLocaleString()} · archived
                         </div>
                       </Link>
-                      <button
-                        onClick={() => unarchive(p.id)}
-                        className="rounded-full bg-edge px-3 py-1 text-xs text-muted hover:text-fg"
-                      >
-                        Unarchive
-                      </button>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <button
+                          onClick={() => unarchive(p.id)}
+                          className="rounded-full bg-edge px-3 py-1 text-xs text-muted hover:text-fg"
+                        >
+                          Unarchive
+                        </button>
+                        <DeleteIdea id={p.id} title={p.title} onDeleted={refresh} />
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -130,5 +155,82 @@ export default function Home() {
         </div>
       </div>
     </main>
+  );
+}
+
+/**
+ * Permanent-delete control with a type-the-name second factor. Collapsed to a
+ * small "Delete" button; expands into a confirm panel where the exact idea title
+ * must be typed before the irreversible delete is enabled.
+ */
+function DeleteIdea({ id, title, onDeleted }: { id: string; title: string; onDeleted: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const matches = confirm.trim() === title.trim();
+
+  async function remove() {
+    setBusy(true);
+    setError(null);
+    const res = await fetch(`/api/projects/${id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmTitle: confirm.trim() }),
+    });
+    setBusy(false);
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      return setError(d.error || "Failed to delete.");
+    }
+    onDeleted();
+  }
+
+  return (
+    <span className="relative inline-block">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="rounded-full bg-edge px-3 py-1 text-xs text-muted hover:text-bad"
+      >
+        Delete
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full z-10 mt-2 w-72 rounded-lg border border-bad/40 bg-paper p-3 text-left shadow-lg">
+      <p className="text-xs text-fg">
+        Permanently delete this idea and <span className="font-medium">all its data</span>? This can’t be undone.
+      </p>
+      <p className="mt-2 text-[11px] text-muted">
+        Type <span className="font-medium text-fg">{title}</span> to confirm:
+      </p>
+      <input
+        autoFocus
+        value={confirm}
+        onChange={(e) => setConfirm(e.target.value)}
+        placeholder={title}
+        className="input mt-1 text-xs"
+      />
+      {error && <p className="mt-1 text-[11px] text-bad">{error}</p>}
+      <div className="mt-2 flex items-center justify-end gap-2">
+        <button
+          onClick={() => {
+            setOpen(false);
+            setConfirm("");
+            setError(null);
+          }}
+          className="rounded-full bg-edge px-3 py-1 text-xs text-muted hover:text-fg"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={remove}
+          disabled={!matches || busy}
+          className="rounded-full bg-bad px-3 py-1 text-xs text-onbright disabled:opacity-40"
+        >
+          {busy ? "Deleting…" : "Delete permanently"}
+        </button>
+      </div>
+        </div>
+      )}
+    </span>
   );
 }

@@ -291,6 +291,21 @@ export async function setArchived(projectId: string, archived: boolean): Promise
   return meta;
 }
 
+/**
+ * PERMANENTLY delete a project and everything under its directory. Irreversible —
+ * the API gates this behind an explicit type-the-name confirmation. Returns false
+ * if the project doesn't exist.
+ */
+export async function deleteProject(projectId: string): Promise<boolean> {
+  const dir = projectDir(projectId);
+  // Defense in depth: never let an id escape PROJECTS_ROOT, even though ids are UUIDs.
+  const resolved = path.resolve(dir);
+  if (path.dirname(resolved) !== path.resolve(PROJECTS_ROOT)) return false;
+  if (!(await getProject(projectId))) return false;
+  await fs.rm(resolved, { recursive: true, force: true });
+  return true;
+}
+
 /** Skip an OPTIONAL phase and unlock the next one (no artifact produced). */
 export async function skipPhase(projectId: string, phase: PhaseId): Promise<ProjectMeta | null> {
   const meta = await getProject(projectId);
