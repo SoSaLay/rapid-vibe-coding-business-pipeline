@@ -18,6 +18,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     patch.designEngine = body.designEngine;
   }
   if (body.brandDirection && typeof body.brandDirection === "object") patch.brandDirection = body.brandDirection;
+  if (typeof body.emailEnabled === "boolean") patch.emailEnabled = body.emailEnabled;
+  if (typeof body.emailProvider === "string") patch.emailProvider = body.emailProvider;
   const next = await saveProjectSettings(params.id, patch);
   return NextResponse.json(next);
 }

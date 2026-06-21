@@ -56,7 +56,7 @@ export default function Home() {
     <main className="paper mx-auto max-w-6xl px-4 py-8">
       <header className="mb-8 flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-fg">Rapid Vibe Coding Pipeline</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-fg">Rapid Vibe Coding Business Pipeline</h1>
           <p className="mt-1 text-sm text-muted">From a spoken idea to a shipped, marketed product — one phase at a time.</p>
         </div>
         <div className="mt-1 flex shrink-0 items-center gap-2">

@@ -323,8 +323,8 @@ export function IdeaCapture({ onCreated }: { onCreated: () => void }) {
                 >
                   github.com/settings/personal-access-tokens
                 </a>{" "}
-                with <span className="text-fg/70">Repository → Contents: Read-only</span>. Saving it once in onboarding reuses
-                it for every import.
+                with <span className="text-fg/70">Repository → Contents: Read-only</span>. Paste it here when you import a
+                private repo.
               </p>
             </div>
           </details>

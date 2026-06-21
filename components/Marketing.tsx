@@ -191,7 +191,7 @@ export function Marketing({
         onToggle={(id, done) => post("track", { checklistId: id, done })}
       />
 
-      {plan.waitlist_email && <WaitlistEmailView email={plan.waitlist_email} />}
+      {plan.waitlist_email && <WaitlistEmailView email={plan.waitlist_email} projectId={projectId} />}
 
       <StrategyView plan={plan} />
 
@@ -645,17 +645,68 @@ function ChecklistRow({
 
 /* ---------------- Waitlist email + strategy + sign-off ---------------- */
 
-function WaitlistEmailView({ email }: { email: WaitlistEmail }) {
+function WaitlistEmailView({ email, projectId }: { email: WaitlistEmail; projectId: string }) {
   const full = `Subject: ${email.subject}\nPreview: ${email.preview_text}\n\n${email.body_markdown}`;
+  const [emailEnabled, setEmailEnabled] = useState<boolean | null | undefined>(undefined);
+  const [connected, setConnected] = useState(false);
+  const [audienceReady, setAudienceReady] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/projects/${projectId}/settings`)
+      .then((r) => r.json())
+      .then((d) => setEmailEnabled(d.emailEnabled))
+      .catch(() => setEmailEnabled(undefined));
+    fetch(`/api/projects/${projectId}/pre-marketing/broadcast`)
+      .then((r) => r.json())
+      .then((d) => {
+        setConnected(!!d.connected);
+        setAudienceReady(!!d.syncedCount);
+      })
+      .catch(() => {});
+  }, [projectId]);
+
+  async function send() {
+    setBusy(true);
+    setError(null);
+    setNote(null);
+    const res = await fetch(`/api/projects/${projectId}/pre-marketing/broadcast`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "send", subject: email.subject, body: email.body_markdown }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) return setError(d.error || "Send failed.");
+    setNote("Broadcast sent to your synced audience. Stats in your Resend dashboard.");
+  }
+
   return (
     <Section title="Launch email — your waitlist" action={<Copyable text={full} label="copy email" />}>
       <p className="text-xs text-fg font-medium">{email.subject}</p>
       <p className="text-[11px] text-muted mb-2">{email.preview_text}</p>
       <pre className="whitespace-pre-wrap rounded bg-ink p-2.5 text-[11px] text-fg/85 max-h-64 overflow-y-auto">{email.body_markdown}</pre>
-      <p className="mt-2 text-[10px] text-muted">
-        These are the warmest leads you'll ever have — send this on launch day (your email tool, or a Resend connector
-        later).
-      </p>
+      {emailEnabled === true ? (
+        connected && audienceReady ? (
+          <div className="mt-2">
+            <button className="btn-primary text-xs" disabled={busy} onClick={send}>
+              {busy ? "Sending…" : "Send via Resend →"}
+            </button>
+            {note && <p className="mt-2 text-[11px] text-ok">{note}</p>}
+            {error && <p className="mt-2 text-[11px] text-bad">{error}</p>}
+          </div>
+        ) : (
+          <p className="mt-2 text-[10px] text-muted">
+            Connect Resend and sync your waitlist in the Pre-Marketing phase to send this with one click.
+          </p>
+        )
+      ) : (
+        <p className="mt-2 text-[10px] text-muted">
+          These are the warmest leads you'll ever have — send this on launch day from your email tool.
+        </p>
+      )}
     </Section>
   );
 }

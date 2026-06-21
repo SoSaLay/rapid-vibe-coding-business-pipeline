@@ -6,13 +6,16 @@ import { useCallback, useEffect, useState } from "react";
 
 export interface OnboardingStatus {
   anthropic: boolean;
+  openai: boolean;
+  /** Which engine the pipeline runs on ("ai-anthropic" | "ai-openai"). */
+  activeLlm: string;
   exa: boolean;
   google: boolean;
   supabase: boolean;
-  github: boolean;
-  /** LLM engine connected — gates pipeline progression. */
+  resend: boolean;
+  /** An LLM engine (Claude OR OpenAI) connected — gates pipeline progression. */
   requiredComplete: boolean;
-  /** Every service connected — drives the "complete" (green) button state. */
+  /** Every slot connected — drives the "complete" (green) button state. */
   allComplete: boolean;
 }
 
@@ -39,8 +42,49 @@ interface Field {
   label: string;
   type?: string;
 }
+/* ---------------- AI engine (LLM) options ---------------- */
+
+interface LlmOption {
+  id: "ai-anthropic" | "ai-openai";
+  statusKey: "anthropic" | "openai";
+  label: string;
+  recommended?: boolean;
+  docs: string[];
+  docsUrl: string;
+}
+
+const LLM_OPTIONS: LlmOption[] = [
+  {
+    id: "ai-anthropic",
+    statusKey: "anthropic",
+    label: "Claude (Anthropic)",
+    recommended: true,
+    docsUrl: "https://console.anthropic.com/settings/keys",
+    docs: [
+      "Sign in at console.anthropic.com (create an account if you don't have one).",
+      "Add a payment method under Billing — a card on file is required before any key works.",
+      "Go to Settings → API Keys (console.anthropic.com/settings/keys).",
+      "Click 'Create Key', give it a name, then 'Create Key'.",
+      "Copy the key (starts with sk-ant-) — it's shown only once — and paste it below.",
+    ],
+  },
+  {
+    id: "ai-openai",
+    statusKey: "openai",
+    label: "OpenAI (ChatGPT)",
+    docsUrl: "https://platform.openai.com/api-keys",
+    docs: [
+      "Sign in at platform.openai.com.",
+      "Add credit under Settings → Billing (API use needs a balance; $5 minimum).",
+      "Go to Settings → API keys (platform.openai.com/api-keys).",
+      "Click 'Create new secret key', then copy it (sk-…) — it's shown only once.",
+      "Paste it below. Uses gpt-5.5 by default; set OPENAI_MODEL to pick another model.",
+    ],
+  },
+];
+
 interface Service {
-  id: keyof Omit<OnboardingStatus, "requiredComplete" | "allComplete">;
+  id: "exa" | "google" | "supabase" | "resend";
   label: string;
   required?: boolean;
   /** Why it matters / what connecting it unlocks. */
@@ -55,22 +99,6 @@ interface Service {
 
 const SERVICES: Service[] = [
   {
-    id: "anthropic",
-    label: "Claude (Anthropic)",
-    required: true,
-    unlocks: "The AI engine behind every phase — the pipeline can't run without it.",
-    help: "Get a key at console.anthropic.com → Settings → API Keys. Stored locally, reused everywhere.",
-    docsUrl: "https://console.anthropic.com/settings/keys",
-    docs: [
-      "Sign in at console.anthropic.com (create an account if you don't have one).",
-      "Add a payment method under Billing — a card on file is required before any key works.",
-      "Go to Settings → API Keys (console.anthropic.com/settings/keys).",
-      "Click “Create Key”, give it a name, then “Create Key”.",
-      "Copy the key (starts with sk-ant-) — it's shown only once — and paste it below.",
-    ],
-    fields: [{ name: "apiKey", label: "Anthropic API key", type: "password" }],
-  },
-  {
     id: "exa",
     label: "Exa (market search)",
     unlocks: "Unlocks Market Research — live demand & competitor signal for your idea.",
@@ -78,8 +106,8 @@ const SERVICES: Service[] = [
     docsUrl: "https://dashboard.exa.ai/api-keys",
     docs: [
       "Sign in at dashboard.exa.ai (free to start).",
-      "Open “API Keys” in the left menu (dashboard.exa.ai/api-keys).",
-      "Click “+ Create new key” and give it a reference name.",
+      "Open 'API Keys' in the left menu (dashboard.exa.ai/api-keys).",
+      "Click '+ Create new key' and give it a reference name.",
       "Copy the key — it's only shown once — and paste it below.",
     ],
     fields: [{ name: "apiKey", label: "Exa API key", type: "password" }],
@@ -92,8 +120,8 @@ const SERVICES: Service[] = [
     docsUrl: "https://aistudio.google.com/app/apikey",
     docs: [
       "Go to aistudio.google.com and sign in with your Google account; accept the terms on first visit.",
-      "Click “Get API key” in the left sidebar (aistudio.google.com/app/apikey).",
-      "Click “Create API key” → “Create API key in new project”.",
+      "Click 'Get API key' in the left sidebar (aistudio.google.com/app/apikey).",
+      "Click 'Create API key' → 'Create API key in new project'.",
       "Copy the key (starts with AIza) and paste it below. Generous free tier — no card needed to start.",
     ],
     fields: [{ name: "apiKey", label: "Google AI (Gemini) API key", type: "password" }],
@@ -105,11 +133,12 @@ const SERVICES: Service[] = [
     help: "Free project at supabase.com → Project Settings → API Keys.",
     docsUrl: "https://supabase.com/dashboard",
     docs: [
-      "Create a free project at supabase.com (New project).",
-      "Project URL: Settings → API (or the green “Connect” button) — looks like https://xxxx.supabase.co.",
-      "Keys: Settings → API Keys → open the “Legacy API Keys” tab (this app uses the anon + service_role keys).",
+      "Create a free project at supabase.com (New project). Leave 'Automatic RLS' OFF during creation.",
+      "Once the project is created, go to Settings in the left-hand sidebar, then open API Keys.",
+      "At the top of the API Keys page, switch to the legacy anon / service_role keys.",
       "Copy the anon (public) key and the service_role key — keep service_role secret, server-side only.",
-      "Paste the URL and both keys below.",
+      "Project URL: click the green 'Connect' button at the top, stay on the App Frameworks (client library) tab, and scroll down to the .env variables — your URL (https://xxxx.supabase.co) is listed there.",
+      "Paste the URL and both keys below, then run the SQL snippet that appears after saving to create the signups table + RLS policy.",
     ],
     fields: [
       { name: "url", label: "Project URL (https://xxxx.supabase.co)" },
@@ -118,37 +147,57 @@ const SERVICES: Service[] = [
     ],
   },
   {
-    id: "github",
-    label: "GitHub (import repos)",
-    unlocks: "Unlocks importing PRIVATE repos in Business Owner. Public repos work without it.",
-    help: "Fine-grained token at github.com → Settings → Developer settings → Fine-grained tokens.",
-    docsUrl: "https://github.com/settings/personal-access-tokens/new",
+    id: "resend",
+    label: "Resend (email)",
+    unlocks: "Unlocks waitlist broadcasts + product/marketing email (opt-in per project).",
+    help: "Free key at resend.com → API Keys. Auth/billing emails stay with Clerk/Stripe.",
+    docsUrl: "https://resend.com/api-keys",
     docs: [
-      "Only needed for private repos — public repos import with no token.",
-      "Go to github.com → Settings → Developer settings → Fine-grained tokens → “Generate new token”.",
-      "Pick the Resource owner and the repositories you'll import (or “All repositories”).",
-      "Under Repository permissions, set Contents → Read-only (Metadata is included automatically).",
-      "Click “Generate token”, copy it (shown once: github_pat_… or ghp_…), and paste it below.",
+      "Sign up free at resend.com — 3,000 emails/mo (100/day), no card to start.",
+      "Open 'API Keys' in the left sidebar (resend.com/api-keys) → 'Create API Key' (Full access or Sending access).",
+      "Copy the key (starts with re_) — it's shown once — and paste it below.",
+      "Optional, to send from your own address: go to Domains → add your domain → add the shown DNS records at your registrar. Until then, sends use Resend's test address to your own inbox.",
+      "No Supabase setup is needed — the pipeline bridges your waitlist to Resend automatically.",
     ],
-    fields: [{ name: "token", label: "GitHub token (github_pat_… / ghp_…)", type: "password" }],
+    fields: [{ name: "apiKey", label: "Resend API key (re_…)", type: "password" }],
   },
 ];
+
+async function connectLlm(id: LlmOption["id"], apiKey: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch("/api/ai/configure", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider: id, credentials: { apiKey } }),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok || d.ok === false) return { ok: false, error: d.error || "Connection failed." };
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || "Network error." };
+  }
+}
+
+async function activateLlm(id: LlmOption["id"]): Promise<void> {
+  await fetch("/api/ai/active", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider: id }),
+  }).catch(() => {});
+}
 
 async function connectService(id: Service["id"], values: Record<string, string>): Promise<{ ok: boolean; error?: string }> {
   let endpoint = "";
   let payload: Record<string, any> = {};
-  if (id === "anthropic") {
-    endpoint = "/api/ai/configure";
-    payload = { provider: "ai-anthropic", credentials: { apiKey: values.apiKey } };
-  } else if (id === "exa") {
+  if (id === "exa") {
     endpoint = "/api/exa/configure";
     payload = { apiKey: values.apiKey };
   } else if (id === "google") {
     endpoint = "/api/google/configure";
     payload = { apiKey: values.apiKey };
-  } else if (id === "github") {
-    endpoint = "/api/github/configure";
-    payload = { token: values.token };
+  } else if (id === "resend") {
+    endpoint = "/api/email/configure";
+    payload = { apiKey: values.apiKey };
   } else {
     endpoint = "/api/supabase/configure";
     payload = { url: values.url, anonKey: values.anonKey, serviceKey: values.serviceKey };
@@ -275,6 +324,156 @@ function ServiceRow({
   );
 }
 
+/* ---------------- AI engine section (Claude / OpenAI) ---------------- */
+
+function LlmRow({
+  option,
+  connected,
+  isActive,
+  onConnected,
+  onActivate,
+}: {
+  option: LlmOption;
+  connected: boolean;
+  isActive: boolean;
+  onConnected: () => void;
+  onActivate: (id: LlmOption["id"]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  const [apiKey, setApiKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit() {
+    setBusy(true);
+    setError(null);
+    const r = await connectLlm(option.id, apiKey.trim());
+    setBusy(false);
+    if (!r.ok) return setError(r.error || "Connection failed.");
+    setOpen(false);
+    setApiKey("");
+    onConnected();
+  }
+
+  return (
+    <div className="rounded-lg border border-edge bg-paper/40 p-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span
+            className={`flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold ${
+              connected ? "bg-ok text-onbright" : "bg-bad/20 text-bad"
+            }`}
+          >
+            {connected ? "✓" : "✕"}
+          </span>
+          <span className="text-sm font-medium text-fg">{option.label}</span>
+          {option.recommended && (
+            <span className="rounded bg-accent2/15 px-1.5 py-0.5 text-[10px] text-accent2">Default</span>
+          )}
+          <button
+            type="button"
+            onClick={() => setShowHelp((v) => !v)}
+            aria-label={`How to get a ${option.label} key`}
+            aria-expanded={showHelp}
+            title="How to get this key"
+            className={`flex h-4 w-4 items-center justify-center rounded-full border text-[10px] font-bold transition-colors ${
+              showHelp ? "border-accent2 bg-accent2/15 text-accent2" : "border-edge text-muted hover:border-accent2 hover:text-accent2"
+            }`}
+          >
+            i
+          </button>
+        </div>
+        <div className="flex items-center gap-2">
+          {connected &&
+            (isActive ? (
+              <span className="rounded-full bg-ok/15 px-2 py-0.5 text-[10px] font-medium text-ok">Active</span>
+            ) : (
+              <button className="btn-ghost text-[11px]" onClick={() => onActivate(option.id)}>
+                Use this
+              </button>
+            ))}
+          <button className="btn-ghost text-[11px]" onClick={() => setOpen((v) => !v)}>
+            {open ? "Cancel" : connected ? "Update" : "Connect"}
+          </button>
+        </div>
+      </div>
+
+      {showHelp && (
+        <div className="mt-2 rounded-lg border border-accent2/30 bg-accent2/5 p-3">
+          <p className="mb-1.5 text-[11px] font-medium text-fg">How to get this key</p>
+          <ol className="list-decimal space-y-1 pl-4 text-[11px] text-fg/85">
+            {option.docs.map((step, i) => (
+              <li key={i}>{step}</li>
+            ))}
+          </ol>
+          <a
+            href={option.docsUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-2 inline-block text-[11px] font-medium text-accent2 hover:text-fg"
+          >
+            Open {new URL(option.docsUrl).host} ↗
+          </a>
+        </div>
+      )}
+
+      {open && (
+        <div className="mt-2 space-y-2">
+          <input
+            className="input text-xs"
+            type="password"
+            placeholder={`${option.label} API key`}
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+          />
+          {error && <p className="text-[11px] text-bad">{error}</p>}
+          <button className="btn-primary text-xs" disabled={busy || !apiKey.trim()} onClick={submit}>
+            {busy ? "Connecting…" : "Connect"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LlmEngineSection({ status, onChanged }: { status: OnboardingStatus | null; onChanged: () => void }) {
+  const anthropic = !!status?.anthropic;
+  const openai = !!status?.openai;
+  const active = status?.activeLlm || "ai-anthropic";
+
+  async function activate(id: LlmOption["id"]) {
+    await activateLlm(id);
+    onChanged();
+  }
+
+  return (
+    <div className="rounded-lg border border-accent/30 bg-accent/5 p-3">
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-semibold text-fg">AI engine</span>
+        <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[10px] text-accent">Required</span>
+      </div>
+      <p className="mt-1.5 text-[11px] text-muted">
+        Powers every phase. <span className="text-fg/80">Claude is the default and recommended</span> — or run the whole
+        pipeline on OpenAI/ChatGPT instead. You only need one; the pipeline uses the engine marked{" "}
+        <span className="text-ok">Active</span>.
+      </p>
+      <div className="mt-3 space-y-2">
+        {LLM_OPTIONS.map((opt) => (
+          <LlmRow
+            key={opt.id}
+            option={opt}
+            connected={opt.statusKey === "anthropic" ? anthropic : openai}
+            isActive={active === opt.id}
+            onConnected={onChanged}
+            onActivate={activate}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- modal ---------------- */
 
 export function OnboardingModal({
@@ -287,7 +486,11 @@ export function OnboardingModal({
   onChanged: () => void;
 }) {
   const connectedCount = status
-    ? Number(status.anthropic) + Number(status.exa) + Number(status.google) + Number(status.supabase) + Number(status.github)
+    ? Number(status.anthropic || status.openai) +
+      Number(status.exa) +
+      Number(status.google) +
+      Number(status.supabase) +
+      Number(status.resend)
     : 0;
 
   return (
@@ -303,8 +506,8 @@ export function OnboardingModal({
           <div>
             <h2 className="text-lg font-semibold text-fg">Complete onboarding</h2>
             <p className="mt-1 text-xs text-muted">
-              Connect your keys once — they’re stored locally and reused across every idea and phase. Only Claude is
-              required to start; each optional service unlocks more of the pipeline.
+              Connect your keys once — they’re stored locally and reused across every idea and phase. An AI engine
+              (Claude or OpenAI) is required to start; each optional service unlocks more of the pipeline.
             </p>
           </div>
           <button className="btn-ghost shrink-0 text-xs" onClick={onClose}>
@@ -328,10 +531,11 @@ export function OnboardingModal({
                 ? "◐ Ready to use · optional keys left"
                 : "✕ Required key missing"}
           </span>
-          <span className="text-muted">{connectedCount}/5 services connected</span>
+          <span className="text-muted">{connectedCount}/6 services connected</span>
         </div>
 
         <div className="mt-4 space-y-2">
+          <LlmEngineSection status={status} onChanged={onChanged} />
           {SERVICES.map((s) => (
             <ServiceRow
               key={s.id}
@@ -413,8 +617,8 @@ export function OnboardingGate({ reload }: { reload: () => void }) {
       <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-bad/15 text-bad">🔑</div>
       <h3 className="mt-3 text-base font-semibold text-fg">Complete onboarding to continue</h3>
       <p className="mx-auto mt-2 max-w-md text-sm text-muted">
-        Capturing ideas is free, but moving into the Product Owner phase needs the AI engine connected. Add your Claude
-        key (and any optional services) to unlock the rest of the pipeline.
+        Capturing ideas is free, but moving into the Product Owner phase needs an AI engine connected. Add your Claude or
+        OpenAI key (and any optional services) to unlock the rest of the pipeline.
       </p>
       <button className="btn-primary mt-4" onClick={() => setOpen(true)}>
         Complete onboarding →

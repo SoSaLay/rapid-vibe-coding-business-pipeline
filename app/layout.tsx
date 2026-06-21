@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "RVC Pipeline",
-  description: "Rapid Vibe Coding Business Pipeline",
+  title: "Rapid Vibe Coding Business Pipeline",
+  description: "Rapid Vibe Coding Business Pipeline — from a spoken idea to a shipped, marketed product.",
 };
 
 export const viewport: Viewport = {

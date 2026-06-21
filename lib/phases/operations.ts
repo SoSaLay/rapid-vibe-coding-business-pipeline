@@ -163,6 +163,11 @@ Tool URLs — use the real identifiers from the deploy manifest, with these cons
 - Supabase dashboard: https://supabase.com/dashboard (project-specific URL unknown — top level is fine)
 - GitHub: the repo URL from the manifest
 - Clerk: https://dashboard.clerk.com · Stripe: https://dashboard.stripe.com
+- Resend (email broadcasts): https://resend.com/emails · https://resend.com/broadcasts · https://resend.com/domains
+Include a Resend tool entry ONLY when "Email enabled: yes" is set below (the founder opted this
+product into email). Its checks: weekly — review bounce/complaint rate on recent sends (a rising
+rate hurts deliverability); monthly — confirm the sending domain is still verified (resend.com/domains)
+and rotate the API key. If email is not enabled, do NOT mention Resend at all.
 Group AWS surfaces sensibly: Amplify gets its own tool entry; CloudWatch/Billing checks can live
 under an "AWS (CloudWatch & Billing)" entry if you need them. 3-6 tool entries total.
 Also include a "Your live app" entry (url = the prod URL) with the simplest check of all: open it,
@@ -217,12 +222,14 @@ export async function generateOpsReport(
   deploy: Record<string, any>,
   spec: Record<string, any> | null,
   stackChoices: StackChoice[] | null,
-  ideaType?: string
+  ideaType?: string,
+  emailEnabled?: boolean
 ): Promise<OpsReport> {
   const provider = activeProvider();
   const contextParts = [deployContext(deploy)];
   if (stackChoices?.length) contextParts.push(`DEPLOYED TECH STACK:\n${stackToText(stackChoices)}`);
   if (spec) contextParts.push(specContext(spec, ideaType));
+  contextParts.push(`Email enabled: ${emailEnabled ? "yes (founder broadcasts via Resend)" : "no"}`);
 
   const result = await provider.completeJson<OpsReport>({
     system: OPS_SYSTEM,

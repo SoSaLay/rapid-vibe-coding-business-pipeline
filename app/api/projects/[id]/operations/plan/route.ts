@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { latestArtifact, getPhaseState, savePhaseState, getProject } from "@/lib/store";
+import { latestArtifact, getPhaseState, savePhaseState, getProject, getProjectSettings } from "@/lib/store";
 import { generateOpsReport, writeOpsGuide } from "@/lib/phases/operations";
 import { StackChoice } from "@/lib/stack";
 
@@ -27,8 +27,10 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     ? String(prod.url).startsWith("http") ? prod.url : `https://${prod.url}`
     : "(pending)";
 
+  const emailEnabled = (await getProjectSettings(params.id)).emailEnabled === true;
+
   try {
-    const report = await generateOpsReport(deployPayload, spec, stackChoices, ideaType);
+    const report = await generateOpsReport(deployPayload, spec, stackChoices, ideaType, emailEnabled);
 
     // Write OPS-GUIDE.md to the app workspace if it exists
     try {

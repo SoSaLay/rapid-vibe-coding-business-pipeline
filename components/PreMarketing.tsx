@@ -625,8 +625,253 @@ function LaunchPanel({ projectId, kit, onUpdated }: { projectId: string; kit: Ki
         </>
       )}
 
+      <EmailBroadcastHub projectId={projectId} />
+
       {error && <p className="text-sm text-bad">{error}</p>}
     </div>
+  );
+}
+
+/**
+ * Email broadcast hub — the project-wide opt-in + the manual send tool.
+ * The "Will this product use email?" choice is stored in project settings and
+ * gates every email surface across the pipeline. When opted in: connect Resend,
+ * sync the waitlist from Supabase into an audience, compose, and broadcast.
+ */
+function EmailBroadcastHub({ projectId }: { projectId: string }) {
+  const [emailEnabled, setEmailEnabled] = useState<boolean | null | undefined>(undefined);
+  const [connected, setConnected] = useState(false);
+  const [from, setFrom] = useState<string | null>(null);
+  const [apiKey, setApiKey] = useState("");
+  const [syncedCount, setSyncedCount] = useState<number | null>(null);
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [testTo, setTestTo] = useState("");
+  const [lastSentAt, setLastSentAt] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/projects/${projectId}/settings`)
+      .then((r) => r.json())
+      // boolean = decided; anything else = undecided (null) so we prompt the founder.
+      .then((d) => setEmailEnabled(typeof d.emailEnabled === "boolean" ? d.emailEnabled : null))
+      .catch(() => setEmailEnabled(null));
+    fetch(`/api/projects/${projectId}/pre-marketing/broadcast`)
+      .then((r) => r.json())
+      .then((d) => {
+        setConnected(!!d.connected);
+        setFrom(d.from || null);
+        setSyncedCount(d.syncedCount ?? null);
+        setLastSentAt(d.lastSentAt || null);
+        if (d.seed?.subject && !subject) setSubject(d.seed.subject);
+        if (d.seed?.body && !body) setBody(d.seed.body);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  async function setPref(value: boolean) {
+    setBusy("pref");
+    await fetch(`/api/projects/${projectId}/settings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ emailEnabled: value }),
+    }).catch(() => {});
+    setBusy(null);
+    setEmailEnabled(value);
+  }
+
+  async function post(action: string, payload: Record<string, unknown> = {}) {
+    setBusy(action);
+    setError(null);
+    setNote(null);
+    const res = await fetch(`/api/projects/${projectId}/pre-marketing/broadcast`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, ...payload }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setBusy(null);
+    if (!res.ok) {
+      setError(d.error || "Request failed.");
+      return null;
+    }
+    return d;
+  }
+
+  async function connect() {
+    setBusy("connect");
+    setError(null);
+    const res = await fetch("/api/email/configure", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apiKey }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setBusy(null);
+    if (!d.ok) return setError(d.error || "Failed to connect Resend.");
+    setApiKey("");
+    setConnected(true);
+    const status = await fetch(`/api/projects/${projectId}/pre-marketing/broadcast`).then((r) => r.json());
+    setFrom(status.from || null);
+  }
+
+  async function sync() {
+    const d = await post("sync");
+    if (d) {
+      setSyncedCount(d.syncedCount ?? 0);
+      setNote(`Synced ${d.syncedCount} of ${d.totalSignups} signups into your Resend audience.`);
+    }
+  }
+
+  async function sendTest() {
+    const d = await post("test", { to: testTo, subject, body });
+    if (d) setNote(`Test sent to ${testTo}${d.from ? ` from ${d.from}` : ""}. Check your inbox.`);
+  }
+
+  async function sendBroadcast() {
+    const d = await post("send", { subject, body });
+    if (d) {
+      setLastSentAt(new Date().toISOString());
+      setNote("Broadcast sent. Open/click stats appear in your Resend dashboard.");
+    }
+  }
+
+  // --- Opt-in gate: ask the question once, then gate everything on the answer ---
+  if (emailEnabled === undefined) return null; // still loading
+
+  if (emailEnabled === null) {
+    return (
+      <Section title="Email — will this product use it?">
+        <p className="text-xs text-muted mb-3">
+          Email here means <span className="text-fg/80">waitlist nurture, launch announcements, product/feature
+          updates, and marketing broadcasts</span> — sent by you, when you want. (Login & billing emails are handled
+          separately by your auth/payments provider and aren’t this.) Some products don’t need email at all. Your
+          choice applies across the whole pipeline and is reversible.
+        </p>
+        <div className="flex gap-3">
+          <button className="btn-primary" disabled={busy === "pref"} onClick={() => setPref(true)}>
+            Yes, enable email
+          </button>
+          <button className="btn-ghost" disabled={busy === "pref"} onClick={() => setPref(false)}>
+            No, this product won’t use email
+          </button>
+        </div>
+      </Section>
+    );
+  }
+
+  if (emailEnabled === false) {
+    return (
+      <Section title="Email — off for this product">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs text-muted">Email is disabled across the pipeline for this project.</p>
+          <button className="btn-ghost text-xs" disabled={busy === "pref"} onClick={() => setPref(true)}>
+            Enable email
+          </button>
+        </div>
+      </Section>
+    );
+  }
+
+  // --- Opted in ---
+  return (
+    <Section
+      title="Email your audience"
+      action={
+        <button className="text-[11px] text-muted hover:text-fg" disabled={busy === "pref"} onClick={() => setPref(false)}>
+          turn off
+        </button>
+      }
+    >
+      {!connected ? (
+        <div className="space-y-2">
+          <p className="text-xs text-muted">
+            Connect Resend (free, 3k emails/mo) to broadcast to your list. Paste your{" "}
+            <code className="text-accent2">re_…</code> key — stored locally.{" "}
+            <a className="text-accent2 hover:text-fg" href="https://resend.com/api-keys" target="_blank" rel="noreferrer">
+              Get a key ↗
+            </a>
+          </p>
+          <div className="flex gap-2">
+            <input
+              className="input"
+              type="password"
+              placeholder="Resend API key (re_…)"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+            />
+            <button className="btn-primary shrink-0" disabled={busy === "connect" || !apiKey} onClick={connect}>
+              {busy === "connect" ? "Connecting…" : "Connect"}
+            </button>
+          </div>
+          <p className="text-[10px] text-muted">
+            To send from your own address, verify a domain at{" "}
+            <a className="text-accent2 hover:text-fg" href="https://resend.com/domains" target="_blank" rel="noreferrer">
+              resend.com/domains
+            </a>
+            . Until then, “Send test to myself” uses Resend’s test address to your own inbox.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[11px] text-muted">
+              {from ? (
+                <>Sending as <span className="text-fg/80">{from}</span>. </>
+              ) : null}
+              {syncedCount != null ? `${syncedCount} contacts in your audience.` : "Sync your waitlist to build the audience."}
+            </p>
+            <button className="btn-ghost text-xs shrink-0" disabled={busy === "sync"} onClick={sync}>
+              {busy === "sync" ? "Syncing…" : "Sync waitlist → audience"}
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            <input
+              className="input"
+              placeholder="Subject"
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+            />
+            <textarea
+              className="input min-h-[120px]"
+              placeholder="Write your update — a waitlist note, launch announcement, or 'new feature is out'…"
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              className="input max-w-[220px]"
+              type="email"
+              placeholder="you@email.com"
+              value={testTo}
+              onChange={(e) => setTestTo(e.target.value)}
+            />
+            <button className="btn-ghost text-xs" disabled={busy === "test" || !testTo} onClick={sendTest}>
+              {busy === "test" ? "Sending…" : "Send test to myself"}
+            </button>
+            <button
+              className="btn-primary text-xs"
+              disabled={busy === "send" || !subject || !body || !syncedCount}
+              onClick={sendBroadcast}
+            >
+              {busy === "send" ? "Sending…" : "Send broadcast"}
+            </button>
+          </div>
+          {lastSentAt && (
+            <p className="text-[10px] text-muted">Last broadcast sent {new Date(lastSentAt).toLocaleString()}.</p>
+          )}
+        </div>
+      )}
+
+      {note && <p className="mt-2 text-[11px] text-ok">{note}</p>}
+      {error && <p className="mt-2 text-[11px] text-bad">{error}</p>}
+    </Section>
   );
 }
 

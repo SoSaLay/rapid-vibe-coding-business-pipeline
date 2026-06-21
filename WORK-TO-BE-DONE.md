@@ -71,6 +71,17 @@ Validation stage 2: landing page + waitlist + pre-sell offer to prove real inten
 
 - [ ] (Optional later) Scaffold a full literal Launch-UI React project instead of the self-contained HTML, if pixel-true components are wanted
 
+**Email broadcast hub (Resend) ✅** — fills the gap between Clerk/Stripe transactional+billing email (covered) and GTM email (was unsendable). A **manual broadcast hub** in the orchestrator: waitlist updates, launch announcements, "new feature is out" product notifications, and campaigns are one umbrella the founder composes and sends by hand — NOT automated/event-driven, and NOT wired into the apps the pipeline builds.
+- [x] Pluggable service layer `lib/email/` (interface + Resend impl over REST, no SDK + registry; `data/connectors/resend.json`), mirroring `lib/llm`/connectors
+- [x] **Project-wide opt-in** (`settings.emailEnabled`) decided at Pre-Marketing, gates every email surface (Pre-Marketing card, Marketing send, Operations link); opt out → pipeline behaves as before
+- [x] Onboarding: Resend key row + ℹ️ key-help (incl. domain-verify note; "no Supabase setup needed")
+- [x] Pre-Marketing "Email your audience" card: connect Resend → sync Supabase waitlist into a Resend audience → compose → send-test-to-self → broadcast (Broadcasts + Audiences for managed unsubscribe/analytics)
+- [x] Marketing: the existing `waitlist_email` gets a gated "Send via Resend" (reuses the same broadcast route)
+- [x] Operations: Resend console deep-link in the recurring checklist, gated on `emailEnabled`
+- [x] Verified: typecheck clean; opt-in/opt-out gate, settings persistence, and bad-key error path confirmed in browser (demo project)
+- [ ] Live test with a real Resend key: send-test, sync, broadcast to a real audience (needs key + optional verified domain)
+- [ ] (Later) Sync post-launch app users (not just the waitlist) from Supabase into the audience
+
 ### Phase 5 — Product Design ✅  *(optional / skippable)*
 Produces the `design-spec` the build phase works from. Two tools vendored:
 - [x] Vendored **ui-ux-pro-max** core skill (MIT, 89k★) → `vendor/ui-ux-pro-max/` — the always-on hard-rules layer (a11y, touch targets, typography, layout, named UI styles)

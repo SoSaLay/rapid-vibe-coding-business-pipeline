@@ -208,6 +208,14 @@ export interface ProjectSettings {
   designEngine?: string;
   /** The chosen creative direction, seeded into asset + UI prompts across phases. */
   brandDirection?: Record<string, unknown>;
+  /**
+   * Whether this product uses email (waitlist/launch/product/marketing broadcasts).
+   * Decided once at Pre-Marketing and read everywhere. Unset = undecided (prompt the founder);
+   * true = opted in (email surfaces appear); false = explicitly off (every email surface hidden).
+   */
+  emailEnabled?: boolean;
+  /** Which email provider the broadcasts go through. Defaults to "resend". */
+  emailProvider?: string;
 }
 
 function settingsPath(id: string) {
