@@ -29,6 +29,8 @@ interface BuildManifest {
   tasks_total: number;
   forced: boolean;
   launch_guide: string;
+  imported?: boolean;
+  repo_url?: string;
 }
 
 export function Engineering({
@@ -74,9 +76,13 @@ export function Engineering({
     return (
       <div className="space-y-4">
         <div className="card p-4 border border-ok/30">
-          <span className="rounded-full bg-ok px-3 py-1 text-sm font-semibold text-onbright">build complete</span>
+          <span className="rounded-full bg-ok px-3 py-1 text-sm font-semibold text-onbright">
+            {manifest.imported ? "imported repository" : "build complete"}
+          </span>
           <span className="ml-3 text-xs text-muted">
-            {manifest.tasks_done}/{manifest.tasks_total} tasks{manifest.forced ? " (completed manually)" : ""} · QA unlocked
+            {manifest.imported
+              ? "Existing codebase cloned to your workspace — iterate on it directly or run the rest of the pipeline · QA unlocked"
+              : `${manifest.tasks_done}/${manifest.tasks_total} tasks${manifest.forced ? " (completed manually)" : ""} · QA unlocked`}
           </span>
         </div>
         <LaunchGuideView guide={manifest.launch_guide} path={manifest.workspace_path} />

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { IdeaCapture } from "@/components/IdeaCapture";
 import { PhaseRail } from "@/components/PhaseRail";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { OnboardingButton, useOnboarding } from "@/components/Onboarding";
 
 interface Project {
   id: string;
@@ -18,6 +19,7 @@ interface Project {
 export default function Home() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [showArchived, setShowArchived] = useState(false);
+  const { status: onboarding, reload: reloadOnboarding } = useOnboarding();
 
   const refresh = useCallback(async () => {
     const res = await fetch("/api/ideas");
@@ -57,7 +59,10 @@ export default function Home() {
           <h1 className="text-2xl font-semibold tracking-tight text-fg">Rapid Vibe Coding Pipeline</h1>
           <p className="mt-1 text-sm text-muted">From a spoken idea to a shipped, marketed product — one phase at a time.</p>
         </div>
-        <ThemeToggle className="mt-1 shrink-0" />
+        <div className="mt-1 flex shrink-0 items-center gap-2">
+          <OnboardingButton status={onboarding} reload={reloadOnboarding} highlight={!onboarding?.requiredComplete} />
+          <ThemeToggle />
+        </div>
       </header>
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-[232px_minmax(0,1fr)]">

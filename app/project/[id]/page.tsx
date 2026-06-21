@@ -14,6 +14,7 @@ import { Marketing } from "@/components/Marketing";
 import { Operations } from "@/components/Operations";
 import { Iteration } from "@/components/Iteration";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { OnboardingButton, OnboardingGate, useOnboarding } from "@/components/Onboarding";
 import { PHASES } from "@/lib/pipeline";
 
 interface Artifact {
@@ -37,6 +38,7 @@ interface ProjectData {
 export default function ProjectWorkspace({ params }: { params: { id: string } }) {
   const [data, setData] = useState<ProjectData | null>(null);
   const [selectedPhase, setSelectedPhase] = useState<string | null>(null);
+  const { status: onboarding, reload: reloadOnboarding } = useOnboarding();
 
   const refresh = useCallback(async () => {
     const res = await fetch(`/api/projects/${params.id}`);
@@ -94,6 +96,10 @@ export default function ProjectWorkspace({ params }: { params: { id: string } })
         );
       case "product-owner": {
         const unlocked = !!productSpec || current === "product-owner" || current === "business-owner";
+        // Hard gate: the first AI phase can't run until onboarding (Anthropic) is done.
+        if (unlocked && onboarding && !onboarding.requiredComplete) {
+          return <OnboardingGate reload={reloadOnboarding} />;
+        }
         return unlocked ? (
           <ProductOwner
             projectId={project.id}
@@ -230,7 +236,14 @@ export default function ProjectWorkspace({ params }: { params: { id: string } })
             )}
           </p>
         </div>
-        <ThemeToggle className="mt-1 shrink-0" />
+        <div className="mt-1 flex shrink-0 items-center gap-2">
+          <OnboardingButton
+            status={onboarding}
+            reload={reloadOnboarding}
+            highlight={selectedPhase === "product-owner" && !onboarding?.requiredComplete}
+          />
+          <ThemeToggle />
+        </div>
       </header>
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-[232px_minmax(0,1fr)]">

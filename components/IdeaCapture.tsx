@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { VoiceInput } from "./VoiceInput";
 import { IDEA_TYPES } from "@/lib/idea-types";
 
@@ -20,10 +21,16 @@ interface Source {
 }
 
 export function IdeaCapture({ onCreated }: { onCreated: () => void }) {
-  const [tab, setTab] = useState<"direct" | "pull">("direct");
+  const router = useRouter();
+  const [tab, setTab] = useState<"direct" | "pull" | "github">("direct");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ideaType, setIdeaType] = useState("web-app");
+
+  // GitHub import
+  const [repoUrl, setRepoUrl] = useState("");
+  const [repoToken, setRepoToken] = useState("");
+  const [importStatus, setImportStatus] = useState<string | null>(null);
 
   // Direct entry
   const [title, setTitle] = useState("");
@@ -110,6 +117,27 @@ export function IdeaCapture({ onCreated }: { onCreated: () => void }) {
     onCreated();
   }
 
+  async function submitImport() {
+    if (!repoUrl.trim()) return setError("Paste a GitHub repository URL first.");
+    setBusy(true);
+    setError(null);
+    setImportStatus("Cloning the repo and reading the code… this can take a minute.");
+    const res = await fetch("/api/ideas/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: repoUrl.trim(), token: repoToken.trim() || undefined, ideaType }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setBusy(false);
+    setImportStatus(null);
+    if (!res.ok) return setError(d.error || "Failed to import the repository.");
+    setRepoUrl("");
+    setRepoToken("");
+    // Kick straight into the imported project's pipeline.
+    if (d.project?.id) router.push(`/project/${d.project.id}`);
+    else onCreated();
+  }
+
   const notion = connectors.find((c) => c.id === "notion");
   const visibleSources = sources.filter((s) => s.title.toLowerCase().includes(filter.toLowerCase()));
 
@@ -121,6 +149,9 @@ export function IdeaCapture({ onCreated }: { onCreated: () => void }) {
         </TabButton>
         <TabButton active={tab === "pull"} onClick={() => setTab("pull")}>
           🔗 Pull from a tool
+        </TabButton>
+        <TabButton active={tab === "github"} onClick={() => setTab("github")}>
+          🐙 Use GitHub repo
         </TabButton>
       </div>
 
@@ -254,6 +285,55 @@ export function IdeaCapture({ onCreated }: { onCreated: () => void }) {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {tab === "github" && (
+        <div className="space-y-3">
+          <div className="rounded-lg border border-accent2/30 bg-accent2/5 p-3">
+            <p className="text-xs text-fg/85">
+              Already built something? Paste its GitHub URL. We clone it into your app workspace, detect the stack, and the
+              AI reverse-engineers a product spec from the code — then drops you at the <span className="text-accent2">Engineering</span>{" "}
+              phase with QA, Deployment, Marketing, Ops & Iteration all unlocked, so you can iterate on top of it.
+            </p>
+          </div>
+          <input
+            className="input"
+            placeholder="https://github.com/owner/repo"
+            value={repoUrl}
+            onChange={(e) => setRepoUrl(e.target.value)}
+          />
+          <details className="rounded-lg border border-edge bg-edge/10 p-3">
+            <summary className="cursor-pointer text-xs text-muted">Importing a private repo? Add a GitHub token</summary>
+            <div className="mt-2 space-y-2">
+              <input
+                className="input text-xs"
+                type="password"
+                placeholder="GitHub token (github_pat_… or ghp_…)"
+                value={repoToken}
+                onChange={(e) => setRepoToken(e.target.value)}
+              />
+              <p className="text-[11px] text-muted">
+                Public repos need no token. For private repos, create a fine-grained token at{" "}
+                <a
+                  href="https://github.com/settings/personal-access-tokens/new"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-accent2 hover:text-fg"
+                >
+                  github.com/settings/personal-access-tokens
+                </a>{" "}
+                with <span className="text-fg/70">Repository → Contents: Read-only</span>. Saving it once in onboarding reuses
+                it for every import.
+              </p>
+            </div>
+          </details>
+          {importStatus && <p className="text-[11px] text-accent2">{importStatus}</p>}
+          <div className="flex justify-end">
+            <button className="btn-primary" disabled={busy || !repoUrl.trim()} onClick={submitImport}>
+              {busy ? "Importing…" : "Import & start pipeline →"}
+            </button>
+          </div>
         </div>
       )}
 

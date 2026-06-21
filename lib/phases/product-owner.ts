@@ -93,7 +93,8 @@ const TURN_SCHEMA = {
   required: ["assessment", "ready", "questions"],
 };
 
-const SPEC_SCHEMA = {
+/** Exported so the GitHub-import comprehension pass produces a downstream-identical spec. */
+export const SPEC_SCHEMA = {
   type: "object",
   additionalProperties: false,
   properties: {
