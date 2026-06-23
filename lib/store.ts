@@ -41,6 +41,9 @@ export interface ProjectMeta {
   title: string;
   /** Idea-type label from capture (see lib/idea-types.ts). Missing on legacy projects = web-app. */
   idea_type?: string;
+  /** Whether the owner has explicitly labeled the idea type (via the "Label me" dropdown).
+   * Missing (legacy/imported) = treated as labeled so the stored type shows as-is. */
+  labeled?: boolean;
   created_at: string;
   updated_at: string;
   current_phase: PhaseId;

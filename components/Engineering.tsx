@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { STACK_SLOTS, StackChoice } from "@/lib/stack";
+import { Interject } from "./Interject";
+import { StopButton, useStopper } from "./StopButton";
 
 interface Proposal {
   choices: StackChoice[];
@@ -48,22 +50,30 @@ export function Engineering({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const stopper = useStopper();
 
   async function post(path: string, body?: any) {
     setBusy(true);
     setError(null);
-    const res = await fetch(`/api/projects/${projectId}/engineering/${path}`, {
-      method: "POST",
-      ...(body ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}),
-    });
-    const d = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (!res.ok) {
-      setError(d.error || "Request failed.");
+    try {
+      const res = await fetch(`/api/projects/${projectId}/engineering/${path}`, {
+        method: "POST",
+        signal: stopper.signal(),
+        ...(body ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}),
+      });
+      const d = await res.json().catch(() => ({}));
+      setBusy(false);
+      if (!res.ok) {
+        setError(d.error || "Request failed.");
+        return false;
+      }
+      onUpdated();
+      return true;
+    } catch (e: any) {
+      setBusy(false);
+      if (!stopper.isAbort(e)) setError(e?.message || "Request failed.");
       return false;
     }
-    onUpdated();
-    return true;
   }
 
   if (!hasSpec) return <div className="card p-6 text-sm text-muted">Locked until the product spec is complete.</div>;
@@ -98,10 +108,12 @@ export function Engineering({
           (Next.js · Supabase · shadcn/ui), and draws the system architecture. You can change any slot before the build
           starts.
         </p>
-        <div className="flex justify-center">
+        <Interject projectId={projectId} phase="engineering" />
+        <div className="flex items-center justify-center gap-2">
           <button className="btn-primary" disabled={busy} onClick={() => post("propose")}>
             {busy ? "Designing the system…" : "Run the architect"}
           </button>
+          {busy && <StopButton onStop={stopper.stop} />}
         </div>
         {error && <p className="text-sm text-bad text-center">{error}</p>}
       </div>

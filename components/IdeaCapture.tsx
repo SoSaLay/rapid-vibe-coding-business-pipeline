@@ -1,83 +1,36 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { VoiceInput } from "./VoiceInput";
-import { IDEA_TYPES } from "@/lib/idea-types";
+import { FolderUpload } from "./FolderUpload";
 
-interface ConnectorInfo {
-  id: string;
-  name: string;
-  status: "active" | "coming_soon";
-  authKind: string;
-  configured: boolean;
-}
-
-interface Source {
-  id: string;
-  title: string;
-  type: string;
-  url?: string;
-}
-
+/**
+ * Idea capture — three ways in:
+ *  • Speak or type a fresh idea
+ *  • Import an existing GitHub repo (brownfield)
+ *  • Pull an existing project folder from this computer (brownfield, local)
+ * Idea-type labeling now happens later, per-idea, on the home list.
+ */
 export function IdeaCapture({ onCreated }: { onCreated: () => void }) {
   const router = useRouter();
-  const [tab, setTab] = useState<"direct" | "pull" | "github">("direct");
+  const [tab, setTab] = useState<"direct" | "github" | "files">("direct");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [ideaType, setIdeaType] = useState("web-app");
-
-  // GitHub import
-  const [repoUrl, setRepoUrl] = useState("");
-  const [repoToken, setRepoToken] = useState("");
-  const [importStatus, setImportStatus] = useState<string | null>(null);
 
   // Direct entry
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
   const [usedVoice, setUsedVoice] = useState(false);
 
-  // Pull from tool
-  const [connectors, setConnectors] = useState<ConnectorInfo[]>([]);
-  const [activeConnector, setActiveConnector] = useState<string>("notion");
-  const [token, setToken] = useState("");
-  const [sources, setSources] = useState<Source[]>([]);
-  const [filter, setFilter] = useState("");
-  const [selectedSource, setSelectedSource] = useState<Source | null>(null);
+  // GitHub import
+  const [repoUrl, setRepoUrl] = useState("");
+  const [repoToken, setRepoToken] = useState("");
 
-  useEffect(() => {
-    if (tab === "pull") loadConnectors();
-  }, [tab]);
+  // Local-folder import
+  const [folderFiles, setFolderFiles] = useState<FileList | null>(null);
 
-  async function loadConnectors() {
-    const res = await fetch("/api/connectors");
-    const data = await res.json();
-    setConnectors(data.connectors || []);
-    const notion = data.connectors?.find((c: ConnectorInfo) => c.id === "notion");
-    if (notion?.configured) loadSources("notion");
-  }
-
-  async function connectNotion() {
-    setBusy(true);
-    setError(null);
-    const res = await fetch("/api/connectors/notion/configure", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ credentials: { token } }),
-    });
-    const data = await res.json();
-    setBusy(false);
-    if (!data.ok) return setError(data.error || "Failed to connect.");
-    await loadConnectors();
-  }
-
-  async function loadSources(connectorId: string) {
-    setError(null);
-    const res = await fetch(`/api/connectors/${connectorId}/sources`);
-    const data = await res.json();
-    if (data.error && !data.sources?.length) setError(data.error);
-    setSources(data.sources || []);
-  }
+  const [importStatus, setImportStatus] = useState<string | null>(null);
 
   async function submitDirect() {
     if (!text.trim()) return setError("Speak or type your idea first.");
@@ -86,7 +39,7 @@ export function IdeaCapture({ onCreated }: { onCreated: () => void }) {
     const res = await fetch("/api/ideas", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode: "direct", title, text, inputMethod: usedVoice ? "voice" : "text", ideaType }),
+      body: JSON.stringify({ title, text, inputMethod: usedVoice ? "voice" : "text" }),
     });
     setBusy(false);
     if (!res.ok) {
@@ -98,25 +51,6 @@ export function IdeaCapture({ onCreated }: { onCreated: () => void }) {
     onCreated();
   }
 
-  async function submitPull() {
-    if (!selectedSource) return setError("Pick a page or database first.");
-    setBusy(true);
-    setError(null);
-    const res = await fetch("/api/ideas", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode: "pull", connector: activeConnector, sourceId: selectedSource.id, title, ideaType }),
-    });
-    setBusy(false);
-    if (!res.ok) {
-      const d = await res.json().catch(() => ({}));
-      return setError(d.error || "Failed to pull idea.");
-    }
-    setSelectedSource(null);
-    setTitle("");
-    onCreated();
-  }
-
   async function submitImport() {
     if (!repoUrl.trim()) return setError("Paste a GitHub repository URL first.");
     setBusy(true);
@@ -125,7 +59,7 @@ export function IdeaCapture({ onCreated }: { onCreated: () => void }) {
     const res = await fetch("/api/ideas/import", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: repoUrl.trim(), token: repoToken.trim() || undefined, ideaType }),
+      body: JSON.stringify({ url: repoUrl.trim(), token: repoToken.trim() || undefined }),
     });
     const d = await res.json().catch(() => ({}));
     setBusy(false);
@@ -133,47 +67,41 @@ export function IdeaCapture({ onCreated }: { onCreated: () => void }) {
     if (!res.ok) return setError(d.error || "Failed to import the repository.");
     setRepoUrl("");
     setRepoToken("");
-    // Kick straight into the imported project's pipeline.
     if (d.project?.id) router.push(`/project/${d.project.id}`);
     else onCreated();
   }
 
-  const notion = connectors.find((c) => c.id === "notion");
-  const visibleSources = sources.filter((s) => s.title.toLowerCase().includes(filter.toLowerCase()));
+  async function submitUploadedFolder() {
+    if (!folderFiles) return setError("Select a project folder to upload.");
+    setBusy(true);
+    setError(null);
+    setImportStatus("Uploading the folder and reading the code… this can take a minute.");
+
+    const formData = new FormData();
+    for (let i = 0; i < folderFiles.length; i++) {
+      formData.append("files", folderFiles[i]);
+    }
+
+    const res = await fetch("/api/ideas/import-local-upload", {
+      method: "POST",
+      body: formData,
+    });
+
+    const d = await res.json().catch(() => ({}));
+    setBusy(false);
+    setImportStatus(null);
+    if (!res.ok) return setError(d.error || "Failed to import the folder.");
+    setFolderFiles(null);
+    if (d.project?.id) router.push(`/project/${d.project.id}`);
+    else onCreated();
+  }
 
   return (
     <div className="card p-5">
-      <div className="flex items-center gap-2 mb-5">
-        <TabButton active={tab === "direct"} onClick={() => setTab("direct")}>
-          🎙️ Speak or type
-        </TabButton>
-        <TabButton active={tab === "pull"} onClick={() => setTab("pull")}>
-          🔗 Pull from a tool
-        </TabButton>
-        <TabButton active={tab === "github"} onClick={() => setTab("github")}>
-          🐙 Use GitHub repo
-        </TabButton>
-      </div>
-
-      <div className="mb-5">
-        <div className="text-[11px] uppercase tracking-wider text-muted mb-1.5">What kind of idea is this?</div>
-        <div className="flex flex-wrap gap-1.5">
-          {IDEA_TYPES.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setIdeaType(t.id)}
-              title={t.blurb}
-              className={`rounded-full border px-3 py-1 text-xs transition-colors ${
-                ideaType === t.id
-                  ? "border-accent2 bg-accent2/15 text-fg"
-                  : "border-edge text-muted hover:text-fg hover:bg-edge/30"
-              }`}
-            >
-              {t.icon} {t.label}
-            </button>
-          ))}
-        </div>
-        <p className="mt-1.5 text-[11px] text-muted">{IDEA_TYPES.find((t) => t.id === ideaType)?.blurb}</p>
+      <div className="mb-5 flex flex-wrap items-center gap-2">
+        <TabButton active={tab === "direct"} onClick={() => setTab("direct")}>🎙️ Speak or type</TabButton>
+        <TabButton active={tab === "github"} onClick={() => setTab("github")}>🐙 Use GitHub repo</TabButton>
+        <TabButton active={tab === "files"} onClick={() => setTab("files")}>📁 Upload projects</TabButton>
       </div>
 
       {tab === "direct" && (
@@ -207,96 +135,8 @@ export function IdeaCapture({ onCreated }: { onCreated: () => void }) {
         </div>
       )}
 
-      {tab === "pull" && (
-        <div className="space-y-4">
-          <div className="flex flex-wrap gap-2">
-            {connectors.map((c) => (
-              <button
-                key={c.id}
-                onClick={() => c.status === "active" && setActiveConnector(c.id)}
-                disabled={c.status !== "active"}
-                className={`btn ${
-                  activeConnector === c.id && c.status === "active"
-                    ? "btn-primary"
-                    : "btn-ghost"
-                } ${c.status !== "active" ? "opacity-40 cursor-not-allowed" : ""}`}
-              >
-                {c.name}
-                {c.status !== "active" && <span className="text-[10px]">soon</span>}
-              </button>
-            ))}
-          </div>
-
-          {activeConnector === "notion" && !notion?.configured && (
-            <div className="space-y-2 rounded-lg border border-edge bg-ink p-4">
-              <p className="text-sm text-fg">Connect Notion</p>
-              <p className="text-xs text-muted">
-                Create an internal integration at notion.so/my-integrations, share your target pages/databases with it,
-                then paste the secret here.
-              </p>
-              <input
-                className="input"
-                type="password"
-                placeholder="Internal Integration Secret (ntn_…)"
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-              />
-              <button className="btn-primary" disabled={busy || !token} onClick={connectNotion}>
-                {busy ? "Connecting…" : "Connect"}
-              </button>
-            </div>
-          )}
-
-          {notion?.configured && activeConnector === "notion" && (
-            <div className="space-y-3">
-              <input
-                className="input"
-                placeholder="Filter pages / databases…"
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-              />
-              <div className="max-h-64 overflow-auto rounded-lg border border-edge divide-y divide-edge">
-                {visibleSources.length === 0 && (
-                  <p className="p-3 text-xs text-muted">
-                    No sources found. Make sure pages/databases are shared with your integration.
-                  </p>
-                )}
-                {visibleSources.map((s) => (
-                  <button
-                    key={s.id}
-                    onClick={() => setSelectedSource(s)}
-                    className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-edge/40 ${
-                      selectedSource?.id === s.id ? "bg-accent/15" : ""
-                    }`}
-                  >
-                    <span className="text-muted">{s.type === "database" ? "🗄️" : "📄"}</span>
-                    <span className="flex-1 text-fg">{s.title}</span>
-                    {selectedSource?.id === s.id && <span className="text-accent2 text-xs">selected</span>}
-                  </button>
-                ))}
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted">
-                  {selectedSource ? `Will ingest: ${selectedSource.title}` : "Pick a source to kick off the pipeline"}
-                </span>
-                <button className="btn-primary" disabled={busy || !selectedSource} onClick={submitPull}>
-                  {busy ? "Pulling…" : "Use this →"}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
       {tab === "github" && (
         <div className="space-y-3">
-          <div className="rounded-lg border border-accent2/30 bg-accent2/5 p-3">
-            <p className="text-xs text-fg/85">
-              Already built something? Paste its GitHub URL. We clone it into your app workspace, detect the stack, and the
-              AI reverse-engineers a product spec from the code — then drops you at the <span className="text-accent2">Engineering</span>{" "}
-              phase with QA, Deployment, Marketing, Ops & Iteration all unlocked, so you can iterate on top of it.
-            </p>
-          </div>
           <input
             className="input"
             placeholder="https://github.com/owner/repo"
@@ -314,23 +154,26 @@ export function IdeaCapture({ onCreated }: { onCreated: () => void }) {
                 onChange={(e) => setRepoToken(e.target.value)}
               />
               <p className="text-[11px] text-muted">
-                Public repos need no token. For private repos, create a fine-grained token at{" "}
-                <a
-                  href="https://github.com/settings/personal-access-tokens/new"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-accent2 hover:text-fg"
-                >
-                  github.com/settings/personal-access-tokens
-                </a>{" "}
-                with <span className="text-fg/70">Repository → Contents: Read-only</span>. Paste it here when you import a
-                private repo.
+                Public repos need no token. For private repos, create a fine-grained token with{" "}
+                <span className="text-fg/70">Repository → Contents: Read-only</span>.
               </p>
             </div>
           </details>
           {importStatus && <p className="text-[11px] text-accent2">{importStatus}</p>}
           <div className="flex justify-end">
             <button className="btn-primary" disabled={busy || !repoUrl.trim()} onClick={submitImport}>
+              {busy ? "Importing…" : "Import & start pipeline →"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {tab === "files" && (
+        <div className="space-y-3">
+          <FolderUpload onFolderSelect={setFolderFiles} />
+          {importStatus && <p className="text-[11px] text-accent2">{importStatus}</p>}
+          <div className="flex justify-end">
+            <button className="btn-primary" disabled={busy || !folderFiles} onClick={submitUploadedFolder}>
               {busy ? "Importing…" : "Import & start pipeline →"}
             </button>
           </div>
@@ -344,10 +187,7 @@ export function IdeaCapture({ onCreated }: { onCreated: () => void }) {
 
 function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
-    <button
-      onClick={onClick}
-      className={`btn ${active ? "btn-primary" : "btn-ghost"}`}
-    >
+    <button onClick={onClick} className={`btn ${active ? "btn-primary" : "btn-ghost"}`}>
       {children}
     </button>
   );

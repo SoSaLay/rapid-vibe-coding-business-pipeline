@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { latestArtifact, savePhaseState } from "@/lib/store";
 import { generateKit, selectMarketingFrameworks } from "@/lib/phases/pre-marketing";
+import { interjectionContext } from "@/lib/interjections";
 
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   const specArtifact = await latestArtifact(params.id, "product-spec");
@@ -12,7 +13,8 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   try {
     const context = `Problem: ${spec.problem_statement || spec.summary || ""}\nUsers: ${(spec.target_users || []).join(", ")}`;
     const frameworks = await selectMarketingFrameworks(context);
-    const kit = await generateKit(spec, market, frameworks.ids);
+    const extra = await interjectionContext(params.id, "pre-marketing");
+    const kit = await generateKit(spec, market, frameworks.ids, extra);
     await savePhaseState(params.id, "pre-marketing", { frameworks, kit });
     return NextResponse.json({ kit, frameworks });
   } catch (e: any) {

@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Interject } from "./Interject";
+import { StopButton, useStopper } from "./StopButton";
 
 interface QaCase {
   id: string;
@@ -69,22 +71,30 @@ export function QA({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const stopper = useStopper();
 
   async function post(path: string, body?: any): Promise<any | null> {
     setBusy(true);
     setError(null);
-    const res = await fetch(`/api/projects/${projectId}/qa/${path}`, {
-      method: "POST",
-      ...(body ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}),
-    });
-    const d = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (!res.ok) {
-      setError(d.error || "Request failed.");
+    try {
+      const res = await fetch(`/api/projects/${projectId}/qa/${path}`, {
+        method: "POST",
+        signal: stopper.signal(),
+        ...(body ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}),
+      });
+      const d = await res.json().catch(() => ({}));
+      setBusy(false);
+      if (!res.ok) {
+        setError(d.error || "Request failed.");
+        return null;
+      }
+      onUpdated();
+      return d;
+    } catch (e: any) {
+      setBusy(false);
+      if (!stopper.isAbort(e)) setError(e?.message || "Request failed.");
       return null;
     }
-    onUpdated();
-    return d;
   }
 
   if (!hasManifest) {
@@ -102,10 +112,12 @@ export function QA({
           agent, an OWASP-mapped security checklist, and a short manual checklist only you can judge. You run one
           command and tap through the manual items — the pipeline tracks the rest.
         </p>
-        <div className="flex justify-center">
+        <Interject projectId={projectId} phase="qa" />
+        <div className="flex items-center justify-center gap-2">
           <button className="btn-primary" disabled={busy} onClick={() => post("plan")}>
             {busy ? "Writing the QA plan…" : "Generate QA plan"}
           </button>
+          {busy && <StopButton onStop={stopper.stop} />}
         </div>
         {error && <p className="text-sm text-bad text-center">{error}</p>}
       </div>

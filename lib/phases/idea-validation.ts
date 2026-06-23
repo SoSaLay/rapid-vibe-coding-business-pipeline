@@ -233,7 +233,8 @@ function evidenceToText(evidence: ValidationEvidence[]): string {
 
 export async function synthesizeValidation(
   spec: Record<string, any>,
-  evidence: ValidationEvidence[]
+  evidence: ValidationEvidence[],
+  extraContext = ""
 ): Promise<Record<string, unknown>> {
   const provider = activeProvider();
   const frameworks = await buildFrameworkContext(RESEARCH_FRAMEWORKS);
@@ -243,7 +244,8 @@ export async function synthesizeValidation(
     "Ground every theme, quote, and competitor in the provided sources (cite URLs). Be honest and skeptical: " +
     "if demand is thin or the market is crowded with happy users, reflect that in a low demand_signal and a cautious verdict. " +
     "Do not invent posts, competitors, or numbers — only what the evidence supports." +
-    (frameworks ? `\n\n---\n\n${frameworks}` : "");
+    (frameworks ? `\n\n---\n\n${frameworks}` : "") +
+    extraContext;
 
   return provider.completeJson<Record<string, unknown>>({
     system,

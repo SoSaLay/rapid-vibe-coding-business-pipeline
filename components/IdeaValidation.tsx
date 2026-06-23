@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Interject } from "./Interject";
+import { StopButton, useStopper } from "./StopButton";
 
 interface ValidationReport {
   verdict: "build" | "refine" | "reject" | "archive";
@@ -46,6 +48,7 @@ export function IdeaValidation({
   const [apiKey, setApiKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const stopper = useStopper();
 
   useEffect(() => {
     fetch("/api/exa")
@@ -71,11 +74,16 @@ export function IdeaValidation({
   async function run() {
     setBusy(true);
     setError(null);
-    const res = await fetch(`/api/projects/${projectId}/idea-validation/run`, { method: "POST" });
-    const d = await res.json();
-    setBusy(false);
-    if (!res.ok) return setError(d.error || "Validation failed.");
-    onUpdated();
+    try {
+      const res = await fetch(`/api/projects/${projectId}/idea-validation/run`, { method: "POST", signal: stopper.signal() });
+      const d = await res.json();
+      setBusy(false);
+      if (!res.ok) return setError(d.error || "Validation failed.");
+      onUpdated();
+    } catch (e: any) {
+      setBusy(false);
+      if (!stopper.isAbort(e)) setError(e?.message || "Validation failed.");
+    }
   }
 
   async function skip() {
@@ -127,6 +135,7 @@ export function IdeaValidation({
         Search forums for real demand signal <span className="text-fg/70">and</span> research the market —
         competitors, sizing, segments, positioning — then deliver an evidence-grounded verdict.
       </p>
+      <Interject projectId={projectId} phase="idea-validation" />
       <div className="flex items-center justify-center gap-3">
         <button className="btn-ghost" disabled={busy} onClick={skip} title="Skip validation and move on">
           Skip — just building for fun
@@ -134,6 +143,7 @@ export function IdeaValidation({
         <button className="btn-primary" disabled={busy || exaReady === null} onClick={run}>
           {busy ? "Searching forums & synthesizing… (~30s)" : "Run validation"}
         </button>
+        {busy && <StopButton onStop={stopper.stop} />}
       </div>
       {error && <p className="text-sm text-bad text-center">{error}</p>}
     </div>

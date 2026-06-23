@@ -241,7 +241,7 @@ function contextToText(ctx: CampaignContext): string {
   return parts.join("\n\n");
 }
 
-export async function generateCampaignPlan(ctx: CampaignContext): Promise<CampaignPlan> {
+export async function generateCampaignPlan(ctx: CampaignContext, extraContext = ""): Promise<CampaignPlan> {
   const provider = activeProvider();
   const frameworks = await frameworksFor([...STRATEGY_FRAMEWORKS, ...EMAIL_FRAMEWORKS]);
   return provider.completeJson<CampaignPlan>({
@@ -252,7 +252,8 @@ export async function generateCampaignPlan(ctx: CampaignContext): Promise<Campai
       "'nobody knows this exists' to 'first paying users' without assuming any marketing experience.\n\n" +
       FOUNDER_MARKETING_GUIDANCE +
       "\n\n" +
-      frameworks,
+      frameworks +
+      extraContext,
     effort: "high",
     schema: PLAN_SCHEMA,
     messages: [{ role: "user", content: contextToText(ctx) + "\n\nProduce the campaign plan." }],

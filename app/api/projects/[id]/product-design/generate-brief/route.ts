@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { latestArtifact, getPhaseState, savePhaseState, getProject, getProjectSettings } from "@/lib/store";
 import { selectDesignDirection, generateDesignBrief } from "@/lib/phases/product-design";
+import { interjectionContext } from "@/lib/interjections";
 
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   const specArtifact = await latestArtifact(params.id, "product-spec");
@@ -18,7 +19,8 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       `Product: ${project?.title || ""}\nProblem: ${spec.problem_statement || spec.summary || ""}\n` +
       `Users: ${(spec.target_users || []).join(", ")}`;
     const direction = await selectDesignDirection(context);
-    const brief = await generateDesignBrief(spec, market, kit, direction.system_ids, project?.title || "Untitled", brandDirection);
+    const extra = await interjectionContext(params.id, "product-design");
+    const brief = await generateDesignBrief(spec, market, kit, direction.system_ids, project?.title || "Untitled", brandDirection, extra);
     // Regenerating the brief invalidates old mockups — their tokens are stale.
     await savePhaseState(params.id, "product-design", { direction, brief, mockups: {} });
     return NextResponse.json({ brief, direction });

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { latestArtifact, getPhaseState, savePhaseState, getProject, getProjectSettings } from "@/lib/store";
 import { generateOpsReport, writeOpsGuide } from "@/lib/phases/operations";
 import { StackChoice } from "@/lib/stack";
+import { interjectionContext } from "@/lib/interjections";
 
 /** Generate the ops report: tool-grouped recurring checklist + release/incident runbooks. */
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -30,7 +31,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   const emailEnabled = (await getProjectSettings(params.id)).emailEnabled === true;
 
   try {
-    const report = await generateOpsReport(deployPayload, spec, stackChoices, ideaType, emailEnabled);
+    const report = await generateOpsReport(deployPayload, spec, stackChoices, ideaType, emailEnabled, await interjectionContext(params.id, "operations"));
 
     // Write OPS-GUIDE.md to the app workspace if it exists
     try {

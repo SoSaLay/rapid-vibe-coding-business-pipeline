@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { VoiceInput } from "./VoiceInput";
+import { Interject } from "./Interject";
+import { StopButton, useStopper } from "./StopButton";
 
 interface CheckinQuestion {
   id: string;
@@ -70,6 +72,7 @@ export function Iteration({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const stopper = useStopper();
   const [answers, setAnswers] = useState<Record<string, string>>(state?.answers ?? {});
   const [focusIds, setFocusIds] = useState<string[] | null>(null);
   const [confirmArchive, setConfirmArchive] = useState(false);
@@ -87,6 +90,7 @@ export function Iteration({
     try {
       const res = await fetch(`/api/projects/${projectId}/iteration/${path}`, {
         method: "POST",
+        signal: stopper.signal(),
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body ?? {}),
       });
@@ -94,7 +98,7 @@ export function Iteration({
       if (!res.ok) throw new Error(json.error || "Request failed.");
       return json;
     } catch (e: any) {
-      setError(e.message);
+      if (!stopper.isAbort(e)) setError(e.message);
       return null;
     } finally {
       setBusy(false);
@@ -191,9 +195,13 @@ export function Iteration({
             owner needs answered (plus a few specific to your app), answered by voice or typing — then
             get an honest traction read and ranked next moves.
           </p>
-          <button onClick={startCheckin} disabled={busy} className="btn-primary text-sm">
-            {busy ? "Preparing questions…" : "Start check-in"}
-          </button>
+          <Interject projectId={projectId} phase="iteration" />
+          <div className="flex items-center gap-2">
+            <button onClick={startCheckin} disabled={busy} className="btn-primary text-sm">
+              {busy ? "Preparing questions…" : "Start check-in"}
+            </button>
+            {busy && <StopButton onStop={stopper.stop} />}
+          </div>
         </div>
       )}
 
@@ -237,13 +245,14 @@ export function Iteration({
             <p className="text-xs text-muted">
               Answer what you can — skip what you don't know yet; gaps are data too.
             </p>
-            <div className="flex gap-3">
+            <div className="flex items-center gap-3">
               <button onClick={synthesize} disabled={busy} className="btn-primary text-sm">
                 {busy ? "Analyzing…" : "Get my iteration brief"}
               </button>
               <button onClick={startCheckin} disabled={busy} className="btn-ghost text-sm">
                 Regenerate questions
               </button>
+              {busy && <StopButton onStop={stopper.stop} />}
             </div>
           </div>
         </>

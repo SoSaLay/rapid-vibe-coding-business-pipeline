@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { latestArtifact, getPhaseState, savePhaseState, getProject } from "@/lib/store";
 import { generateQaPlan, renderQaPlanMd, QA_CHECKLIST_PATH } from "@/lib/phases/qa";
 import { workspaceExists, writeWorkspaceFile } from "@/lib/workspace";
+import { interjectionContext } from "@/lib/interjections";
 
 /** Stage 1: generate the QA plan and write the briefing (QA-PLAN.md + qa/checklist.json) into the workspace. */
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -20,7 +21,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   const manifest = manifestArtifact.payload as Record<string, any>;
 
   try {
-    const plan = await generateQaPlan(spec, design, manifest, title);
+    const plan = await generateQaPlan(spec, design, manifest, title, await interjectionContext(params.id, "qa"));
     await writeWorkspaceFile(title, "QA-PLAN.md", renderQaPlanMd(plan, title));
     await writeWorkspaceFile(title, QA_CHECKLIST_PATH, JSON.stringify(plan, null, 2));
 

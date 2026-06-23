@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { latestArtifact, getPhaseState, savePhaseState, getProject } from "@/lib/store";
 import { generateStackProposal, StackProposal } from "@/lib/phases/engineering";
 import { workspaceExists } from "@/lib/workspace";
+import { interjectionContext } from "@/lib/interjections";
 
 /**
  * Stage 1: the architect proposes the stack from the spec + design.
@@ -37,7 +38,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       }
     }
 
-    const proposal = await generateStackProposal(spec, design, project?.title || "Untitled");
+    const proposal = await generateStackProposal(spec, design, project?.title || "Untitled", await interjectionContext(params.id, "engineering"));
     const state = (await getPhaseState<any>(params.id, "engineering")) || {};
     await savePhaseState(params.id, "engineering", { ...state, proposal, stack: null, workspace: null });
     return NextResponse.json({ proposal });

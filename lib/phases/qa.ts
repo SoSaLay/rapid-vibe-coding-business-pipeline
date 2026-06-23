@@ -153,7 +153,8 @@ export async function generateQaPlan(
   spec: Record<string, any>,
   design: Record<string, any> | null,
   manifest: Record<string, any>,
-  productTitle: string
+  productTitle: string,
+  extraContext = ""
 ): Promise<QaPlan> {
   const provider = activeProvider();
   const screens = design?.ux?.screens
@@ -178,7 +179,8 @@ export async function generateQaPlan(
       "what an automated case already covers.\n" +
       "- Exit criteria are the ship bar: suite green, zero failed cases, zero failed security checks, zero critical " +
       "audit findings, manual checklist complete. Add app-specific criteria only when genuinely warranted.\n\n" +
-      SECURITY_GUIDANCE,
+      SECURITY_GUIDANCE +
+      extraContext,
     effort: "high",
     schema: PLAN_SCHEMA,
     messages: [

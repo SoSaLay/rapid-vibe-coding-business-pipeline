@@ -357,7 +357,7 @@ function LlmRow({
   }
 
   return (
-    <div className="rounded-lg border border-edge bg-paper/40 p-2.5">
+    <div className="rounded-lg border border-edge bg-panel/40 p-2.5">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span
@@ -474,15 +474,13 @@ function LlmEngineSection({ status, onChanged }: { status: OnboardingStatus | nu
   );
 }
 
-/* ---------------- modal ---------------- */
+/* ---------------- reusable panel (used inline by the Onboarding page + the modal) ---------------- */
 
-export function OnboardingModal({
+export function OnboardingPanel({
   status,
-  onClose,
   onChanged,
 }: {
   status: OnboardingStatus | null;
-  onClose: () => void;
   onChanged: () => void;
 }) {
   const connectedCount = status
@@ -494,12 +492,54 @@ export function OnboardingModal({
     : 0;
 
   return (
+    <div>
+      <div className="flex items-center gap-2 text-[11px]">
+        <span
+          className={`rounded-full px-2 py-0.5 font-medium ${
+            status?.allComplete
+              ? "bg-ok text-onbright"
+              : status?.requiredComplete
+                ? "bg-warn/20 text-warn"
+                : "bg-bad/20 text-bad"
+          }`}
+        >
+          {status?.allComplete
+            ? "✓ Fully connected"
+            : status?.requiredComplete
+              ? "◐ Ready to use · optional keys left"
+              : "✕ Required key missing"}
+        </span>
+        <span className="text-muted">{connectedCount}/6 services connected</span>
+      </div>
+
+      <div className="mt-4 space-y-2">
+        <LlmEngineSection status={status} onChanged={onChanged} />
+        {SERVICES.map((s) => (
+          <ServiceRow key={s.id} service={s} connected={!!status?.[s.id]} onConnected={onChanged} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- modal ---------------- */
+
+export function OnboardingModal({
+  status,
+  onClose,
+  onChanged,
+}: {
+  status: OnboardingStatus | null;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:p-8"
       onClick={onClose}
     >
       <div
-        className="card w-full max-w-lg bg-paper p-5 shadow-2xl"
+        className="card w-full max-w-lg bg-panel p-5 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3">
@@ -515,35 +555,8 @@ export function OnboardingModal({
           </button>
         </div>
 
-        <div className="mt-3 flex items-center gap-2 text-[11px]">
-          <span
-            className={`rounded-full px-2 py-0.5 font-medium ${
-              status?.allComplete
-                ? "bg-ok text-onbright"
-                : status?.requiredComplete
-                  ? "bg-warn/20 text-warn"
-                  : "bg-bad/20 text-bad"
-            }`}
-          >
-            {status?.allComplete
-              ? "✓ Fully connected"
-              : status?.requiredComplete
-                ? "◐ Ready to use · optional keys left"
-                : "✕ Required key missing"}
-          </span>
-          <span className="text-muted">{connectedCount}/6 services connected</span>
-        </div>
-
-        <div className="mt-4 space-y-2">
-          <LlmEngineSection status={status} onChanged={onChanged} />
-          {SERVICES.map((s) => (
-            <ServiceRow
-              key={s.id}
-              service={s}
-              connected={!!status?.[s.id]}
-              onConnected={onChanged}
-            />
-          ))}
+        <div className="mt-3">
+          <OnboardingPanel status={status} onChanged={onChanged} />
         </div>
       </div>
     </div>

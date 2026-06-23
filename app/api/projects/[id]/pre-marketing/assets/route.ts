@@ -36,6 +36,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const productName = project?.title || "Our product";
   const audience = Array.isArray(spec?.target_users) ? spec!.target_users.join(", ") : undefined;
   const direction = directionToPromptFragment((await getProjectSettings(params.id)).brandDirection);
+  // Ground the image prompts in the real product, not just the name.
+  const valueProp: string | undefined = spec?.value_proposition || pos.subheadline || undefined;
+  const brandingCtx = { name: productName, value_proposition: valueProp, tagline: pos.headline };
 
   try {
     const assets: Record<string, { file: string; at: string }> = { ...(state.assets || {}) };
@@ -49,14 +52,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     async function gen(k: AssetKind) {
       if (k === "logo") {
-        const prompt = buildLogoPrompt({ name: productName }, undefined, direction);
+        const prompt = buildLogoPrompt(brandingCtx, undefined, direction);
         const img = await geminiGenerateImage({ prompt, model: GEMINI_IMAGE_PRO_MODEL, aspectRatio: "1:1", imageSize: "2K" });
         const a = await saveAsset({ projectId: params.id, kind: "logo", base64: img.base64, mime: img.mimeType, prompt, engine: "nano-banana", phase: "pre-marketing" });
         assets.logo = { file: a.file, at: a.createdAt };
         return;
       }
       const forOg = k === "og";
-      const prompt = buildHeroPrompt({ productName, headline: pos.headline, problem: pos.problem_statement, audience, direction, forOg });
+      const prompt = buildHeroPrompt({ productName, headline: pos.headline, problem: pos.problem_statement, audience, valueProp, direction, forOg });
       const ref = await logoRef();
       const img = await geminiGenerateImage({
         prompt,

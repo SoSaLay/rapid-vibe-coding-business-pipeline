@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { VoiceInput } from "./VoiceInput";
+import { Interject } from "./Interject";
+import { StopButton, useStopper } from "./StopButton";
 
 interface POQuestion {
   id: string;
   question: string;
   rationale: string;
+  options?: string[];
 }
 interface POTurn {
   role: "po" | "owner";
@@ -47,12 +49,12 @@ export function ProductOwner({
   const [aiReady, setAiReady] = useState<boolean | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [dialogue, setDialogue] = useState<PODialogue | null>(initialDialogue);
-  const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<FrameworkSummary[]>([]);
   const [editingFw, setEditingFw] = useState(false);
   const [draftIds, setDraftIds] = useState<string[]>([]);
+  const stopper = useStopper();
 
   useEffect(() => {
     fetch("/api/ai")
@@ -102,41 +104,56 @@ export function ProductOwner({
   async function startReview() {
     setBusy(true);
     setError(null);
-    const res = await fetch(`/api/projects/${projectId}/product-owner/start`, { method: "POST" });
-    const d = await res.json();
-    setBusy(false);
-    if (!res.ok) return setError(d.error || "Failed to start review.");
-    setDialogue(d.dialogue);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/product-owner/start`, { method: "POST", signal: stopper.signal() });
+      const d = await res.json();
+      setBusy(false);
+      if (!res.ok) return setError(d.error || "Failed to start review.");
+      setDialogue(d.dialogue);
+    } catch (e: any) {
+      setBusy(false);
+      if (!stopper.isAbort(e)) setError(e?.message || "Failed to start review.");
+    }
   }
 
-  async function submitAnswer() {
-    if (!answer.trim()) return;
+  async function submitAnswer(text: string) {
+    if (!text.trim()) return;
     setBusy(true);
     setError(null);
-    const res = await fetch(`/api/projects/${projectId}/product-owner/answer`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: answer }),
-    });
-    const d = await res.json();
-    setBusy(false);
-    if (!res.ok) {
-      setError(d.error || "Failed to send answer.");
-      if (d.dialogue) setDialogue(d.dialogue);
-      return;
+    try {
+      const res = await fetch(`/api/projects/${projectId}/product-owner/answer`, {
+        method: "POST",
+        signal: stopper.signal(),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      const d = await res.json();
+      setBusy(false);
+      if (!res.ok) {
+        setError(d.error || "Failed to send answer.");
+        if (d.dialogue) setDialogue(d.dialogue);
+        return;
+      }
+      setDialogue(d.dialogue);
+    } catch (e: any) {
+      setBusy(false);
+      if (!stopper.isAbort(e)) setError(e?.message || "Failed to send answer.");
     }
-    setDialogue(d.dialogue);
-    setAnswer("");
   }
 
   async function synthesize() {
     setBusy(true);
     setError(null);
-    const res = await fetch(`/api/projects/${projectId}/product-owner/synthesize`, { method: "POST" });
-    const d = await res.json();
-    setBusy(false);
-    if (!res.ok) return setError(d.error || "Failed to synthesize spec.");
-    onUpdated();
+    try {
+      const res = await fetch(`/api/projects/${projectId}/product-owner/synthesize`, { method: "POST", signal: stopper.signal() });
+      const d = await res.json();
+      setBusy(false);
+      if (!res.ok) return setError(d.error || "Failed to synthesize spec.");
+      onUpdated();
+    } catch (e: any) {
+      setBusy(false);
+      if (!stopper.isAbort(e)) setError(e?.message || "Failed to synthesize spec.");
+    }
   }
 
   // Spec already produced — show it.
@@ -172,14 +189,16 @@ export function ProductOwner({
         <p className="text-sm text-fg/90 whitespace-pre-wrap">{ideaText}</p>
       </div>
 
+      <Interject projectId={projectId} phase="product-owner" />
+
       {!dialogue && (
-        <div className="card p-5 text-center space-y-3">
-          <p className="text-sm text-muted">
-            The Product Owner will review this idea and push back with questions before writing the spec.
-          </p>
-          <button className="btn-primary" disabled={busy || aiReady === null} onClick={startReview}>
-            {busy ? "Reviewing…" : "Start Product Owner review"}
-          </button>
+        <div className="card p-5 text-center">
+          <div className="flex items-center justify-center gap-2">
+            <button className="btn-primary" disabled={busy || aiReady === null} onClick={startReview}>
+              {busy ? "Reviewing…" : "Start Product Owner review"}
+            </button>
+            {busy && <StopButton onStop={stopper.stop} />}
+          </div>
         </div>
       )}
 
@@ -242,7 +261,13 @@ export function ProductOwner({
         </div>
       )}
 
-      {dialogue && (
+      {dialogue && (() => {
+        // The most recent PO turn holds the currently-open questions. When the
+        // dialogue isn't ready yet, those are answered interactively below — so
+        // skip them in the transcript to avoid showing each question twice.
+        const lastPoIndex = dialogue.turns.map((t) => t.role).lastIndexOf("po");
+        const openQuestions = !dialogue.ready ? dialogue.turns[lastPoIndex]?.questions ?? [] : [];
+        return (
         <div className="space-y-3">
           {dialogue.turns.map((turn, i) => (
             <div key={i}>
@@ -250,7 +275,7 @@ export function ProductOwner({
                 <div className="card p-4 border-l-2 border-l-accent">
                   <div className="text-[11px] uppercase tracking-wider text-accent2 mb-2">Product Owner</div>
                   {turn.assessment && <p className="text-sm text-fg/90 mb-3">{turn.assessment}</p>}
-                  {(turn.questions ?? []).length > 0 && (
+                  {(turn.questions ?? []).length > 0 && !(i === lastPoIndex && !dialogue.ready) && (
                     <ul className="space-y-2">
                       {turn.questions!.map((q) => (
                         <li key={q.id} className="text-sm">
@@ -273,40 +298,140 @@ export function ProductOwner({
           {dialogue.ready ? (
             <div className="card p-5 text-center space-y-3 border border-ok/40">
               <p className="text-sm text-fg">
-                The Product Owner has enough to write the spec. You can answer more, or generate it now.
+                The Product Owner has enough to write the spec.
               </p>
-              <div className="flex justify-center gap-3">
+              <div className="flex items-center justify-center gap-3">
                 <button className="btn-primary" disabled={busy} onClick={synthesize}>
                   {busy ? "Synthesizing…" : "Generate product spec →"}
                 </button>
+                {busy && <StopButton onStop={stopper.stop} />}
               </div>
             </div>
           ) : (
-            <div className="card p-4 space-y-3">
-              <div className="flex items-center gap-3">
-                <VoiceInput onTranscript={(t) => setAnswer(t)} />
-                <span className="text-xs text-muted">…or type your answers</span>
-              </div>
-              <textarea
-                className="input min-h-[90px] resize-y"
-                placeholder="Answer the questions in your own words…"
-                value={answer}
-                onChange={(e) => setAnswer(e.target.value)}
-              />
-              <div className="flex justify-between">
-                <button className="btn-ghost" disabled={busy} onClick={synthesize} title="Skip ahead and write the spec now">
-                  Skip & generate spec
-                </button>
-                <button className="btn-primary" disabled={busy || !answer.trim()} onClick={submitAnswer}>
-                  {busy ? "Thinking…" : "Send answer →"}
-                </button>
-              </div>
-            </div>
+            <Questionnaire
+              questions={openQuestions}
+              busy={busy}
+              onSubmit={submitAnswer}
+              onSkip={synthesize}
+              onStop={stopper.stop}
+            />
           )}
         </div>
-      )}
+        );
+      })()}
 
       {error && <p className="text-sm text-bad">{error}</p>}
+    </div>
+  );
+}
+
+/**
+ * Per-question answer UI (#1). Each PO question shows its tap-able options plus an
+ * always-present "Other" free-text box, so the owner answers in one click instead of
+ * typing prose. Selections are assembled into a single Q/A transcript and sent to the
+ * existing answer endpoint, keeping the backend contract unchanged.
+ */
+const OTHER = "__other__";
+
+function Questionnaire({
+  questions,
+  busy,
+  onSubmit,
+  onSkip,
+  onStop,
+}: {
+  questions: POQuestion[];
+  busy: boolean;
+  onSubmit: (text: string) => void;
+  onSkip: () => void;
+  onStop?: () => void;
+}) {
+  // choice[id] = a selected option string, or the OTHER sentinel; other[id] = the free text.
+  const [choice, setChoice] = useState<Record<string, string>>({});
+  const [other, setOther] = useState<Record<string, string>>({});
+
+  function answerFor(q: POQuestion): string {
+    const c = choice[q.id];
+    if (c === OTHER || !q.options?.length) return (other[q.id] || "").trim();
+    return (c || "").trim();
+  }
+
+  const allAnswered = questions.length > 0 && questions.every((q) => answerFor(q).length > 0);
+
+  function submit() {
+    const text = questions.map((q) => `Q: ${q.question}\nA: ${answerFor(q)}`).join("\n\n");
+    onSubmit(text);
+    setChoice({});
+    setOther({});
+  }
+
+  if (questions.length === 0) return null;
+
+  return (
+    <div className="card p-4 space-y-4">
+      {questions.map((q) => {
+        const isOther = choice[q.id] === OTHER || !q.options?.length;
+        return (
+          <div key={q.id} className="space-y-2">
+            <div className="text-sm text-fg">{q.question}</div>
+            <div className="flex flex-wrap gap-2">
+              {(q.options ?? []).map((opt) => {
+                const selected = choice[q.id] === opt;
+                return (
+                  <button
+                    key={opt}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setChoice((c) => ({ ...c, [q.id]: opt }))}
+                    className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${
+                      selected
+                        ? "border-accent bg-accent/15 text-fg"
+                        : "border-edge text-muted hover:border-accent/60 hover:text-fg"
+                    }`}
+                  >
+                    {opt}
+                  </button>
+                );
+              })}
+              {q.options?.length ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setChoice((c) => ({ ...c, [q.id]: OTHER }))}
+                  className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${
+                    choice[q.id] === OTHER
+                      ? "border-accent bg-accent/15 text-fg"
+                      : "border-edge text-muted hover:border-accent/60 hover:text-fg"
+                  }`}
+                >
+                  Other…
+                </button>
+              ) : null}
+            </div>
+            {isOther && (
+              <input
+                className="input text-sm"
+                placeholder="Type your answer…"
+                value={other[q.id] || ""}
+                disabled={busy}
+                onChange={(e) => setOther((o) => ({ ...o, [q.id]: e.target.value }))}
+              />
+            )}
+          </div>
+        );
+      })}
+
+      <div className="flex justify-between pt-1">
+        <button className="btn-ghost" disabled={busy} onClick={onSkip} title="Skip ahead and write the spec now">
+          Skip &amp; generate spec
+        </button>
+        <div className="flex items-center gap-2">
+          {busy && onStop && <StopButton onStop={onStop} />}
+          <button className="btn-primary" disabled={busy || !allAnswered} onClick={submit}>
+            {busy ? "Thinking…" : "Send answers →"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

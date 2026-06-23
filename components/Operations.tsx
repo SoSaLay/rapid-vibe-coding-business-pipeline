@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { Cadence, CADENCE_LABEL, isDue, resetsIn } from "@/lib/ops-cadence";
+import { Interject } from "./Interject";
+import { StopButton, useStopper } from "./StopButton";
 
 interface OpsCheck {
   id: string;
@@ -82,6 +84,7 @@ export function Operations({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const stopper = useStopper();
   // Local mirror so taps feel instant on the phone; server stays authoritative via onUpdated.
   const [localLog, setLocalLog] = useState<CheckLog | null>(null);
 
@@ -107,13 +110,13 @@ export function Operations({
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/projects/${projectId}/operations/plan`, { method: "POST" });
+      const res = await fetch(`/api/projects/${projectId}/operations/plan`, { method: "POST", signal: stopper.signal() });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to generate ops report.");
       setLocalLog(null);
       onUpdated();
     } catch (e: any) {
-      setError(e.message);
+      if (!stopper.isAbort(e)) setError(e.message);
     } finally {
       setBusy(false);
     }
@@ -210,10 +213,12 @@ export function Operations({
             deployed with (what to check in each console, daily / weekly / monthly, with timers),
             plus a release process and incident response runbook.
           </p>
+          <Interject projectId={projectId} phase="operations" />
           <div className="flex gap-3">
             <button onClick={generatePlan} disabled={busy} className="btn-primary text-sm">
               {busy ? "Generating…" : "Generate Ops Report"}
             </button>
+            {busy && <StopButton onStop={stopper.stop} />}
             <button onClick={skip} disabled={busy} className="btn-ghost text-sm">
               Skip
             </button>

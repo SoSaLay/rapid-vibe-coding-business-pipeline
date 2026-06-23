@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ImageZoom } from "./ImageZoom";
+import { Interject } from "./Interject";
+import { StopButton, useStopper } from "./StopButton";
 
 type AssetRef = { file: string; at: string };
 type PostAssets = Record<string, { image?: AssetRef; video?: AssetRef }>;
@@ -93,6 +96,7 @@ export function Marketing({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [googleReady, setGoogleReady] = useState(false);
+  const stopper = useStopper();
 
   useEffect(() => {
     fetch("/api/google")
@@ -104,18 +108,25 @@ export function Marketing({
   async function post(path: string, body?: any): Promise<any | null> {
     setBusy(true);
     setError(null);
-    const res = await fetch(`/api/projects/${projectId}/marketing/${path}`, {
-      method: "POST",
-      ...(body ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}),
-    });
-    const d = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (!res.ok) {
-      setError(d.error || "Request failed.");
+    try {
+      const res = await fetch(`/api/projects/${projectId}/marketing/${path}`, {
+        method: "POST",
+        signal: stopper.signal(),
+        ...(body ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}),
+      });
+      const d = await res.json().catch(() => ({}));
+      setBusy(false);
+      if (!res.ok) {
+        setError(d.error || "Request failed.");
+        return null;
+      }
+      onUpdated();
+      return d;
+    } catch (e: any) {
+      setBusy(false);
+      if (!stopper.isAbort(e)) setError(e?.message || "Request failed.");
       return null;
     }
-    onUpdated();
-    return d;
   }
 
   async function skip() {
@@ -142,10 +153,12 @@ export function Marketing({
           ready-to-post content, and an in-depth launch checklist that takes you from "nobody knows this exists" to
           first sales. You post for ~10 minutes a day; it does the rest.
         </p>
-        <div className="flex justify-center gap-3">
+        <Interject projectId={projectId} phase="marketing-sales" />
+        <div className="flex items-center justify-center gap-3">
           <button className="btn-primary" disabled={busy} onClick={() => post("plan")}>
             {busy ? "Building the campaign…" : "Generate campaign plan"}
           </button>
+          {busy && <StopButton onStop={stopper.stop} />}
           <button className="btn-ghost" disabled={busy} onClick={skip}>
             Skip this phase
           </button>
@@ -508,8 +521,7 @@ function PostMedia({
   return (
     <div className="mt-2 space-y-2">
       {imgUrl && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={imgUrl} alt="campaign image" className="w-full max-w-xs rounded-lg border border-edge" />
+        <ImageZoom src={imgUrl} alt="campaign image" className="w-full max-w-xs rounded-lg border border-edge" />
       )}
       {vidUrl && <video src={vidUrl} controls className="w-full max-w-xs rounded-lg border border-edge" />}
       <div className="flex flex-wrap items-center gap-2">

@@ -16,6 +16,8 @@ export interface POQuestion {
   id: string;
   question: string;
   rationale: string;
+  /** 3-5 tappable answer options for this idea. The owner can always pick "Other" and type instead. */
+  options?: string[];
 }
 
 export interface POTurn {
@@ -67,7 +69,13 @@ focused rounds of 3-6 questions. Do not ask things the owner already answered. W
 have enough to write a strong, opinionated spec, set ready=true and stop asking.
 
 Be direct and concise. You are a thought partner who sharpens the customer focus, not a yes-man. If
-the idea is solution-first rather than customer-problem-first, name it and push back hard.`;
+the idea is solution-first rather than customer-problem-first, name it and push back hard.
+
+For EVERY question, provide 3-5 concrete answer options tailored to THIS specific idea — plausible,
+mutually-exclusive answers the owner can tap to respond in one click (e.g. for "who is the primary
+user?" → specific segments you infer from the idea, not generic placeholders). Make the options
+genuinely useful guesses, not filler. Never add an "Other" option yourself — the interface always
+offers a free-text "Other" so the owner can answer in their own words.`;
 
 const TURN_SCHEMA = {
   type: "object",
@@ -85,8 +93,14 @@ const TURN_SCHEMA = {
           id: { type: "string" },
           question: { type: "string" },
           rationale: { type: "string", description: "Why this matters / what assumption it tests." },
+          options: {
+            type: "array",
+            description:
+              "3-5 concrete, mutually-exclusive answer options specific to THIS idea, phrased as plausible answers the owner can tap. Do NOT include a generic 'Other' option — the UI always offers that.",
+            items: { type: "string" },
+          },
         },
-        required: ["id", "question", "rationale"],
+        required: ["id", "question", "rationale", "options"],
       },
     },
   },
@@ -233,11 +247,12 @@ export async function generatePOTurn(
 export async function synthesizeSpec(
   idea: string,
   turns: POTurn[],
-  frameworkIds: string[] = []
+  frameworkIds: string[] = [],
+  extraContext = ""
 ): Promise<Record<string, unknown>> {
   const provider = activeProvider();
   return provider.completeJson<Record<string, unknown>>({
-    system: await systemWithFrameworks(frameworkIds),
+    system: (await systemWithFrameworks(frameworkIds)) + extraContext,
     effort: "high",
     schema: SPEC_SCHEMA,
     messages: [

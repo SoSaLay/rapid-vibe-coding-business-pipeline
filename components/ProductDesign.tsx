@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { EngineSelector } from "./EngineSelector";
+import { ImageZoom } from "./ImageZoom";
+import { Interject } from "./Interject";
+import { StopButton, useStopper } from "./StopButton";
 
 interface ScreenStates {
   empty: string;
@@ -80,6 +83,7 @@ export function ProductDesign({
   const [error, setError] = useState<string | null>(null);
   const [googleReady, setGoogleReady] = useState(false);
   const [inheritedLogo, setInheritedLogo] = useState<{ file: string; at: string } | null>(null);
+  const stopper = useStopper();
 
   useEffect(() => {
     fetch("/api/google")
@@ -104,18 +108,25 @@ export function ProductDesign({
   async function post(path: string, body?: any) {
     setBusy(true);
     setError(null);
-    const res = await fetch(`/api/projects/${projectId}/${path}`, {
-      method: "POST",
-      ...(body ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}),
-    });
-    const d = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (!res.ok) {
-      setError(d.error || "Request failed.");
+    try {
+      const res = await fetch(`/api/projects/${projectId}/${path}`, {
+        method: "POST",
+        signal: stopper.signal(),
+        ...(body ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}),
+      });
+      const d = await res.json().catch(() => ({}));
+      setBusy(false);
+      if (!res.ok) {
+        setError(d.error || "Request failed.");
+        return false;
+      }
+      onUpdated();
+      return true;
+    } catch (e: any) {
+      setBusy(false);
+      if (!stopper.isAbort(e)) setError(e?.message || "Request failed.");
       return false;
     }
-    onUpdated();
-    return true;
   }
 
   if (!hasSpec) return <div className="card p-6 text-sm text-muted">Locked until the product spec is complete.</div>;
@@ -134,6 +145,7 @@ export function ProductDesign({
           Picks 1–2 reference design systems that fit your product, then generates the full design spec constrained by
           proven UI/UX rules.
         </p>
+        <Interject projectId={projectId} phase="product-design" />
         <div className="flex items-center justify-center gap-3">
           <button className="btn-ghost" disabled={busy} onClick={() => post("skip", { phase: "product-design" })}>
             Skip
@@ -141,6 +153,7 @@ export function ProductDesign({
           <button className="btn-primary" disabled={busy} onClick={() => post("product-design/generate-brief")}>
             {busy ? "Designing… (this takes a minute)" : "Generate design spec"}
           </button>
+          {busy && <StopButton onStop={stopper.stop} />}
         </div>
         {error && <p className="text-sm text-bad text-center">{error}</p>}
       </div>
@@ -155,6 +168,8 @@ export function ProductDesign({
           <span className="ml-3 text-xs text-muted">Phase complete — Engineering unlocked.</span>
         </div>
       )}
+
+      {!approved && <Interject projectId={projectId} phase="product-design" />}
 
       <BrandingCard
         brief={brief}
@@ -258,8 +273,7 @@ function BrandingCard({
         </div>
         <div className="shrink-0 text-center">
           {logoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
+            <ImageZoom
               src={logoUrl}
               alt={`${b.name} logo`}
               className="h-20 w-20 rounded-lg border border-edge object-contain bg-ink/40"

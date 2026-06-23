@@ -136,6 +136,47 @@ export const PHASES: PhaseDef[] = [
   },
 ];
 
+/**
+ * Hard prerequisites — the artifact that MUST exist before a phase's action can run.
+ * This is the real gate the phase components already enforce via their `has*` props
+ * (e.g. QA needs a build-manifest). It is deliberately narrower than `consumes`, which
+ * also lists optional inputs. Phases not listed here have no hard gate (always runnable).
+ * Single source of truth for the "open but action-gated" UI in lib/pipeline-status.ts.
+ */
+export const HARD_PREREQ: Partial<Record<PhaseId, string>> = {
+  "product-owner": "raw-idea",
+  engineering: "product-spec",
+  qa: "build-manifest",
+  deployment: "qa-report",
+  "marketing-sales": "deploy-manifest",
+  operations: "deploy-manifest",
+  iteration: "deploy-manifest",
+};
+
+/** The phase that produces a given artifact type (for human-readable blocked reasons). */
+export function phaseProducing(artifactType: string): PhaseDef | undefined {
+  return PHASES.find((p) => p.produces.includes(artifactType));
+}
+
+/**
+ * Subheadings shown beneath each phase in the docs sidebar. Display-only for now
+ * (structure + future expansion) — they are NOT routed/linked yet. Colocated with
+ * PHASES so they can grow into real anchors/sub-routes later.
+ */
+export const PHASE_SECTIONS: Record<PhaseId, string[]> = {
+  "business-owner": ["Capture idea", "Idea type", "Import from a tool"],
+  "product-owner": ["Review & questions", "Frameworks", "Product spec"],
+  "idea-validation": ["Demand signal", "Competitive landscape", "Verdict"],
+  "pre-marketing": ["Validation kit", "Creative direction", "Brand visuals", "Landing page", "Waitlist", "Email"],
+  "product-design": ["Design brief", "Mockups", "Design spec"],
+  engineering: ["Architect & stack", "Task graph", "Build"],
+  qa: ["Test plan", "Manual checklist", "Security", "Report"],
+  deployment: ["Environments", "Preflight", "Deploy"],
+  "marketing-sales": ["Campaign plan", "Content batches", "Channels"],
+  operations: ["Recurring checklist", "Runbooks"],
+  iteration: ["Check-in", "Traction read", "Next moves"],
+};
+
 export function getPhase(id: PhaseId): PhaseDef | undefined {
   return PHASES.find((p) => p.id === id);
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ideaTypeContext } from "@/lib/idea-types";
 import { latestArtifact, savePhaseState, getPhaseState, saveArtifact, completePhase } from "@/lib/store";
 import { synthesizeSpec, PODialogue } from "@/lib/phases/product-owner";
+import { interjectionContext } from "@/lib/interjections";
 
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   const dialogue = await getPhaseState<PODialogue>(params.id, "product-owner");
@@ -11,7 +12,8 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
 
   try {
     const frameworkIds = dialogue?.frameworks?.ids ?? [];
-    const spec = await synthesizeSpec(ideaText, dialogue?.turns ?? [], frameworkIds);
+    const extra = await interjectionContext(params.id, "product-owner");
+    const spec = await synthesizeSpec(ideaText, dialogue?.turns ?? [], frameworkIds, extra);
     const artifact = await saveArtifact({
       projectId: params.id,
       phase: "product-owner",

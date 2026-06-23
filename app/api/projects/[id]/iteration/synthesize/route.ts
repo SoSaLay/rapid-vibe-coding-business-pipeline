@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPhaseState, savePhaseState } from "@/lib/store";
 import { synthesizeIteration, CheckinQuestion } from "@/lib/phases/iteration";
+import { interjectionContext } from "@/lib/interjections";
 
 /** Stage 2: answers → honest traction read + ranked next moves. */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
@@ -18,7 +19,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   try {
-    const brief = await synthesizeIteration(state.context ?? "", questions, answers);
+    const brief = await synthesizeIteration(state.context ?? "", questions, answers, await interjectionContext(params.id, "iteration"));
     await savePhaseState(params.id, "iteration", { ...state, answers, brief });
     return NextResponse.json({ brief }, { status: 201 });
   } catch (e: any) {

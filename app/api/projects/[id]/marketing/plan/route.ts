@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { latestArtifact, getPhaseState, savePhaseState, getProject } from "@/lib/store";
 import { generateCampaignPlan, CampaignContext } from "@/lib/phases/marketing";
+import { interjectionContext } from "@/lib/interjections";
 
 /** Stage 1: generate the campaign plan (channels, pillars, rhythm, launch checklist, waitlist email). */
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -33,7 +34,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   };
 
   try {
-    const plan = await generateCampaignPlan(ctx);
+    const plan = await generateCampaignPlan(ctx, await interjectionContext(params.id, "marketing-sales"));
     const prior = (await getPhaseState<any>(params.id, "marketing-sales")) ?? {};
     await savePhaseState(params.id, "marketing-sales", {
       ...prior,

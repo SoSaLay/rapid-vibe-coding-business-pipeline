@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { EngineSelector } from "./EngineSelector";
+import { ImageZoom } from "./ImageZoom";
+import { Interject } from "./Interject";
+import { StopButton, useStopper } from "./StopButton";
 
 interface ContentPlatform {
   platform: string;
@@ -59,15 +62,21 @@ export function PreMarketing({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const stopper = useStopper();
 
   async function generate() {
     setBusy(true);
     setError(null);
-    const res = await fetch(`/api/projects/${projectId}/pre-marketing/generate-kit`, { method: "POST" });
-    const d = await res.json();
-    setBusy(false);
-    if (!res.ok) return setError(d.error || "Failed to generate kit.");
-    onUpdated();
+    try {
+      const res = await fetch(`/api/projects/${projectId}/pre-marketing/generate-kit`, { method: "POST", signal: stopper.signal() });
+      const d = await res.json();
+      setBusy(false);
+      if (!res.ok) return setError(d.error || "Failed to generate kit.");
+      onUpdated();
+    } catch (e: any) {
+      setBusy(false);
+      if (!stopper.isAbort(e)) setError(e?.message || "Failed to generate kit.");
+    }
   }
 
   async function skip() {
@@ -87,25 +96,21 @@ export function PreMarketing({
     return (
       <div className="space-y-4">
         {brief && <BriefView brief={brief} />}
+        <Interject projectId={projectId} phase="pre-marketing" />
         <KitView kit={kit} frameworks={frameworks} onRegen={generate} busy={busy} />
         <BrandVisuals projectId={projectId} />
-        <LaunchPanel projectId={projectId} kit={kit} onUpdated={onUpdated} />
+        <LaunchPanel projectId={projectId} kit={kit} />
       </div>
     );
   }
 
   return (
     <div className="card p-6 space-y-4">
-      <div className="rounded-lg border border-warn/30 bg-warn/5 p-3">
-        <p className="text-xs text-warn">
-          <span className="font-semibold">Optional step.</span> Pre-Marketing proves real intent — a landing page +
-          waitlist where actual people sign up. Skip if you’re building for fun; do it if you intend to monetize.
-        </p>
-      </div>
       <p className="text-sm text-muted text-center">
-        Generate a pre-launch validation kit: landing-page copy, a de-risking pre-sell offer, qualifying questions, and a
-        distribution plan — grounded in your spec and the real market evidence.
+        Prove real intent before you build — a validation kit: landing-page copy, a pre-sell offer, and a distribution
+        plan grounded in your spec.
       </p>
+      <Interject projectId={projectId} phase="pre-marketing" />
       <div className="flex items-center justify-center gap-3">
         <button className="btn-ghost" disabled={busy} onClick={skip}>
           Skip
@@ -113,6 +118,7 @@ export function PreMarketing({
         <button className="btn-primary" disabled={busy} onClick={generate}>
           {busy ? "Generating kit…" : "Generate validation kit"}
         </button>
+        {busy && <StopButton onStop={stopper.stop} />}
       </div>
       {error && <p className="text-sm text-bad text-center">{error}</p>}
     </div>
@@ -344,8 +350,7 @@ function BrandVisuals({ projectId }: { projectId: string }) {
   return (
     <Section title="Brand visuals (Nano Banana)">
       <p className="text-xs text-muted mb-3">
-        Generate a logo, hero, and share image from your positioning — they’re embedded straight into the landing page,
-        then carried forward and locked in Product Design.
+        Logo, hero, and share image from your positioning — embedded into the landing page.
       </p>
 
       <div className="mb-3 space-y-3">
@@ -387,8 +392,7 @@ function BrandVisuals({ projectId }: { projectId: string }) {
               return (
                 <div key={key} className="rounded-lg border border-edge p-2 text-center">
                   {a ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={assetUrl(a.file)} alt={label} className="mx-auto h-20 w-full rounded object-contain bg-ink/40" />
+                    <ImageZoom src={assetUrl(a.file)} alt={label} className="mx-auto h-20 w-full rounded object-contain bg-ink/40" />
                   ) : (
                     <div className="flex h-20 items-center justify-center rounded border border-dashed border-edge text-[10px] text-muted">
                       {label}
@@ -415,21 +419,21 @@ function BrandVisuals({ projectId }: { projectId: string }) {
   );
 }
 
-function LaunchPanel({ projectId, kit, onUpdated }: { projectId: string; kit: Kit; onUpdated: () => void }) {
+function LaunchPanel({ projectId, kit }: { projectId: string; kit: Kit }) {
   const [sbReady, setSbReady] = useState<boolean | null>(null);
   const [sql, setSql] = useState("");
-  const [url, setUrl] = useState("");
-  const [anonKey, setAnonKey] = useState("");
-  const [serviceKey, setServiceKey] = useState("");
-  const [tableMissing, setTableMissing] = useState(false);
   const [landingReady, setLandingReady] = useState(false);
   const [threeHero, setThreeHero] = useState(false);
   const [deployedUrl, setDeployedUrl] = useState<string | null>(null);
   const [deploying, setDeploying] = useState(false);
   const [deployLog, setDeployLog] = useState<string[]>([]);
   const [metrics, setMetrics] = useState<{ total: number; presale_interest: number } | null>(null);
+  const [editText, setEditText] = useState("");
+  const [landingVersion, setLandingVersion] = useState(0);
+  const [editNote, setEditNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const stopper = useStopper();
 
   useEffect(() => {
     fetch("/api/supabase")
@@ -446,34 +450,48 @@ function LaunchPanel({ projectId, kit, onUpdated }: { projectId: string; kit: Ki
       .catch(() => {});
   }, [projectId]);
 
-  async function connectSupabase() {
-    setBusy(true);
-    setError(null);
-    const res = await fetch("/api/supabase/configure", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, anonKey, serviceKey }),
-    });
-    const d = await res.json();
-    setBusy(false);
-    if (!d.ok) return setError(d.error || "Failed to connect Supabase.");
-    setSbReady(true);
-    setTableMissing(!!d.tableMissing);
-    setSql(d.sql || sql);
-  }
-
   async function genLanding() {
     setBusy(true);
     setError(null);
-    const res = await fetch(`/api/projects/${projectId}/pre-marketing/landing`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threeHero }),
-    });
-    const d = await res.json();
-    setBusy(false);
-    if (!res.ok) return setError(d.error || "Failed to generate landing page.");
-    setLandingReady(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/pre-marketing/landing`, {
+        method: "POST",
+        signal: stopper.signal(),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ threeHero }),
+      });
+      const d = await res.json();
+      setBusy(false);
+      if (!res.ok) return setError(d.error || "Failed to generate landing page.");
+      setLandingReady(true);
+    } catch (e: any) {
+      setBusy(false);
+      if (!stopper.isAbort(e)) setError(e?.message || "Failed to generate landing page.");
+    }
+  }
+
+  async function editLanding() {
+    if (!editText.trim()) return;
+    setBusy(true);
+    setError(null);
+    setEditNote(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/pre-marketing/landing/edit`, {
+        method: "POST",
+        signal: stopper.signal(),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ instruction: editText }),
+      });
+      const d = await res.json().catch(() => ({}));
+      setBusy(false);
+      if (!res.ok) return setError(d.error || "Couldn't apply that edit.");
+      setEditText("");
+      setLandingVersion((v) => v + 1); // cache-bust the preview link
+      setEditNote("Applied. Re-open the preview to see it.");
+    } catch (e: any) {
+      setBusy(false);
+      if (!stopper.isAbort(e)) setError(e?.message || "Couldn't apply that edit.");
+    }
   }
 
   async function deploy() {
@@ -498,16 +516,6 @@ function LaunchPanel({ projectId, kit, onUpdated }: { projectId: string; kit: Ki
     setMetrics(d);
   }
 
-  async function evaluate() {
-    setBusy(true);
-    setError(null);
-    const res = await fetch(`/api/projects/${projectId}/pre-marketing/evaluate`, { method: "POST" });
-    const d = await res.json();
-    setBusy(false);
-    if (!res.ok) return setError(d.error || "Failed to evaluate.");
-    onUpdated();
-  }
-
   const landingUrl = `/api/projects/${projectId}/pre-marketing/landing`;
 
   return (
@@ -515,26 +523,17 @@ function LaunchPanel({ projectId, kit, onUpdated }: { projectId: string; kit: Ki
       <div className="text-[11px] uppercase tracking-wider text-accent2">Launch &amp; track</div>
 
       {sbReady === false && (
-        <Section title="Connect Supabase (waitlist store)">
-          <p className="text-xs text-muted mb-2">
-            Create a free project at supabase.com → Project Settings → API for the URL + keys. Stored locally.
+        <Section title="Waitlist needs Supabase">
+          <p className="text-xs text-muted">
+            Connect Supabase once in <span className="text-fg/80 font-medium">Complete onboarding</span> (top right) to
+            enable the waitlist store and signups dashboard.
           </p>
-          <div className="space-y-2">
-            <input className="input" placeholder="https://xxxx.supabase.co" value={url} onChange={(e) => setUrl(e.target.value)} />
-            <input className="input" type="password" placeholder="anon public key" value={anonKey} onChange={(e) => setAnonKey(e.target.value)} />
-            <input className="input" type="password" placeholder="service_role key" value={serviceKey} onChange={(e) => setServiceKey(e.target.value)} />
-            <button className="btn-primary" disabled={busy || !url || !anonKey || !serviceKey} onClick={connectSupabase}>
-              {busy ? "Connecting…" : "Connect Supabase"}
-            </button>
-          </div>
         </Section>
       )}
 
-      {(tableMissing || sbReady) && sql && (
+      {sbReady && sql && (
         <Section title="One-time: create the signups table" action={<Copyable text={sql} />}>
-          <p className="text-xs text-muted mb-2">
-            {tableMissing ? "Table not found — " : ""}Paste this once in Supabase → SQL Editor → Run.
-          </p>
+          <p className="text-xs text-muted mb-2">Paste this once in Supabase → SQL Editor → Run.</p>
           <pre className="whitespace-pre-wrap rounded bg-ink p-2 text-[11px] text-fg/80">{sql}</pre>
         </Section>
       )}
@@ -543,9 +542,7 @@ function LaunchPanel({ projectId, kit, onUpdated }: { projectId: string; kit: Ki
         <>
           <Section title="Landing page (Launch UI style)">
             <p className="text-xs text-muted mb-2">
-              Generates a self-contained page from your kit, with the waitlist form wired to Supabase. Tasteful motion is
-              always on (scroll reveals, animated gradient, hover lifts) and respects reduced-motion. Preview it, then
-              deploy the HTML anywhere (Vercel / Netlify / Amplify / S3).
+              A self-contained page from your kit, waitlist wired to Supabase. Preview, then deploy anywhere.
             </p>
             <label className="mb-2 flex items-center gap-2 text-xs text-fg/80">
               <input type="checkbox" className="accent-accent2" checked={threeHero} onChange={(e) => setThreeHero(e.target.checked)} />
@@ -555,17 +552,39 @@ function LaunchPanel({ projectId, kit, onUpdated }: { projectId: string; kit: Ki
               <button className="btn-primary" disabled={busy} onClick={genLanding}>
                 {busy ? "Generating…" : landingReady ? "Regenerate page" : "Generate landing page"}
               </button>
+              {busy && <StopButton onStop={stopper.stop} />}
               {landingReady && (
                 <>
-                  <a className="btn-ghost" href={landingUrl} target="_blank" rel="noreferrer">
+                  <a className="btn-ghost" href={`${landingUrl}?v=${landingVersion}`} target="_blank" rel="noreferrer">
                     Preview ↗
                   </a>
-                  <a className="btn-ghost" href={`${landingUrl}?download=1`}>
+                  <a className="btn-ghost" href={`${landingUrl}?download=1&v=${landingVersion}`}>
                     Download HTML
                   </a>
                 </>
               )}
             </div>
+
+            {landingReady && (
+              <div className="mt-3 rounded-lg border border-edge bg-edge/10 p-3">
+                <div className="text-[11px] uppercase tracking-wider text-muted mb-1.5">Edit the page</div>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <input
+                    className="input"
+                    placeholder="Describe a change — e.g. 'shorten the headline' or 'remove the FAQ'"
+                    value={editText}
+                    disabled={busy}
+                    onChange={(e) => setEditText(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && editLanding()}
+                  />
+                  <button className="btn-primary shrink-0" disabled={busy || !editText.trim()} onClick={editLanding}>
+                    {busy ? "Applying…" : "Apply"}
+                  </button>
+                  {busy && <StopButton onStop={stopper.stop} className="shrink-0" />}
+                </div>
+                {editNote && <p className="mt-2 text-[11px] text-ok">{editNote}</p>}
+              </div>
+            )}
 
             {landingReady && (
               <div className="mt-3 rounded-lg border border-edge bg-edge/10 p-3">
@@ -612,15 +631,6 @@ function LaunchPanel({ projectId, kit, onUpdated }: { projectId: string; kit: Ki
               </div>
             )}
             <p className="mt-2 text-[11px] text-muted">⚖️ {kit.success_thresholds.decision_rule}</p>
-          </Section>
-
-          <Section title="Decide">
-            <p className="text-xs text-muted mb-2">
-              When you’ve collected enough signal, evaluate against your thresholds for a proceed / pivot / stop verdict.
-            </p>
-            <button className="btn-primary" disabled={busy} onClick={evaluate}>
-              {busy ? "Evaluating…" : "Evaluate & decide →"}
-            </button>
           </Section>
         </>
       )}

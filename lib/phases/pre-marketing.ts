@@ -277,7 +277,8 @@ export async function synthesizeAudienceBrief(
 export async function generateKit(
   spec: Record<string, any>,
   market: Record<string, any> | null,
-  frameworkIds: string[]
+  frameworkIds: string[],
+  extraContext = ""
 ): Promise<Record<string, unknown>> {
   const provider = activeProvider();
   const frameworks = await buildFrameworkContext(frameworkIds);
@@ -292,7 +293,8 @@ export async function generateKit(
     "naturally, specific outcome, soft CTA) for the search snippet — these are distinct from the on-page marketing headline. " +
     "Write the faq answers to directly resolve real conversion-blocking objections in plain, specific language so they can " +
     "also be cited by AI search engines." +
-    (frameworks ? `\n\n---\n\n${frameworks}` : "");
+    (frameworks ? `\n\n---\n\n${frameworks}` : "") +
+    extraContext;
 
   return provider.completeJson<Record<string, unknown>>({
     system,

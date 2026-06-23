@@ -91,7 +91,8 @@ function designToText(design: Record<string, any> | null): string {
 export async function generateStackProposal(
   spec: Record<string, any>,
   design: Record<string, any> | null,
-  productTitle: string
+  productTitle: string,
+  extraContext = ""
 ): Promise<StackProposal> {
   const provider = activeProvider();
   const result = await provider.completeJson<StackProposal>({
@@ -100,7 +101,8 @@ export async function generateStackProposal(
       "Bias hard toward the studio defaults — they are chosen for simplicity and agent-friendliness. " +
       "Deviate ONLY when this specific product's requirements make the default genuinely wrong, and say why. " +
       "Slots and allowed options:\n\n" +
-      slotMenu(),
+      slotMenu() +
+      extraContext,
     effort: "medium",
     schema: PROPOSAL_SCHEMA,
     messages: [

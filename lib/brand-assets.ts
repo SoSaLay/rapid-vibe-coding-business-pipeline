@@ -127,19 +127,26 @@ function personalityPhrase(branding: Record<string, any> | undefined): string {
 export function buildLogoPrompt(branding: Record<string, any>, visual?: Record<string, any>, direction?: string): string {
   const name = branding?.name || "the product";
   const mood = personalityPhrase(branding);
+  // Grounding: what the product actually is, so the mark references the real category
+  // instead of defaulting to a generic abstract swoosh.
+  const what = branding?.value_proposition || branding?.what || "";
+  const tagline = branding?.tagline ? `Brand essence: "${branding.tagline}".` : "";
   return [
     // Subject
     `Design a single, original brand logo: a clean vector mark paired with the wordmark "${name}"`,
     `set in a typeface that feels ${mood}.`,
+    what ? `The product: ${what}. The mark should subtly evoke this, not be generic.` : "",
+    tagline,
     // Chosen creative direction (takes precedence over generic defaults)
     direction || "",
     // Style / direction
     branding?.logo_direction ? `Art direction: ${branding.logo_direction}.` : "",
     `Flat vector style, crisp confident edges, generous negative space, instantly recognizable at small sizes.`,
+    `Modern, premium, professional — avoid clip-art, gradients-as-crutch, drop shadows, and stocky icon clichés.`,
     palettePhrase(visual),
     // Composition / technical
     `Center the mark and wordmark on a clean solid background.`,
-    `Render the text "${name}" exactly, sharp and legible.`,
+    `Render the text "${name}" exactly — correct spelling, sharp and legible, no extra or garbled letters.`,
     `It must work as both a website header logo and a square app icon.`,
   ]
     .filter(Boolean)
@@ -152,6 +159,8 @@ export function buildHeroPrompt(args: {
   headline?: string;
   problem?: string;
   audience?: string;
+  /** What the product actually does — the concrete subject, so the scene isn't generic. */
+  valueProp?: string;
   branding?: Record<string, any>;
   visual?: Record<string, any>;
   direction?: string;
@@ -161,16 +170,19 @@ export function buildHeroPrompt(args: {
   return [
     // Subject + context
     `Create a polished, original ${args.forOg ? "social-share / Open Graph banner" : "website hero image"} for "${args.productName}",`,
-    `a product ${args.audience ? `for ${args.audience}` : ""} that ${args.problem ? `helps with ${args.problem}` : "solves a real problem"}.`,
+    `a product ${args.audience ? `for ${args.audience}` : ""} that ${args.problem ? `relieves this pain: ${args.problem}` : "solves a real problem"}.`,
+    // Concrete subject so the model has something specific to depict
+    args.valueProp ? `Visually communicate the core value: ${args.valueProp}.` : "",
     // Chosen creative direction
     args.direction || "",
     // Style
-    `Mood: ${mood}. A confident, on-brand illustration or abstract composition — clean, premium, with intentional depth and soft studio lighting.`,
+    `Mood: ${mood}. A confident, on-brand hero composition — clean, premium, with intentional depth, tasteful lighting, and a single clear focal point.`,
+    `Editorial product-marketing quality. Avoid generic stock photography, clip-art, busy clutter, literal emoji, and AI-slop artifacts.`,
     palettePhrase(args.visual),
     // Composition / technical + optional in-image headline
     args.forOg && args.headline
-      ? `Integrate the headline "${args.headline}" in a bold, legible sans-serif with strong contrast.`
-      : `Leave clean negative space on one side for an overlaid headline.`,
+      ? `Integrate the headline "${args.headline}" exactly, in a bold legible sans-serif with strong contrast and correct spelling.`
+      : `Leave clean negative space on one side for an overlaid headline. Keep the image text-free.`,
     args.forOg ? `Wide 16:9 landscape framing.` : `Wide landscape framing, web-hero proportions.`,
   ]
     .filter(Boolean)

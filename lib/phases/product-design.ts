@@ -244,7 +244,8 @@ export async function generateDesignBrief(
   kit: Record<string, any> | null,
   systemIds: string[],
   productTitle: string,
-  brandDirection?: Record<string, any> | null
+  brandDirection?: Record<string, any> | null,
+  extraContext = ""
 ): Promise<Record<string, unknown>> {
   const provider = activeProvider();
   const [rules, reference] = await Promise.all([
@@ -259,7 +260,8 @@ export async function generateDesignBrief(
     "Branding: if the product already has a name and validated positioning, keep and build on them; only propose a new " +
     "name if the current one is clearly weak, and say why either way." +
     (rules ? `\n\n---\n\n${rules}` : "") +
-    (reference ? `\n\n---\n\n${reference}` : "");
+    (reference ? `\n\n---\n\n${reference}` : "") +
+    extraContext;
 
   const directionBlock = brandDirection
     ? `CHOSEN BRAND DIRECTION (the founder already picked this — honor it in palette, type, logo, and overall feel):\n` +

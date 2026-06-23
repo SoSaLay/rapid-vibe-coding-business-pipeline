@@ -223,7 +223,8 @@ export async function generateOpsReport(
   spec: Record<string, any> | null,
   stackChoices: StackChoice[] | null,
   ideaType?: string,
-  emailEnabled?: boolean
+  emailEnabled?: boolean,
+  extraContext = ""
 ): Promise<OpsReport> {
   const provider = activeProvider();
   const contextParts = [deployContext(deploy)];
@@ -232,7 +233,7 @@ export async function generateOpsReport(
   contextParts.push(`Email enabled: ${emailEnabled ? "yes (founder broadcasts via Resend)" : "no"}`);
 
   const result = await provider.completeJson<OpsReport>({
-    system: OPS_SYSTEM,
+    system: OPS_SYSTEM + extraContext,
     effort: "high",
     schema: OPS_SCHEMA,
     messages: [

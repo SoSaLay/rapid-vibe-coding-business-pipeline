@@ -222,7 +222,8 @@ solved better, or helps more of the right customers find the product. Vanity wor
 export async function synthesizeIteration(
   context: string,
   questions: CheckinQuestion[],
-  answers: Record<string, string>
+  answers: Record<string, string>,
+  extraContext = ""
 ): Promise<IterationBrief> {
   const provider = activeProvider();
   const answered = questions
@@ -230,7 +231,7 @@ export async function synthesizeIteration(
     .join("\n\n");
 
   const result = await provider.completeJson<IterationBrief>({
-    system: SYNTH_SYSTEM,
+    system: SYNTH_SYSTEM + extraContext,
     effort: "high",
     schema: BRIEF_SCHEMA,
     messages: [
