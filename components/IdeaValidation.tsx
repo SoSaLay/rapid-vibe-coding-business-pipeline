@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Interject } from "./Interject";
 import { StopButton, useStopper } from "./StopButton";
+import { Doc, DocSection, DocP, DocSub, DocMuted, DocList, DocQuote } from "./doc/Doc";
 
 interface ValidationReport {
   verdict: "build" | "refine" | "reject" | "archive";
@@ -152,27 +153,15 @@ export function IdeaValidation({
 
 function ReportView({ report, onRerun, busy }: { report: ValidationReport; onRerun: () => void; busy: boolean }) {
   const v = VERDICT_STYLE[report.verdict] || VERDICT_STYLE.refine;
-  const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <div className="card p-4">
-      <div className="text-[11px] uppercase tracking-wider text-muted mb-2">{title}</div>
-      {children}
-    </div>
-  );
-  const List = ({ items }: { items: string[] }) => (
-    <ul className="list-disc ml-5 space-y-0.5 text-sm text-fg/85">
-      {(items ?? []).map((x, i) => (
-        <li key={i}>{x}</li>
-      ))}
-    </ul>
-  );
 
   return (
-    <div className="space-y-4">
-      <div className="card p-5">
-        <div className="flex items-center justify-between">
+    <Doc>
+      {/* ───────────── Verdict — the decision, up top ───────────── */}
+      <DocSection title="Verdict">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <span className={`rounded-full px-3 py-1 text-sm font-semibold ${v.cls}`}>{v.label}</span>
-            <span className="text-xs text-muted">
+            <span className="doc-muted">
               confidence: {report.confidence} · demand {report.demand_signal}/10
             </span>
           </div>
@@ -180,108 +169,143 @@ function ReportView({ report, onRerun, busy }: { report: ValidationReport; onRer
             {busy ? "Re-running…" : "Re-run"}
           </button>
         </div>
-        <p className="mt-3 text-sm text-fg/90">{report.summary}</p>
-      </div>
+        <DocP className="mt-5 text-[1.2rem] leading-relaxed">{report.summary}</DocP>
 
-      <Section title="What people are saying">
-        <div className="space-y-3">
-          {report.themes.map((t, i) => (
-            <div key={i}>
-              <div className="text-sm text-fg">{t.theme}</div>
-              <div className="text-xs text-muted">{t.detail}</div>
+        <div className="mt-8 space-y-8">
+          <div>
+            <DocSub>Recommendation</DocSub>
+            <DocP className="mt-1">{report.recommendation}</DocP>
+          </div>
+          <div>
+            <DocSub>What must be true</DocSub>
+            <div className="mt-1">
+              <DocList items={report.what_must_be_true} />
             </div>
-          ))}
-        </div>
-      </Section>
-
-      <Section title="Real voices">
-        <div className="space-y-3">
-          {report.representative_quotes.map((q, i) => (
-            <blockquote key={i} className="border-l-2 border-l-accent pl-3">
-              <p className="text-sm text-fg/90 italic">“{q.quote}”</p>
-              <a href={q.url} target="_blank" rel="noreferrer" className="text-xs text-accent2 hover:underline">
-                {q.source}
-              </a>
-            </blockquote>
-          ))}
-        </div>
-      </Section>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Section title="Market overview">
-          <p className="text-sm text-fg/85">{report.market_overview}</p>
-        </Section>
-        <Section title="Market size">
-          <p className="text-sm text-fg/85">{report.market_size}</p>
-        </Section>
-      </div>
-
-      <Section title="Competitive landscape">
-        <div className="space-y-3">
-          {report.competitive_landscape.map((c, i) => (
-            <div key={i} className="rounded-lg border border-edge p-3">
-              <div className="text-sm font-medium text-fg">{c.name}</div>
-              <div className="text-xs text-muted">{c.positioning}</div>
-              <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-1 text-xs">
-                <span className="text-fg/80">💪 {c.strengths}</span>
-                <span className="text-accent2">🎯 Gap: {c.gaps}</span>
-              </div>
+          </div>
+          <div>
+            <DocSub>Key risks</DocSub>
+            <div className="mt-1">
+              <DocList items={report.key_risks} />
             </div>
-          ))}
+          </div>
+          <div>
+            <DocSub>Kill criteria</DocSub>
+            <div className="mt-1">
+              <DocList items={report.kill_criteria} />
+            </div>
+          </div>
         </div>
-      </Section>
+      </DocSection>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Section title="Target segments">
-          <ul className="space-y-1">
-            {report.target_segments.map((s, i) => (
-              <li key={i} className="text-sm">
-                <span className="text-fg">{s.segment}</span>
-                <span className="block text-xs text-muted">{s.description}</span>
-              </li>
-            ))}
-          </ul>
-        </Section>
-        <Section title="Recommended positioning">
-          <p className="text-sm text-fg/85">{report.positioning}</p>
-        </Section>
-        <Section title="Pricing signal">
-          <p className="text-sm text-fg/85">{report.pricing_signal}</p>
-        </Section>
-        <Section title="Sentiment">
-          <p className="text-sm text-fg/85">{report.sentiment}</p>
-        </Section>
-        <Section title="Pain intensity">
-          <p className="text-sm text-fg/85">{report.pain_intensity}</p>
-        </Section>
-        <Section title="What must be true">
-          <List items={report.what_must_be_true} />
-        </Section>
-        <Section title="Key risks">
-          <List items={report.key_risks} />
-        </Section>
-        <Section title="Kill criteria">
-          <List items={report.kill_criteria} />
-        </Section>
-      </div>
+      {/* ───────────── Demand signal — what people actually want ───────────── */}
+      <DocSection title="Demand signal">
+        <div className="space-y-10">
+          <div>
+            <DocSub>What people are saying</DocSub>
+            <div className="mt-3 space-y-5">
+              {report.themes.map((t, i) => (
+                <div key={i}>
+                  <p className="font-medium text-fg">{t.theme}</p>
+                  <DocMuted className="mt-0.5">{t.detail}</DocMuted>
+                </div>
+              ))}
+            </div>
+          </div>
 
-      <Section title="Recommendation">
-        <p className="text-sm text-fg/85">{report.recommendation}</p>
-      </Section>
+          <div>
+            <DocSub>Real voices</DocSub>
+            <div className="mt-3 space-y-5">
+              {report.representative_quotes.map((q, i) => (
+                <DocQuote key={i} quote={q.quote} source={q.source} url={q.url} />
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-8 sm:grid-cols-2">
+            <div>
+              <DocSub>Sentiment</DocSub>
+              <DocP className="mt-1">{report.sentiment}</DocP>
+            </div>
+            <div>
+              <DocSub>Pain intensity</DocSub>
+              <DocP className="mt-1">{report.pain_intensity}</DocP>
+            </div>
+          </div>
+        </div>
+      </DocSection>
+
+      {/* ───────────── Market & competitors — the landscape ───────────── */}
+      <DocSection title="Market & competitors">
+        <div className="space-y-10">
+          <div className="grid gap-8 sm:grid-cols-2">
+            <div>
+              <DocSub>Market overview</DocSub>
+              <DocP className="mt-1">{report.market_overview}</DocP>
+            </div>
+            <div>
+              <DocSub>Market size</DocSub>
+              <DocP className="mt-1">{report.market_size}</DocP>
+            </div>
+          </div>
+
+          <div>
+            <DocSub>Competitive landscape</DocSub>
+            <div className="mt-3 space-y-6">
+              {report.competitive_landscape.map((c, i) => (
+                <div key={i}>
+                  <p className="font-medium text-fg">{c.name}</p>
+                  <DocMuted className="mt-0.5">{c.positioning}</DocMuted>
+                  <DocP className="mt-2">
+                    <span className="font-semibold text-fg">Strengths. </span>
+                    {c.strengths}
+                  </DocP>
+                  <DocP className="mt-1 text-accent2">
+                    <span className="font-semibold">Gap. </span>
+                    {c.gaps}
+                  </DocP>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <DocSub>Target segments</DocSub>
+            <div className="mt-3 space-y-4">
+              {report.target_segments.map((s, i) => (
+                <div key={i}>
+                  <p className="font-medium text-fg">{s.segment}</p>
+                  <DocMuted className="mt-0.5">{s.description}</DocMuted>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-8 sm:grid-cols-2">
+            <div>
+              <DocSub>Recommended positioning</DocSub>
+              <DocP className="mt-1">{report.positioning}</DocP>
+            </div>
+            <div>
+              <DocSub>Pricing signal</DocSub>
+              <DocP className="mt-1">{report.pricing_signal}</DocP>
+            </div>
+          </div>
+        </div>
+      </DocSection>
 
       {report.sources && report.sources.length > 0 && (
-        <Section title={`Sources (${report.sources.length})`}>
-          <ul className="space-y-1">
+        <DocSection title="Sources">
+          <ul className="space-y-2">
             {report.sources.map((s, i) => (
-              <li key={i} className="text-xs">
+              <li key={i}>
                 <a href={s.url} target="_blank" rel="noreferrer" className="text-accent2 hover:underline">
                   {s.title || s.url}
                 </a>
               </li>
             ))}
           </ul>
-        </Section>
+        </DocSection>
       )}
-    </div>
+    </Doc>
   );
 }

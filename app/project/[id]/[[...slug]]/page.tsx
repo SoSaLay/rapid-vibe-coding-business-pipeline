@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { DocSidebar } from "@/components/DocSidebar";
 import { OnboardingHome } from "@/components/OnboardingHome";
 import { GateBanner } from "@/components/GateBanner";
@@ -18,7 +18,8 @@ import { Operations } from "@/components/Operations";
 import { Iteration } from "@/components/Iteration";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { OnboardingGate, useOnboarding } from "@/components/Onboarding";
-import { PHASES } from "@/lib/pipeline";
+import { PHASES, PHASE_ARTIFACTS, PHASE_SECTIONS, SINGLE_SECTION_PHASES, sectionAnchor } from "@/lib/pipeline";
+import type { PhaseId } from "@/lib/pipeline";
 import { phaseDisplayStatus } from "@/lib/pipeline-status";
 
 interface Artifact {
@@ -41,9 +42,19 @@ interface ProjectData {
 
 export default function ProjectWorkspace() {
   const params = useParams();
+  const router = useRouter();
   const id = params.id as string;
-  // Optional catch-all: undefined slug = Onboarding home; else the active phase id.
-  const activeSlug = (params.slug as string[] | undefined)?.[0];
+  // Optional catch-all: undefined slug = Onboarding home; else [phaseId, ...].
+  const slug = params.slug as string[] | undefined;
+  const activeSlug = slug?.[0];
+  // Each phase has two faces in the same right-hand column: the informational
+  // document and the artifact screen. The second URL segment selects it
+  // (/project/<id>/<phase>/artifacts) so it's a real, reloadable page reached
+  // from the "Generate artifact" button in the sidebar's expanded headings.
+  const artifactMode = slug?.[1] === "artifacts";
+  // Third segment selects one artifact (/artifacts/<artifactId>); without it the
+  // artifact face shows the menu of this phase's artifacts.
+  const artifactSlug = slug?.[2];
 
   const [data, setData] = useState<ProjectData | null>(null);
   const [showDetail, setShowDetail] = useState(false);
@@ -57,8 +68,8 @@ export default function ProjectWorkspace() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  // Reset transient UI when the route (phase) changes via soft nav.
-  useEffect(() => { setShowDetail(false); setNavOpen(false); window.scrollTo({ top: 0 }); }, [activeSlug]);
+  // Reset transient UI when the route changes via soft nav (phase or doc↔artifact).
+  useEffect(() => { setShowDetail(false); setNavOpen(false); window.scrollTo({ top: 0 }); }, [activeSlug, artifactMode, artifactSlug]);
 
   if (!data) return <main className="mx-auto max-w-5xl px-4 py-8 text-muted">Loading…</main>;
 
@@ -89,7 +100,10 @@ export default function ProjectWorkspace() {
   const phaseDef = phaseIndex >= 0 ? PHASES[phaseIndex] : null;
   const selectedDisplay = phaseDef ? phaseDisplayStatus(phaseDef, project.phase_status, present) : null;
 
-  function renderPhase() {
+  // `mode` selects which face of a phase to render: "doc" = the informational
+  // read, "artifacts" = the generate/execute hub. Phases that own an artifact
+  // screen honor it; read-only phases ignore it.
+  function renderPhase(mode: "doc" | "artifacts", artifact?: string) {
     switch (activeSlug) {
       case "business-owner":
         return (
@@ -109,6 +123,8 @@ export default function ProjectWorkspace() {
             ideaText={ideaText}
             initialDialogue={phaseState?.["product-owner"] ?? null}
             spec={productSpec?.payload ?? null}
+            mode={mode}
+            artifact={artifact}
             onUpdated={refresh}
           />
         ) : (
@@ -125,6 +141,8 @@ export default function ProjectWorkspace() {
             kit={preMkt?.kit ?? null}
             frameworks={preMkt?.frameworks ?? null}
             brief={audienceBrief?.payload ?? null}
+            mode={mode}
+            artifact={artifact}
             onUpdated={refresh}
           />
         );
@@ -139,17 +157,19 @@ export default function ProjectWorkspace() {
             mockupEngines={design?.mockupEngines ?? null}
             logo={design?.logo ?? null}
             approved={!!designSpec}
+            mode={mode}
+            artifact={artifact}
             onUpdated={refresh}
           />
         );
       case "engineering":
-        return <Engineering projectId={project.id} hasSpec={!!productSpec} state={engineering} manifest={buildManifest?.payload ?? null} onUpdated={refresh} />;
+        return <Engineering projectId={project.id} hasSpec={!!productSpec} state={engineering} manifest={buildManifest?.payload ?? null} mode={mode} onUpdated={refresh} />;
       case "qa":
         return <QA projectId={project.id} hasManifest={!!buildManifest} state={qa} report={qaReport?.payload ?? null} onUpdated={refresh} />;
       case "deployment":
         return <Deployment projectId={project.id} hasQaReport={!!qaReport} state={deployment} manifest={deployManifest?.payload ?? null} onUpdated={refresh} />;
       case "marketing-sales":
-        return <Marketing projectId={project.id} hasDeploy={!!deployManifest} state={marketing} report={campaignReport?.payload ?? null} onUpdated={refresh} />;
+        return <Marketing projectId={project.id} hasDeploy={!!deployManifest} state={marketing} report={campaignReport?.payload ?? null} mode={mode} artifact={artifact} onUpdated={refresh} />;
       case "operations":
         return <Operations projectId={project.id} hasDeploy={!!deployManifest} state={operations} report={opsReport?.payload ?? null} onUpdated={refresh} />;
       case "iteration":
@@ -185,7 +205,7 @@ export default function ProjectWorkspace() {
               </Link>
             )}
           </div>
-          <DocSidebar projectId={id} activeSlug={activeSlug} status={project.phase_status} present={present} />
+          <DocSidebar projectId={id} activeSlug={activeSlug} status={project.phase_status} present={present} artifactMode={artifactMode} />
         </aside>
 
         {/* Main reading column */}
@@ -206,7 +226,17 @@ export default function ProjectWorkspace() {
             ) : (
               <>
                 {phaseDef && (
-                  <header className="mb-6 border-b border-edge pb-5">
+                  <header
+                    // Single-heading workflow phases anchor their lone sidebar
+                    // section to this header (multi-section reads anchor into
+                    // their own <DocSection> bodies instead).
+                    id={
+                      !artifactMode && activeSlug && SINGLE_SECTION_PHASES.has(activeSlug as PhaseId)
+                        ? sectionAnchor(PHASE_SECTIONS[activeSlug as PhaseId][0])
+                        : undefined
+                    }
+                    className="mb-6 scroll-mt-24 border-b border-edge pb-5"
+                  >
                     <div className="wp-eyebrow">{activeSlug === "iteration" ? "↻ Action" : `Stage ${phaseIndex + 1}`}</div>
                     <h2 className="wp-title mt-1.5">{phaseDef.name}</h2>
                     <button onClick={() => setShowDetail((v) => !v)} className="mt-2 text-[11px] font-medium text-muted hover:text-fg">
@@ -215,13 +245,72 @@ export default function ProjectWorkspace() {
                     {showDetail && <p className="wp-lede mt-2">{phaseDef.description}</p>}
                   </header>
                 )}
-                {selectedDisplay?.blockedReason && <GateBanner reason={selectedDisplay.blockedReason} />}
-                {renderPhase()}
+                {artifactMode ? (
+                  <>
+                    <button
+                      onClick={() => router.push(`/project/${id}/${activeSlug}`)}
+                      className="text-sm text-muted transition-colors hover:text-fg"
+                    >
+                      ← Back to report
+                    </button>
+                    {activeSlug && PHASE_ARTIFACTS[activeSlug as keyof typeof PHASE_ARTIFACTS] ? (
+                      // Phases with a multi-artifact menu: a vertical artifact nav on
+                      // the left (like the pipeline menu), the selected artifact's
+                      // page filling the rest on the right.
+                      <div className="mt-5 lg:grid lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-8">
+                        <aside className="mb-6 lg:mb-0 lg:col-start-1 lg:row-start-1">
+                          <ArtifactNav projectId={id} phase={activeSlug} activeId={artifactSlug} />
+                        </aside>
+                        <div className="min-w-0 lg:col-start-2 lg:row-start-1">
+                          {artifactSlug ? (
+                            renderPhase("artifacts", artifactSlug)
+                          ) : (
+                            <div className="doc">
+                              <p className="doc-p">Pick an artifact from the menu to generate it.</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-5">{renderPhase("artifacts", artifactSlug)}</div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    {selectedDisplay?.blockedReason && <GateBanner reason={selectedDisplay.blockedReason} />}
+                    {renderPhase("doc")}
+                  </>
+                )}
               </>
             )}
           </div>
         </article>
       </div>
     </main>
+  );
+}
+
+/** The artifact face's vertical menu — a sidebar-style nav (mirroring the pipeline
+ *  menu) that lives on the right of the content. Each item routes to that artifact's
+ *  own page, where it's generated in isolation. */
+function ArtifactNav({ projectId, phase, activeId }: { projectId: string; phase: string; activeId?: string }) {
+  const items = PHASE_ARTIFACTS[phase as keyof typeof PHASE_ARTIFACTS] ?? [];
+  return (
+    <nav aria-label="Artifacts" className="lg:sticky lg:top-6 space-y-1 text-sm">
+      {items.map((it) => {
+        const active = activeId === it.id;
+        return (
+          <Link
+            key={it.id}
+            href={`/project/${projectId}/${phase}/artifacts/${it.id}`}
+            className={`block rounded-lg px-3 py-2 transition-colors ${
+              active ? "bg-accent/10 font-medium text-fg" : "text-muted hover:bg-edge/40 hover:text-fg"
+            }`}
+          >
+            {it.label}
+          </Link>
+        );
+      })}
+    </nav>
   );
 }

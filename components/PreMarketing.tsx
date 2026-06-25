@@ -5,6 +5,7 @@ import { EngineSelector } from "./EngineSelector";
 import { ImageZoom } from "./ImageZoom";
 import { Interject } from "./Interject";
 import { StopButton, useStopper } from "./StopButton";
+import { Doc, DocSection, DocP, DocSub, DocMuted, DocList } from "./doc/Doc";
 
 interface ContentPlatform {
   platform: string;
@@ -51,6 +52,8 @@ export function PreMarketing({
   kit,
   frameworks,
   brief,
+  mode = "doc",
+  artifact,
   onUpdated,
 }: {
   projectId: string;
@@ -58,6 +61,8 @@ export function PreMarketing({
   kit: Kit | null;
   frameworks: { ids: string[]; rationale: string } | null;
   brief: Brief | null;
+  mode?: "doc" | "artifacts";
+  artifact?: string;
   onUpdated: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -92,15 +97,36 @@ export function PreMarketing({
 
   if (!hasSpec) return <div className="card p-6 text-sm text-muted">Locked until the product spec is complete.</div>;
 
-  if (kit) {
+  // Artifact face — the generated deliverables (brand visuals, landing page,
+  // waitlist, email). These build on the validation kit, so prompt for it first.
+  if (mode === "artifacts") {
+    if (!kit) {
+      return (
+        <div className="card p-6 text-sm text-muted">
+          Generate the validation kit first (in the report view) — the landing page, waitlist, email and brand
+          visuals build on its positioning and offer.
+        </div>
+      );
+    }
+    // One artifact per page (selected from the sidebar menu).
     return (
       <div className="space-y-4">
-        {brief && <BriefView brief={brief} />}
         <Interject projectId={projectId} phase="pre-marketing" />
-        <KitView kit={kit} frameworks={frameworks} onRegen={generate} busy={busy} />
-        <BrandVisuals projectId={projectId} />
-        <LaunchPanel projectId={projectId} kit={kit} />
+        {artifact === "brand-visuals" && <BrandVisuals projectId={projectId} />}
+        {artifact === "landing" && <LaunchPanel projectId={projectId} kit={kit} only="landing" />}
+        {artifact === "waitlist" && <LaunchPanel projectId={projectId} kit={kit} only="waitlist" />}
+        {artifact === "email" && <EmailBroadcastHub projectId={projectId} />}
       </div>
+    );
+  }
+
+  // Document face — the informational read (verdict brief + validation kit).
+  if (kit) {
+    return (
+      <Doc>
+        {brief && <BriefSection brief={brief} />}
+        <KitSections kit={kit} frameworks={frameworks} onRegen={generate} busy={busy} />
+      </Doc>
     );
   }
 
@@ -125,7 +151,7 @@ export function PreMarketing({
   );
 }
 
-function BriefView({ brief }: { brief: Brief }) {
+function BriefSection({ brief }: { brief: Brief }) {
   const style: Record<string, string> = {
     proceed: "text-onbright bg-ok",
     pivot: "text-onbright bg-warn",
@@ -133,17 +159,17 @@ function BriefView({ brief }: { brief: Brief }) {
     "keep-collecting": "text-fg bg-edge",
   };
   return (
-    <div className="card p-5 border border-ok/30">
+    <DocSection title="Verdict">
       <div className="flex items-center gap-3">
         <span className={`rounded-full px-3 py-1 text-sm font-semibold ${style[brief.verdict]}`}>{brief.verdict}</span>
-        <span className="text-xs text-muted">
+        <span className="doc-muted">
           confidence: {brief.confidence}
           {brief.metrics ? ` · ${brief.metrics.signups} signups · ${brief.metrics.presale_interest} pre-sale` : ""}
         </span>
       </div>
-      <p className="mt-3 text-sm text-fg/90">{brief.demand_summary}</p>
-      <p className="mt-2 text-sm text-muted">{brief.recommendation}</p>
-    </div>
+      <DocP className="mt-5 text-[1.2rem] leading-relaxed">{brief.demand_summary}</DocP>
+      <DocP className="mt-3 text-muted">{brief.recommendation}</DocP>
+    </DocSection>
   );
 }
 
@@ -419,7 +445,7 @@ function BrandVisuals({ projectId }: { projectId: string }) {
   );
 }
 
-function LaunchPanel({ projectId, kit }: { projectId: string; kit: Kit }) {
+function LaunchPanel({ projectId, kit, only }: { projectId: string; kit: Kit; only?: "landing" | "waitlist" }) {
   const [sbReady, setSbReady] = useState<boolean | null>(null);
   const [sql, setSql] = useState("");
   const [landingReady, setLandingReady] = useState(false);
@@ -538,7 +564,7 @@ function LaunchPanel({ projectId, kit }: { projectId: string; kit: Kit }) {
         </Section>
       )}
 
-      {sbReady && (
+      {sbReady && (!only || only === "landing") && (
         <>
           <Section title="Landing page (Launch UI style)">
             <p className="text-xs text-muted mb-2">
@@ -614,28 +640,28 @@ function LaunchPanel({ projectId, kit }: { projectId: string; kit: Kit }) {
               </div>
             )}
           </Section>
-
-          <Section title="Waitlist dashboard" action={<button className="text-[11px] text-accent2 hover:text-fg" onClick={refreshSignups}>refresh</button>}>
-            {!metrics ? (
-              <p className="text-xs text-muted">Drive traffic to your deployed page, then refresh to see signups.</p>
-            ) : (
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-lg bg-edge/40 p-3">
-                  <div className="text-2xl font-semibold text-fg">{metrics.total}</div>
-                  <div className="text-xs text-muted">signups · target {kit.success_thresholds.waitlist_target}</div>
-                </div>
-                <div className="rounded-lg bg-edge/40 p-3">
-                  <div className="text-2xl font-semibold text-fg">{metrics.presale_interest}</div>
-                  <div className="text-xs text-muted">pre-sale interest · target {kit.success_thresholds.presale_target}</div>
-                </div>
-              </div>
-            )}
-            <p className="mt-2 text-[11px] text-muted">⚖️ {kit.success_thresholds.decision_rule}</p>
-          </Section>
         </>
       )}
 
-      <EmailBroadcastHub projectId={projectId} />
+      {sbReady && (!only || only === "waitlist") && (
+        <Section title="Waitlist dashboard" action={<button className="text-[11px] text-accent2 hover:text-fg" onClick={refreshSignups}>refresh</button>}>
+          {!metrics ? (
+            <p className="text-xs text-muted">Drive traffic to your deployed page, then refresh to see signups.</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-lg bg-edge/40 p-3">
+                <div className="text-2xl font-semibold text-fg">{metrics.total}</div>
+                <div className="text-xs text-muted">signups · target {kit.success_thresholds.waitlist_target}</div>
+              </div>
+              <div className="rounded-lg bg-edge/40 p-3">
+                <div className="text-2xl font-semibold text-fg">{metrics.presale_interest}</div>
+                <div className="text-xs text-muted">pre-sale interest · target {kit.success_thresholds.presale_target}</div>
+              </div>
+            </div>
+          )}
+          <p className="mt-2 text-[11px] text-muted">⚖️ {kit.success_thresholds.decision_rule}</p>
+        </Section>
+      )}
 
       {error && <p className="text-sm text-bad">{error}</p>}
     </div>
@@ -885,7 +911,7 @@ function EmailBroadcastHub({ projectId }: { projectId: string }) {
   );
 }
 
-function KitView({
+function KitSections({
   kit,
   frameworks,
   onRegen,
@@ -898,55 +924,56 @@ function KitView({
 }) {
   const p = kit.positioning;
   return (
-    <div className="space-y-4">
-      <div className="card p-5">
-        <div className="flex items-center justify-between">
-          <div className="text-[11px] uppercase tracking-wider text-ok">Validation kit</div>
-          <button className="btn-ghost" disabled={busy} onClick={onRegen}>
+    <>
+      <DocSection title="Validation kit">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="text-2xl font-semibold text-fg">{p.headline}</h3>
+            <p className="mt-1 text-muted">{p.subheadline}</p>
+          </div>
+          <button className="btn-ghost shrink-0" disabled={busy} onClick={onRegen}>
             {busy ? "…" : "Regenerate"}
           </button>
         </div>
-        <h3 className="mt-2 text-xl font-semibold text-fg">{p.headline}</h3>
-        <p className="text-sm text-muted">{p.subheadline}</p>
-        <p className="mt-2 text-xs text-muted italic">{p.problem_statement}</p>
-      </div>
+        <DocMuted className="mt-3 italic">{p.problem_statement}</DocMuted>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Section title="Benefit bullets">
-          <ul className="list-disc ml-5 space-y-0.5 text-sm text-fg/85">
-            {p.benefit_bullets.map((b, i) => (
-              <li key={i}>{b}</li>
-            ))}
-          </ul>
-        </Section>
-        <Section title="The offer (money signal)">
-          <div className="text-sm text-fg">{kit.offer.headline}</div>
-          <div className="text-xs text-muted mt-1">{kit.offer.details}</div>
-          <div className="text-xs text-accent2 mt-2">Test price: {kit.offer.price_hypothesis}</div>
-        </Section>
-      </div>
+        <div className="mt-8 space-y-8">
+          <div>
+            <DocSub>Benefit bullets</DocSub>
+            <div className="mt-1">
+              <DocList items={p.benefit_bullets} />
+            </div>
+          </div>
+          <div>
+            <DocSub>The offer (money signal)</DocSub>
+            <DocP className="mt-1 font-medium text-fg">{kit.offer.headline}</DocP>
+            <DocMuted className="mt-1">{kit.offer.details}</DocMuted>
+            <DocP className="mt-2 text-accent2">Test price: {kit.offer.price_hypothesis}</DocP>
+          </div>
+        </div>
+      </DocSection>
 
-      <Section title="Distribution plan">
-        <div className="space-y-3">
+      <DocSection title="Distribution">
+        <div className="space-y-6">
           {kit.distribution_plan.map((d, i) => (
-            <div key={i} className="rounded-lg border border-edge p-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-fg">{d.channel}</span>
+            <div key={i}>
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-medium text-fg">{d.channel}</p>
                 <Copyable text={d.template} />
               </div>
-              <div className="text-xs text-muted">{d.tactic}</div>
-              <pre className="mt-2 whitespace-pre-wrap rounded bg-ink p-2 text-xs text-fg/80">{d.template}</pre>
+              <DocMuted className="mt-0.5">{d.tactic}</DocMuted>
+              <pre className="mt-2 whitespace-pre-wrap rounded-lg border border-edge bg-ink p-3 text-xs text-fg/80">{d.template}</pre>
             </div>
           ))}
         </div>
-      </Section>
+      </DocSection>
 
-      {kit.content_library?.length ? <ContentLibraryView platforms={kit.content_library} /> : null}
+      {kit.content_library?.length ? <ContentLibrarySection platforms={kit.content_library} /> : null}
 
       {frameworks?.ids?.length ? (
-        <p className="text-xs text-muted">Playbooks applied: {frameworks.ids.join(", ")} · via marketing-skills</p>
+        <DocMuted>Playbooks applied: {frameworks.ids.join(", ")} · via marketing-skills</DocMuted>
       ) : null}
-    </div>
+    </>
   );
 }
 
@@ -959,15 +986,15 @@ const PLATFORM_ICONS: Record<string, string> = {
   Forums: "◈",
 };
 
-function ContentLibraryView({ platforms }: { platforms: ContentPlatform[] }) {
+function ContentLibrarySection({ platforms }: { platforms: ContentPlatform[] }) {
   const [open, setOpen] = useState<string | null>(null);
 
   return (
-    <Section title="Content library — platform playbook">
-      <p className="text-xs text-muted mb-3">
+    <DocSection title="Content library">
+      <DocMuted className="mb-4">
         Evergreen direction for each channel. Not a content calendar — a strategic brief so every post you make moves
         people toward your landing page.
-      </p>
+      </DocMuted>
       <div className="space-y-2">
         {platforms.map((p) => {
           const isOpen = open === p.platform;
@@ -1023,6 +1050,6 @@ function ContentLibraryView({ platforms }: { platforms: ContentPlatform[] }) {
           );
         })}
       </div>
-    </Section>
+    </DocSection>
   );
 }

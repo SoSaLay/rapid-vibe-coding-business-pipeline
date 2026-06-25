@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ImageZoom } from "./ImageZoom";
 import { Interject } from "./Interject";
 import { StopButton, useStopper } from "./StopButton";
+import { Doc, DocSection, DocP, DocSub, DocMuted } from "./doc/Doc";
 
 type AssetRef = { file: string; at: string };
 type PostAssets = Record<string, { image?: AssetRef; video?: AssetRef }>;
@@ -77,6 +78,8 @@ export function Marketing({
   hasDeploy,
   state,
   report,
+  mode = "doc",
+  artifact,
   onUpdated,
 }: {
   projectId: string;
@@ -91,6 +94,9 @@ export function Marketing({
     prodUrl?: string;
   } | null;
   report: Report | null;
+  mode?: "doc" | "artifacts";
+  /** Selected artifact id from the sub-menu: "content" | "pomelli" | "email" | "signoff". */
+  artifact?: string;
   onUpdated: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -144,6 +150,72 @@ export function Marketing({
 
   const plan = state?.plan ?? null;
 
+  const launchedBanner = report ? (
+    <div className={`card p-4 border ${report.forced ? "border-warn/30" : "border-ok/30"}`}>
+      <span className={`rounded-full px-3 py-1 text-sm font-semibold ${report.forced ? "bg-warn" : "bg-ok"} text-onbright`}>
+        {report.forced ? "launched with open items" : "launched"}
+      </span>
+      <span className="ml-3 text-xs text-muted">The posting loop stays live — consistency is the strategy.</span>
+    </div>
+  ) : null;
+
+  // Artifact face — one deliverable per sub-menu page: the content/posting loop,
+  // the Pomelli handoff, the launch email, or the launch sign-off.
+  if (mode === "artifacts") {
+    if (!plan) {
+      return (
+        <div className="card p-6 text-sm text-muted">
+          Generate the campaign plan first (in the report view) — content, images, videos and the launch checklist
+          build on it.
+        </div>
+      );
+    }
+    return (
+      <div className="space-y-4">
+        {launchedBanner}
+        {artifact === "content" && (
+          <PostingLoop
+            plan={plan}
+            posts={state?.posts ?? []}
+            postedIds={state?.postedIds ?? []}
+            busy={busy}
+            post={post}
+            projectId={projectId}
+            googleReady={googleReady}
+            postAssets={state?.postAssets ?? {}}
+            videoOps={state?.videoOps ?? {}}
+            onUpdated={onUpdated}
+          />
+        )}
+        {artifact === "pomelli" && <PomelliCard plan={plan} prodUrl={state?.prodUrl ?? "(deploy URL pending)"} />}
+        {artifact === "email" &&
+          (plan.waitlist_email ? (
+            <WaitlistEmailView email={plan.waitlist_email} projectId={projectId} />
+          ) : (
+            <div className="card p-6 text-sm text-muted">
+              No launch email in the plan — regenerate the campaign plan to include one.
+            </div>
+          ))}
+        {artifact === "signoff" &&
+          (!report ? (
+            <SignOff
+              plan={plan}
+              posts={state?.posts ?? []}
+              checklistDone={state?.checklistDone ?? []}
+              busy={busy}
+              post={post}
+            />
+          ) : (
+            <div className="card p-6 text-sm text-muted">
+              Already launched — the posting loop stays live under <span className="text-fg/80">Content &amp; posts</span>.
+            </div>
+          ))}
+        {error && <p className="text-sm text-bad text-center">{error}</p>}
+      </div>
+    );
+  }
+
+  // Document face — the read: the go-to-market strategy + launch checklist.
   if (!plan) {
     return (
       <div className="card p-6 space-y-4">
@@ -172,54 +244,16 @@ export function Marketing({
   }
 
   return (
-    <div className="space-y-4">
-      {report && (
-        <div className={`card p-4 border ${report.forced ? "border-warn/30" : "border-ok/30"}`}>
-          <span className={`rounded-full px-3 py-1 text-sm font-semibold ${report.forced ? "bg-warn" : "bg-ok"} text-onbright`}>
-            {report.forced ? "launched with open items" : "launched"}
-          </span>
-          <span className="ml-3 text-xs text-muted">The posting loop below stays live — consistency is the strategy.</span>
-        </div>
-      )}
-
-      <PostingLoop
-        plan={plan}
-        posts={state?.posts ?? []}
-        postedIds={state?.postedIds ?? []}
-        busy={busy}
-        post={post}
-        projectId={projectId}
-        googleReady={googleReady}
-        postAssets={state?.postAssets ?? {}}
-        videoOps={state?.videoOps ?? {}}
-        onUpdated={onUpdated}
-      />
-
-      <PomelliCard plan={plan} prodUrl={state?.prodUrl ?? "(deploy URL pending)"} />
-
-      <LaunchChecklist
+    <Doc>
+      {launchedBanner}
+      <StrategySection plan={plan} />
+      <LaunchChecklistSection
         items={plan.launch_checklist}
         done={state?.checklistDone ?? []}
         busy={busy}
         onToggle={(id, done) => post("track", { checklistId: id, done })}
       />
-
-      {plan.waitlist_email && <WaitlistEmailView email={plan.waitlist_email} projectId={projectId} />}
-
-      <StrategyView plan={plan} />
-
-      {!report && (
-        <SignOff
-          plan={plan}
-          posts={state?.posts ?? []}
-          checklistDone={state?.checklistDone ?? []}
-          busy={busy}
-          post={post}
-        />
-      )}
-
-      {error && <p className="text-sm text-bad text-center">{error}</p>}
-    </div>
+    </Doc>
   );
 }
 
@@ -575,7 +609,7 @@ function PomelliCard({ plan, prodUrl }: { plan: Plan; prodUrl: string }) {
 
 /* ---------------- Launch checklist ---------------- */
 
-function LaunchChecklist({
+function LaunchChecklistSection({
   items,
   done,
   busy,
@@ -589,14 +623,17 @@ function LaunchChecklist({
   const doneSet = new Set(done);
   const stages: ChecklistItem["stage"][] = ["prep", "launch_week", "momentum"];
   return (
-    <Section title={`Launch checklist (${done.length}/${items.length})`}>
-      <div className="space-y-4">
+    <DocSection title="Launch checklist">
+      <DocMuted className="-mt-2">
+        {done.length}/{items.length} complete
+      </DocMuted>
+      <div className="mt-4 space-y-6">
         {stages.map((stage) => {
           const group = items.filter((i) => i.stage === stage);
           if (!group.length) return null;
           return (
             <div key={stage}>
-              <div className="text-[10px] uppercase tracking-wider text-accent2 mb-1.5">{STAGE_LABELS[stage]}</div>
+              <div className="mb-1.5 text-[10px] uppercase tracking-wider text-accent2">{STAGE_LABELS[stage]}</div>
               <div className="space-y-2">
                 {group.map((item) => (
                   <ChecklistRow
@@ -612,7 +649,7 @@ function LaunchChecklist({
           );
         })}
       </div>
-    </Section>
+    </DocSection>
   );
 }
 
@@ -723,64 +760,72 @@ function WaitlistEmailView({ email, projectId }: { email: WaitlistEmail; project
   );
 }
 
-function StrategyView({ plan }: { plan: Plan }) {
+function StrategySection({ plan }: { plan: Plan }) {
   const [open, setOpen] = useState(false);
   return (
-    <Section
-      title="Strategy"
-      action={
-        <button className="text-[11px] text-accent2 hover:text-fg" onClick={() => setOpen((o) => !o)}>
-          {open ? "collapse" : "expand"}
-        </button>
-      }
-    >
-      <p className="text-sm text-fg/90">{plan.strategy_summary}</p>
-      <div className="mt-2 flex flex-wrap gap-1.5">
+    <DocSection title="Strategy">
+      <DocP className="text-[1.15rem] leading-relaxed">{plan.strategy_summary}</DocP>
+      <div className="mt-3 flex flex-wrap gap-1.5">
         {plan.channels.map((c) => (
           <span key={c.name} className="rounded-full bg-edge/60 px-2.5 py-0.5 text-[11px] text-fg">
             {c.name} · {c.cadence}
           </span>
         ))}
       </div>
+      <button
+        className="mt-3 text-[12px] font-medium text-accent2 hover:text-fg"
+        onClick={() => setOpen((o) => !o)}
+      >
+        {open ? "Hide channel detail" : "Show channels, pillars & rhythm"}
+      </button>
       {open && (
-        <div className="mt-3 space-y-3">
-          {plan.channels.map((c) => (
-            <div key={c.name} className="rounded-lg border border-edge p-3">
-              <div className="text-xs font-medium text-fg">{c.name}</div>
-              <p className="text-[11px] text-muted mt-0.5">{c.why_this_channel}</p>
-              <p className="text-[11px] text-muted">Mindset: {c.audience_mindset}</p>
-              <p className="text-[11px] text-muted">Formats: {c.content_types.join(", ")}</p>
+        <div className="mt-5 space-y-8">
+          <div>
+            <DocSub>Channels</DocSub>
+            <div className="mt-2 space-y-3">
+              {plan.channels.map((c) => (
+                <div key={c.name}>
+                  <p className="font-medium text-fg">{c.name}</p>
+                  <DocMuted className="mt-0.5">{c.why_this_channel}</DocMuted>
+                  <DocMuted>Mindset: {c.audience_mindset}</DocMuted>
+                  <DocMuted>Formats: {c.content_types.join(", ")}</DocMuted>
+                </div>
+              ))}
             </div>
-          ))}
-          <div>
-            <div className="text-[10px] uppercase tracking-wider text-muted mb-1">Content pillars</div>
-            {plan.content_pillars.map((p) => (
-              <div key={p.name} className="mb-2">
-                <p className="text-xs text-fg">{p.name}</p>
-                <p className="text-[11px] text-muted">{p.description}</p>
-                <p className="text-[11px] text-muted/80">Angles: {p.example_angles.join(" · ")}</p>
-              </div>
-            ))}
           </div>
           <div>
-            <div className="text-[10px] uppercase tracking-wider text-muted mb-1">Weekly rhythm</div>
-            {plan.weekly_rhythm.map((r, i) => (
-              <p key={i} className="text-[11px] text-fg/85">
-                {r.day} — {r.channel} ({r.format})
-              </p>
-            ))}
+            <DocSub>Content pillars</DocSub>
+            <div className="mt-2 space-y-3">
+              {plan.content_pillars.map((p) => (
+                <div key={p.name}>
+                  <p className="font-medium text-fg">{p.name}</p>
+                  <DocMuted className="mt-0.5">{p.description}</DocMuted>
+                  <DocMuted>Angles: {p.example_angles.join(" · ")}</DocMuted>
+                </div>
+              ))}
+            </div>
           </div>
           <div>
-            <div className="text-[10px] uppercase tracking-wider text-muted mb-1">Metrics worth watching</div>
-            {plan.metrics_to_watch.map((m, i) => (
-              <p key={i} className="text-[11px] text-fg/85">
-                · {m}
-              </p>
-            ))}
+            <DocSub>Weekly rhythm</DocSub>
+            <div className="mt-2 space-y-0.5">
+              {plan.weekly_rhythm.map((r, i) => (
+                <DocMuted key={i}>
+                  {r.day} — {r.channel} ({r.format})
+                </DocMuted>
+              ))}
+            </div>
+          </div>
+          <div>
+            <DocSub>Metrics worth watching</DocSub>
+            <div className="mt-2 space-y-0.5">
+              {plan.metrics_to_watch.map((m, i) => (
+                <DocMuted key={i}>· {m}</DocMuted>
+              ))}
+            </div>
           </div>
         </div>
       )}
-    </Section>
+    </DocSection>
   );
 }
 

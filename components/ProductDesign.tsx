@@ -5,6 +5,7 @@ import { EngineSelector } from "./EngineSelector";
 import { ImageZoom } from "./ImageZoom";
 import { Interject } from "./Interject";
 import { StopButton, useStopper } from "./StopButton";
+import { Doc, DocSection, DocP, DocSub, DocMuted, DocList } from "./doc/Doc";
 
 interface ScreenStates {
   empty: string;
@@ -67,6 +68,8 @@ export function ProductDesign({
   mockupEngines,
   logo,
   approved,
+  mode = "doc",
+  artifact,
   onUpdated,
 }: {
   projectId: string;
@@ -77,6 +80,9 @@ export function ProductDesign({
   mockupEngines: Record<string, string> | null;
   logo: { file: string; at: string } | null;
   approved: boolean;
+  mode?: "doc" | "artifacts";
+  /** Selected artifact id from the sub-menu: "logo" | "mockups" | "approve". */
+  artifact?: string;
   onUpdated: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -131,6 +137,69 @@ export function ProductDesign({
 
   if (!hasSpec) return <div className="card p-6 text-sm text-muted">Locked until the product spec is complete.</div>;
 
+  const approvedBanner = approved ? (
+    <div className="card p-4 border border-ok/30">
+      <span className="rounded-full bg-ok px-3 py-1 text-sm font-semibold text-onbright">design-spec saved</span>
+      <span className="ml-3 text-xs text-muted">Phase complete — Engineering unlocked.</span>
+    </div>
+  ) : null;
+
+  // Artifact face — one deliverable per sub-menu page: logo & brand, screen
+  // mockups, or the approve action that locks the design-spec.
+  if (mode === "artifacts") {
+    if (!brief) {
+      return (
+        <div className="card p-6 text-sm text-muted">
+          Generate the design spec first (in the report view) — the logo and screen mockups build on it.
+        </div>
+      );
+    }
+    return (
+      <div className="space-y-4">
+        {approvedBanner}
+        {artifact === "logo" && (
+          <BrandingCard
+            brief={brief}
+            busy={busy}
+            onRegen={() => post("product-design/generate-brief")}
+            projectId={projectId}
+            logo={effectiveLogo}
+            googleReady={googleReady}
+            onLogo={() => post("product-design/logo")}
+          />
+        )}
+        {artifact === "mockups" && (
+          <MockupPanel
+            projectId={projectId}
+            screens={brief.ux.screens}
+            mockups={mockups}
+            mockupEngines={mockupEngines}
+            busy={busy}
+            post={post}
+          />
+        )}
+        {artifact === "approve" &&
+          (!approved ? (
+            <>
+              <Interject projectId={projectId} phase="product-design" />
+              <div className="card p-5 text-center space-y-2">
+                <p className="text-xs text-muted">
+                  Happy with the logo and mockups? Approving saves the design-spec artifact and unlocks Engineering.
+                </p>
+                <button className="btn-primary" disabled={busy} onClick={() => post("product-design/approve")}>
+                  {busy ? "Saving…" : "Approve design → unlock Build"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="card p-6 text-sm text-muted">Design approved — the design-spec is locked and Build is unlocked.</div>
+          ))}
+        {error && <p className="text-sm text-bad text-center">{error}</p>}
+      </div>
+    );
+  }
+
+  // Document face — the design read (direction, visual language, UX, components).
   if (!brief) {
     return (
       <div className="card p-6 space-y-4">
@@ -161,68 +230,44 @@ export function ProductDesign({
   }
 
   return (
-    <div className="space-y-4">
-      {approved && (
-        <div className="card p-4 border border-ok/30">
-          <span className="rounded-full bg-ok px-3 py-1 text-sm font-semibold text-onbright">design-spec saved</span>
-          <span className="ml-3 text-xs text-muted">Phase complete — Engineering unlocked.</span>
+    <Doc>
+      {approvedBanner}
+      <DocSection title="Design direction">
+        {direction ? (
+          <>
+            <DocP>
+              Reference system{direction.system_ids.length > 1 ? "s" : ""}:{" "}
+              <span className="text-accent2">{direction.system_ids.join(", ")}</span>
+            </DocP>
+            <DocMuted className="mt-1">{direction.rationale}</DocMuted>
+          </>
+        ) : (
+          <DocMuted>No reference system recorded — the spec stands on its own visual language below.</DocMuted>
+        )}
+      </DocSection>
+      <DocSection title="Visual language">
+        <VisualBody visual={brief.visual} />
+      </DocSection>
+      <DocSection title="UX — screens & flows">
+        <UxBody ux={brief.ux} />
+      </DocSection>
+      <DocSection title="Components & guidelines">
+        <ComponentsBody components={brief.components} />
+        <div className="mt-8">
+          <DosDontsBody d={brief.dos_and_donts} />
         </div>
-      )}
-
-      {!approved && <Interject projectId={projectId} phase="product-design" />}
-
-      <BrandingCard
-        brief={brief}
-        busy={busy}
-        onRegen={() => post("product-design/generate-brief")}
-        projectId={projectId}
-        logo={effectiveLogo}
-        googleReady={googleReady}
-        onLogo={() => post("product-design/logo")}
-      />
-      {direction && (
-        <Section title="Design direction">
-          <p className="text-sm text-fg/90">
-            Reference system{direction.system_ids.length > 1 ? "s" : ""}:{" "}
-            <span className="text-accent2">{direction.system_ids.join(", ")}</span>
-          </p>
-          <p className="mt-1 text-xs text-muted">{direction.rationale}</p>
-        </Section>
-      )}
-      <VisualCard visual={brief.visual} />
-      <UxCard ux={brief.ux} />
-      <MockupPanel
-        projectId={projectId}
-        screens={brief.ux.screens}
-        mockups={mockups}
-        mockupEngines={mockupEngines}
-        busy={busy}
-        post={post}
-      />
-      <ComponentsCard components={brief.components} />
-      <DosDontsCard d={brief.dos_and_donts} />
-      {brief.open_risks.length > 0 && (
-        <Section title="Open design risks — eyeball before building">
-          <ul className="list-disc ml-5 space-y-0.5 text-sm text-warn/90">
-            {brief.open_risks.map((r, i) => (
-              <li key={i}>{r}</li>
-            ))}
-          </ul>
-        </Section>
-      )}
-
-      {!approved && (
-        <div className="card p-5 text-center space-y-2">
-          <p className="text-xs text-muted">
-            Happy with the design? Approving saves the design-spec artifact and unlocks Engineering.
-          </p>
-          <button className="btn-primary" disabled={busy} onClick={() => post("product-design/approve")}>
-            {busy ? "Saving…" : "Approve design → unlock Build"}
-          </button>
-        </div>
-      )}
-      {error && <p className="text-sm text-bad text-center">{error}</p>}
-    </div>
+        {brief.open_risks.length > 0 && (
+          <div className="mt-8">
+            <DocSub>Open design risks — eyeball before building</DocSub>
+            <ul className="doc-p ml-5 mt-1 list-disc space-y-2 text-warn/90">
+              {brief.open_risks.map((r, i) => (
+                <li key={i}>{r}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </DocSection>
+    </Doc>
   );
 }
 
@@ -311,13 +356,13 @@ function BrandingCard({
   );
 }
 
-function VisualCard({ visual }: { visual: Brief["visual"] }) {
+function VisualBody({ visual }: { visual: Brief["visual"] }) {
   return (
-    <Section title="Visual direction & tokens">
-      <p className="text-sm text-fg/90">
+    <>
+      <DocP>
         {visual.style} · {visual.mode} mode · mood: <span className="text-accent2">{visual.mood}</span>
-      </p>
-      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+      </DocP>
+      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
         {visual.colors.map((c) => (
           <div key={c.name} className="flex items-center gap-2 rounded-lg border border-edge p-2">
             <span className="h-7 w-7 shrink-0 rounded border border-fg/20" style={{ backgroundColor: c.hex }} />
@@ -328,35 +373,33 @@ function VisualCard({ visual }: { visual: Brief["visual"] }) {
           </div>
         ))}
       </div>
-      <div className="mt-3 grid gap-2 text-xs text-muted sm:grid-cols-2">
-        <p>
-          <span className="text-fg/70">Type:</span> {visual.typography.heading_font} /{" "}
-          {visual.typography.body_font} · scale {visual.typography.type_scale}
-        </p>
-        <p>
+      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        <DocMuted>
+          <span className="text-fg/70">Type:</span> {visual.typography.heading_font} / {visual.typography.body_font} ·
+          scale {visual.typography.type_scale}
+        </DocMuted>
+        <DocMuted>
           <span className="text-fg/70">Shape:</span> {visual.spacing_and_shape.spacing_scale} ·{" "}
           {visual.spacing_and_shape.radius} · {visual.spacing_and_shape.elevation}
-        </p>
+        </DocMuted>
       </div>
-    </Section>
+    </>
   );
 }
 
-function UxCard({ ux }: { ux: Brief["ux"] }) {
+function UxBody({ ux }: { ux: Brief["ux"] }) {
   const [open, setOpen] = useState<string | null>(null);
   return (
-    <Section title="UX — screens & flows">
-      <p className="text-xs text-muted">{ux.target_user_summary}</p>
-      <ul className="mt-2 list-disc ml-5 text-xs text-fg/80 space-y-0.5">
-        {ux.core_jobs.map((j, i) => (
-          <li key={i}>{j}</li>
-        ))}
-      </ul>
-      <p className="mt-2 text-xs text-muted">
+    <>
+      <DocMuted>{ux.target_user_summary}</DocMuted>
+      <div className="mt-3">
+        <DocList items={ux.core_jobs} />
+      </div>
+      <DocMuted className="mt-2">
         <span className="text-fg/70">Architecture:</span> {ux.information_architecture}
-      </p>
+      </DocMuted>
 
-      <div className="mt-3 space-y-2">
+      <div className="mt-4 space-y-2">
         {ux.screens.map((s) => {
           const isOpen = open === s.id;
           return (
@@ -408,7 +451,7 @@ function UxCard({ ux }: { ux: Brief["ux"] }) {
           ))}
         </div>
       )}
-    </Section>
+    </>
   );
 }
 
@@ -563,29 +606,31 @@ function MockupPanel({
   );
 }
 
-function ComponentsCard({ components }: { components: Brief["components"] }) {
+function ComponentsBody({ components }: { components: Brief["components"] }) {
   return (
-    <Section title="Component inventory">
-      <div className="space-y-1.5">
+    <>
+      <DocSub>Component inventory</DocSub>
+      <div className="mt-2 space-y-1.5">
         {components.map((c, i) => (
           <div key={i} className="rounded-lg bg-edge/30 px-3 py-2">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-medium text-fg">{c.name}</span>
+              <span className="text-sm font-medium text-fg">{c.name}</span>
               <span className="text-[10px] text-muted shrink-0">{c.used_on.join(", ")}</span>
             </div>
-            <p className="text-[11px] text-muted">{c.description}</p>
+            <p className="text-xs text-muted">{c.description}</p>
           </div>
         ))}
       </div>
-    </Section>
+    </>
   );
 }
 
-function DosDontsCard({ d }: { d: Brief["dos_and_donts"] }) {
+function DosDontsBody({ d }: { d: Brief["dos_and_donts"] }) {
   return (
-    <Section title="Do's & don'ts — read by the build agent">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <ul className="space-y-1 text-xs text-fg/85">
+    <>
+      <DocSub>Do's & don'ts — read by the build agent</DocSub>
+      <div className="mt-2 grid gap-3 sm:grid-cols-2">
+        <ul className="space-y-1.5 text-sm text-fg/85">
           {d.dos.map((x, i) => (
             <li key={i} className="flex gap-2">
               <span className="text-ok shrink-0">✓</span>
@@ -593,7 +638,7 @@ function DosDontsCard({ d }: { d: Brief["dos_and_donts"] }) {
             </li>
           ))}
         </ul>
-        <ul className="space-y-1 text-xs text-fg/85">
+        <ul className="space-y-1.5 text-sm text-fg/85">
           {d.donts.map((x, i) => (
             <li key={i} className="flex gap-2">
               <span className="text-bad shrink-0">✕</span>
@@ -602,6 +647,6 @@ function DosDontsCard({ d }: { d: Brief["dos_and_donts"] }) {
           ))}
         </ul>
       </div>
-    </Section>
+    </>
   );
 }

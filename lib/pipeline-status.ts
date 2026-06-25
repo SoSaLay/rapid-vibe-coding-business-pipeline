@@ -70,16 +70,19 @@ export function summarize(
   present: Set<string>,
   currentPhaseId?: string
 ): PipelineSummaryData {
+  // Iteration is a recurring action (loops back to Product Owner), not a one-time
+  // build stage — exclude it from the progress count so the pipeline reads X/10.
+  const counted = PHASES.filter((p) => p.id !== "iteration");
   const counts: Record<Chip, number> = { done: 0, active: 0, ready: 0, blocked: 0, skipped: 0 };
-  for (const p of PHASES) counts[phaseDisplayStatus(p, status, present).chip]++;
+  for (const p of counted) counts[phaseDisplayStatus(p, status, present).chip]++;
 
   const current = PHASES.find((p) => p.id === currentPhaseId);
-  const nextActionable = PHASES.find((p) => {
+  const nextActionable = counted.find((p) => {
     const c = phaseDisplayStatus(p, status, present).chip;
     return c === "active" || c === "ready";
   });
 
-  return { total: PHASES.length, counts, current, nextActionable };
+  return { total: counted.length, counts, current, nextActionable };
 }
 
 export type { PhaseId };

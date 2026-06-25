@@ -2,10 +2,55 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { PHASES, PHASE_SECTIONS } from "@/lib/pipeline";
+import { PHASES, PHASE_SECTIONS, sectionAnchor } from "@/lib/pipeline";
 import { phaseDisplayStatus, type Chip } from "@/lib/pipeline-status";
 
 type StoredState = "locked" | "available" | "active" | "complete" | "skipped";
+
+/**
+ * Phases whose document has been migrated to the white-paper layout — their
+ * sidebar sub-sections are real, clickable anchors. Multi-section reads anchor
+ * into <DocSection> headings in the body; single-heading workflow phases (see
+ * SINGLE_SECTION_PHASES) anchor to the phase header. Any phase not listed keeps
+ * its labels as display-only placeholders until it's converted.
+ */
+const ANCHORED_PHASES = new Set<string>([
+  "business-owner",
+  "product-owner",
+  "idea-validation",
+  "pre-marketing",
+  "product-design",
+  "engineering",
+  "qa",
+  "deployment",
+  "marketing-sales",
+  "operations",
+]);
+
+/**
+ * Phases that own an artifact screen. The button lives here, among the phase's
+ * headings in the expanded toggle — clicking it routes to the phase's /artifacts
+ * page, which renders in the right-hand column. The label is per-phase (most are
+ * "Generate artifact"; Engineering "executes" its build). Confirmed with the
+ * founder: Business Owner, Market Researcher, QA, Deployment, Operations and
+ * Iteration are read-only and intentionally have no button.
+ */
+const ARTIFACT_BUTTONS: Record<string, string> = {
+  "product-owner": "Generate artifact",
+  "pre-marketing": "Generate artifact",
+  "product-design": "Generate artifact",
+  engineering: "Execute",
+  "marketing-sales": "Generate artifact",
+};
+
+/**
+ * Which phase toggles are expanded, kept at MODULE scope (keyed by project) so it
+ * survives the catch-all page subtree remounting on navigation. Otherwise every
+ * phase switch would reset component state and collapse what the founder opened.
+ * `undefined` = never touched (auto-open the active phase once); `false` = the
+ * founder explicitly collapsed it (respect that — don't re-open).
+ */
+const OPEN_MEMORY: Record<string, Record<string, boolean>> = {};
 
 /** Status-dot color per CI/CD chip (matches the dashboard language). */
 const DOT: Record<Chip, string> = {
@@ -26,17 +71,27 @@ export function DocSidebar({
   activeSlug,
   status,
   present,
+  artifactMode,
 }: {
   projectId: string;
   /** undefined = Onboarding home; otherwise the active phase id. */
   activeSlug?: string;
   status?: Record<string, StoredState>;
   present: Set<string>;
+  /** True when the active phase is showing its artifact screen — highlights the
+   *  "Generate artifact" entry so the founder sees which face is open. */
+  artifactMode?: boolean;
 }) {
-  // Which phases are expanded — the active one starts open.
-  const [open, setOpen] = useState<Record<string, boolean>>(
-    activeSlug ? { [activeSlug]: true } : {}
-  );
+  // Expanded phases live in module memory (see OPEN_MEMORY) so they persist as the
+  // founder moves between phases. `force` just re-renders after we mutate the store.
+  const store = (OPEN_MEMORY[projectId] ||= {});
+  const [, force] = useState(0);
+  // Auto-open the active phase the first time it's seen; respect an explicit collapse.
+  if (activeSlug && store[activeSlug] === undefined) store[activeSlug] = true;
+  const toggleOpen = (id: string) => {
+    store[id] = !store[id];
+    force((n) => n + 1);
+  };
 
   const base = `/project/${projectId}`;
   const onboardingActive = !activeSlug;
@@ -64,7 +119,7 @@ export function DocSidebar({
         {steps.map((p, i) => {
           const { chip } = phaseDisplayStatus(p, status, present);
           const isActive = activeSlug === p.id;
-          const isOpen = open[p.id] ?? isActive;
+          const isOpen = !!store[p.id];
           const sections = PHASE_SECTIONS[p.id] ?? [];
           return (
             <li key={p.id}>
@@ -87,7 +142,7 @@ export function DocSidebar({
                     type="button"
                     aria-label={isOpen ? `Collapse ${p.name}` : `Expand ${p.name}`}
                     aria-expanded={isOpen}
-                    onClick={() => setOpen((o) => ({ ...o, [p.id]: !isOpen }))}
+                    onClick={() => toggleOpen(p.id)}
                     className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted hover:text-fg"
                   >
                     <span className={`text-[10px] transition-transform ${isOpen ? "rotate-90" : ""}`}>▶</span>
@@ -95,18 +150,39 @@ export function DocSidebar({
                 )}
               </div>
 
-              {isOpen && sections.length > 0 && (
-                <ul className="mb-1 ml-[1.45rem] mt-0.5 space-y-0.5 border-l border-edge pl-3">
-                  {sections.map((s) => (
-                    <li
-                      key={s}
-                      className="cursor-default py-1 text-[12px] text-muted/70"
-                      title="Coming soon"
+              {isOpen && (sections.length > 0 || ARTIFACT_BUTTONS[p.id]) && (
+                <div className="mb-1 ml-[1.45rem] mt-0.5 border-l border-edge pl-3">
+                  <ul className="space-y-0.5">
+                    {sections.map((s) =>
+                      ANCHORED_PHASES.has(p.id) ? (
+                        <li key={s}>
+                          <Link
+                            href={`${base}/${p.id}#${sectionAnchor(s)}`}
+                            className="block py-1 text-[12px] text-muted/80 transition-colors hover:text-fg"
+                          >
+                            {s}
+                          </Link>
+                        </li>
+                      ) : (
+                        <li key={s} className="cursor-default py-1 text-[12px] text-muted/70" title="Coming soon">
+                          {s}
+                        </li>
+                      )
+                    )}
+                  </ul>
+                  {ARTIFACT_BUTTONS[p.id] && (
+                    <Link
+                      href={`${base}/${p.id}/artifacts`}
+                      className={`mt-2 inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12px] font-semibold transition-colors ${
+                        isActive && artifactMode
+                          ? "border-accent bg-accent text-white"
+                          : "border-accent/40 bg-accent/10 text-accent hover:bg-accent/20"
+                      }`}
                     >
-                      {s}
-                    </li>
-                  ))}
-                </ul>
+                      <span aria-hidden>✦</span> {ARTIFACT_BUTTONS[p.id]}
+                    </Link>
+                  )}
+                </div>
               )}
             </li>
           );

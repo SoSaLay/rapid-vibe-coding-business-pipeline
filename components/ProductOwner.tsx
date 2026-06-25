@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Interject } from "./Interject";
 import { StopButton, useStopper } from "./StopButton";
+import { Doc, DocSection, DocP, DocSub, DocMuted, DocList } from "./doc/Doc";
 
 interface POQuestion {
   id: string;
@@ -38,12 +39,17 @@ export function ProductOwner({
   ideaText,
   initialDialogue,
   spec,
+  mode = "doc",
+  artifact,
   onUpdated,
 }: {
   projectId: string;
   ideaText: string;
   initialDialogue: PODialogue | null;
   spec: Record<string, any> | null;
+  mode?: "doc" | "artifacts";
+  /** Selected artifact id (Product Owner has a single one: the spec document). */
+  artifact?: string;
   onUpdated: () => void;
 }) {
   const [aiReady, setAiReady] = useState<boolean | null>(null);
@@ -155,6 +161,9 @@ export function ProductOwner({
       if (!stopper.isAbort(e)) setError(e?.message || "Failed to synthesize spec.");
     }
   }
+
+  // Artifact face — the exportable spec document.
+  if (mode === "artifacts") return <SpecExport spec={spec} />;
 
   // Spec already produced — show it.
   if (spec) return <SpecView spec={spec} />;
@@ -437,79 +446,186 @@ function Questionnaire({
 }
 
 function SpecView({ spec }: { spec: Record<string, any> }) {
-  const Feature = ({ items }: { items: any[] }) => (
-    <ul className="space-y-1">
-      {(items ?? []).map((f, i) => (
-        <li key={i} className="text-sm">
-          <span className="text-fg">{f.name}</span>
-          <span className="block text-xs text-muted">{f.description}</span>
-        </li>
-      ))}
-    </ul>
-  );
-  const List = ({ items }: { items: any[] }) => (
-    <ul className="list-disc ml-5 space-y-0.5 text-sm text-fg/85">
-      {(items ?? []).map((x, i) => (
-        <li key={i}>{x}</li>
-      ))}
-    </ul>
-  );
-  const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <div className="card p-4">
-      <div className="text-[11px] uppercase tracking-wider text-muted mb-2">{title}</div>
-      {children}
-    </div>
-  );
+  // Features are {name, description}; render name in body type with a muted detail line.
+  const Features = ({ items }: { items: any[] }) =>
+    (items ?? []).length ? (
+      <div className="mt-3 space-y-3">
+        {(items ?? []).map((f, i) => (
+          <div key={i}>
+            <p className="font-medium text-fg">{f.name}</p>
+            <DocMuted className="mt-0.5">{f.description}</DocMuted>
+          </div>
+        ))}
+      </div>
+    ) : null;
 
   return (
-    <div className="space-y-4">
-      <div className="card p-5 border border-ok/40">
-        <div className="text-[11px] uppercase tracking-wider text-ok mb-2">Product Spec — complete</div>
-        <p className="text-sm text-fg/90">{spec.summary}</p>
+    <Doc>
+      {/* ───────────── Summary — the spec in one breath ───────────── */}
+      <DocSection title="Summary">
+        <span className="rounded-full bg-ok px-3 py-1 text-sm font-semibold text-onbright">Product spec — complete</span>
+        <DocP className="mt-5 text-[1.2rem] leading-relaxed">{spec.summary}</DocP>
+        {spec.recommendation && (
+          <div className="mt-8">
+            <DocSub>PO recommendation</DocSub>
+            <DocP className="mt-1">{spec.recommendation}</DocP>
+          </div>
+        )}
+      </DocSection>
+
+      {/* ───────────── Problem & users — who & why ───────────── */}
+      <DocSection title="Problem & users">
+        <div className="space-y-8">
+          <div>
+            <DocSub>Problem</DocSub>
+            <DocP className="mt-1">{spec.problem_statement}</DocP>
+          </div>
+          <div>
+            <DocSub>Value proposition</DocSub>
+            <DocP className="mt-1">{spec.value_proposition}</DocP>
+          </div>
+          <div>
+            <DocSub>Target users</DocSub>
+            <div className="mt-1">
+              <DocList items={spec.target_users} />
+            </div>
+          </div>
+        </div>
+      </DocSection>
+
+      {/* ───────────── Scope & features — what we will (and won't) build ───────────── */}
+      <DocSection title="Scope & features">
+        <div className="space-y-8">
+          <div className="grid gap-8 sm:grid-cols-2">
+            <div>
+              <DocSub>Goals</DocSub>
+              <div className="mt-1">
+                <DocList items={spec.goals} />
+              </div>
+            </div>
+            <div>
+              <DocSub>Non-goals</DocSub>
+              <div className="mt-1">
+                <DocList items={spec.non_goals} />
+              </div>
+            </div>
+          </div>
+          <div>
+            <DocSub>Must-have features</DocSub>
+            <Features items={spec.must_have_features} />
+          </div>
+          <div>
+            <DocSub>Nice-to-have features</DocSub>
+            <Features items={spec.nice_to_have_features} />
+          </div>
+          <div>
+            <DocSub>Success metrics</DocSub>
+            <div className="mt-1">
+              <DocList items={spec.success_metrics} />
+            </div>
+          </div>
+        </div>
+      </DocSection>
+
+      {/* ───────────── Risks & monetization — what could break, how it pays ───────────── */}
+      <DocSection title="Risks & monetization">
+        <div className="space-y-8">
+          <div>
+            <DocSub>Key risks</DocSub>
+            <div className="mt-1">
+              <DocList items={spec.key_risks} />
+            </div>
+          </div>
+          <div>
+            <DocSub>Open questions</DocSub>
+            <div className="mt-1">
+              <DocList items={spec.open_questions} />
+            </div>
+          </div>
+          <div>
+            <DocSub>Monetization</DocSub>
+            <DocP className="mt-1">{spec.monetization}</DocP>
+          </div>
+          {Array.isArray(spec.frameworks_applied) && spec.frameworks_applied.length > 0 && (
+            <DocMuted>Playbooks applied: {spec.frameworks_applied.join(", ")} · via pm-skills</DocMuted>
+          )}
+        </div>
+      </DocSection>
+    </Doc>
+  );
+}
+
+/** Artifact: the product spec packaged as an exportable Markdown document. */
+function SpecExport({ spec }: { spec: Record<string, any> | null }) {
+  const [copied, setCopied] = useState(false);
+
+  if (!spec) {
+    return (
+      <div className="card p-6 text-sm text-muted">
+        Finish the Product Owner review first — the spec document is generated from the completed spec.
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Section title="Problem">
-          <p className="text-sm text-fg/85">{spec.problem_statement}</p>
-        </Section>
-        <Section title="Value proposition">
-          <p className="text-sm text-fg/85">{spec.value_proposition}</p>
-        </Section>
-        <Section title="Target users">
-          <List items={spec.target_users} />
-        </Section>
-        <Section title="Success metrics">
-          <List items={spec.success_metrics} />
-        </Section>
-        <Section title="Goals">
-          <List items={spec.goals} />
-        </Section>
-        <Section title="Non-goals">
-          <List items={spec.non_goals} />
-        </Section>
-        <Section title="Must-have features">
-          <Feature items={spec.must_have_features} />
-        </Section>
-        <Section title="Nice-to-have features">
-          <Feature items={spec.nice_to_have_features} />
-        </Section>
-        <Section title="Key risks">
-          <List items={spec.key_risks} />
-        </Section>
-        <Section title="Open questions">
-          <List items={spec.open_questions} />
-        </Section>
-        <Section title="Monetization">
-          <p className="text-sm text-fg/85">{spec.monetization}</p>
-        </Section>
-        <Section title="PO recommendation">
-          <p className="text-sm text-fg/85">{spec.recommendation}</p>
-        </Section>
+    );
+  }
+
+  const md = specToMarkdown(spec);
+
+  async function copy() {
+    await navigator.clipboard.writeText(md);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+  function download() {
+    const blob = new Blob([md], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "product-spec.md";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div className="doc">
+      <h2 className="doc-h">Spec document</h2>
+      <p className="doc-p">The completed product spec, packaged as a portable Markdown doc to hand to engineering, design, or a collaborator.</p>
+      <div className="mt-5 flex flex-wrap gap-3">
+        <button className="btn-primary" onClick={copy}>{copied ? "Copied ✓" : "Copy Markdown"}</button>
+        <button className="btn-ghost" onClick={download}>Download .md</button>
       </div>
-      {Array.isArray(spec.frameworks_applied) && spec.frameworks_applied.length > 0 && (
-        <p className="text-xs text-muted">
-          Playbooks applied: {spec.frameworks_applied.join(", ")} · via pm-skills
-        </p>
-      )}
+      <pre className="mt-6 max-h-[28rem] overflow-auto rounded-lg border border-edge bg-ink p-4 text-[12px] leading-relaxed text-fg/80 whitespace-pre-wrap">
+        {md}
+      </pre>
     </div>
   );
+}
+
+/** Flatten the product-spec payload into a clean Markdown document. */
+function specToMarkdown(s: Record<string, any>): string {
+  const out: string[] = [];
+  const h = (t: string) => out.push(`## ${t}`, "");
+  const p = (t?: string) => (t ? out.push(t, "") : null);
+  const bullets = (items?: any[]) => {
+    (items ?? []).forEach((x) => out.push(typeof x === "string" ? `- ${x}` : `- **${x.name}** — ${x.description}`));
+    out.push("");
+  };
+
+  out.push("# Product Spec", "");
+  p(s.summary);
+  if (s.idea_type) p(`**Idea type:** ${s.idea_type}`);
+  h("Problem"); p(s.problem_statement);
+  h("Value proposition"); p(s.value_proposition);
+  if (s.target_users?.length) { h("Target users"); bullets(s.target_users); }
+  if (s.goals?.length) { h("Goals"); bullets(s.goals); }
+  if (s.non_goals?.length) { h("Non-goals"); bullets(s.non_goals); }
+  if (s.must_have_features?.length) { h("Must-have features"); bullets(s.must_have_features); }
+  if (s.nice_to_have_features?.length) { h("Nice-to-have features"); bullets(s.nice_to_have_features); }
+  if (s.success_metrics?.length) { h("Success metrics"); bullets(s.success_metrics); }
+  if (s.key_risks?.length) { h("Key risks"); bullets(s.key_risks); }
+  if (s.open_questions?.length) { h("Open questions"); bullets(s.open_questions); }
+  h("Monetization"); p(s.monetization);
+  h("PO recommendation"); p(s.recommendation);
+  if (Array.isArray(s.frameworks_applied) && s.frameworks_applied.length) {
+    p(`_Playbooks applied: ${s.frameworks_applied.join(", ")} · via pm-skills_`);
+  }
+  return out.join("\n").trim() + "\n";
 }

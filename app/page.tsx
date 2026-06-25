@@ -69,7 +69,7 @@ export default function Home() {
       <div className="mb-6 flex items-center gap-2 border-b border-edge">
         <TabButton active={tab === "create"} onClick={() => setTab("create")}>Create idea</TabButton>
         <TabButton active={tab === "pipelines"} onClick={() => setTab("pipelines")}>
-          Start a business pipeline {active.length > 0 && <span className="text-muted">({active.length})</span>}
+          Launch a pipeline {active.length > 0 && <span className="text-muted">({active.length})</span>}
         </TabButton>
       </div>
 

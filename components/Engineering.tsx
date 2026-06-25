@@ -40,12 +40,14 @@ export function Engineering({
   hasSpec,
   state,
   manifest,
+  mode = "doc",
   onUpdated,
 }: {
   projectId: string;
   hasSpec: boolean;
   state: { proposal?: Proposal | null; stack?: StackChoice[] | null; workspace?: Workspace | null } | null;
   manifest: BuildManifest | null;
+  mode?: "doc" | "artifacts";
   onUpdated: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -82,44 +84,81 @@ export function Engineering({
   const stack = state?.stack ?? null;
   const workspace = state?.workspace ?? null;
 
-  if (manifest) {
+  const buildBanner = manifest ? (
+    <div className="card p-4 border border-ok/30">
+      <span className="rounded-full bg-ok px-3 py-1 text-sm font-semibold text-onbright">
+        {manifest.imported ? "imported repository" : "build complete"}
+      </span>
+      <span className="ml-3 text-xs text-muted">
+        {manifest.imported
+          ? "Existing codebase cloned to your workspace — iterate on it directly or run the rest of the pipeline · QA unlocked"
+          : `${manifest.tasks_done}/${manifest.tasks_total} tasks${manifest.forced ? " (completed manually)" : ""} · QA unlocked`}
+      </span>
+    </div>
+  ) : null;
+
+  // Execute face — run the architect, approve the stack, scaffold, and build.
+  if (mode === "artifacts") {
+    if (manifest) {
+      return (
+        <div className="space-y-4">
+          {buildBanner}
+          <p className="text-sm text-muted">Build is complete — the launch guide is in the report view.</p>
+        </div>
+      );
+    }
+    if (!proposal) {
+      return (
+        <div className="card p-6 space-y-4">
+          <p className="text-sm text-muted text-center">
+            The architect reads your product spec and design spec, proposes a tech stack built on the studio defaults
+            (Next.js · Supabase · shadcn/ui), and draws the system architecture. You can change any slot before the
+            build starts.
+          </p>
+          <Interject projectId={projectId} phase="engineering" />
+          <div className="flex items-center justify-center gap-2">
+            <button className="btn-primary" disabled={busy} onClick={() => post("propose")}>
+              {busy ? "Designing the system…" : "Run the architect"}
+            </button>
+            {busy && <StopButton onStop={stopper.stop} />}
+          </div>
+          {error && <p className="text-sm text-bad text-center">{error}</p>}
+        </div>
+      );
+    }
     return (
       <div className="space-y-4">
-        <div className="card p-4 border border-ok/30">
-          <span className="rounded-full bg-ok px-3 py-1 text-sm font-semibold text-onbright">
-            {manifest.imported ? "imported repository" : "build complete"}
-          </span>
-          <span className="ml-3 text-xs text-muted">
-            {manifest.imported
-              ? "Existing codebase cloned to your workspace — iterate on it directly or run the rest of the pipeline · QA unlocked"
-              : `${manifest.tasks_done}/${manifest.tasks_total} tasks${manifest.forced ? " (completed manually)" : ""} · QA unlocked`}
-          </span>
-        </div>
-        <LaunchGuideView guide={manifest.launch_guide} path={manifest.workspace_path} />
-      </div>
-    );
-  }
-
-  if (!proposal) {
-    return (
-      <div className="card p-6 space-y-4">
-        <p className="text-sm text-muted text-center">
-          The architect reads your product spec and design spec, proposes a tech stack built on the studio defaults
-          (Next.js · Supabase · shadcn/ui), and draws the system architecture. You can change any slot before the build
-          starts.
-        </p>
-        <Interject projectId={projectId} phase="engineering" />
-        <div className="flex items-center justify-center gap-2">
-          <button className="btn-primary" disabled={busy} onClick={() => post("propose")}>
-            {busy ? "Designing the system…" : "Run the architect"}
-          </button>
-          {busy && <StopButton onStop={stopper.stop} />}
-        </div>
+        <StackView
+          proposal={proposal}
+          approvedStack={stack}
+          busy={busy}
+          onApprove={(choices) => post("approve", { choices })}
+          onRerun={() => post("propose")}
+        />
+        {stack && !workspace && <ScaffoldPanel busy={busy} onScaffold={() => post("scaffold")} />}
+        {workspace && <BuildPanel projectId={projectId} workspace={workspace} busy={busy} post={post} />}
         {error && <p className="text-sm text-bad text-center">{error}</p>}
       </div>
     );
   }
 
+  // Document face — the read: build status + launch guide, or the architecture.
+  if (manifest) {
+    return (
+      <div className="space-y-4">
+        {buildBanner}
+        <LaunchGuideView guide={manifest.launch_guide} path={manifest.workspace_path} />
+      </div>
+    );
+  }
+  if (!proposal) {
+    return (
+      <div className="card p-6 text-sm text-muted">
+        The architect hasn’t run yet. Open <span className="font-semibold text-fg">Execute</span> to propose the tech
+        stack and build.
+      </div>
+    );
+  }
   return (
     <div className="space-y-4">
       <StackView
@@ -129,9 +168,6 @@ export function Engineering({
         onApprove={(choices) => post("approve", { choices })}
         onRerun={() => post("propose")}
       />
-      {stack && !workspace && <ScaffoldPanel busy={busy} onScaffold={() => post("scaffold")} />}
-      {workspace && <BuildPanel projectId={projectId} workspace={workspace} busy={busy} post={post} />}
-      {error && <p className="text-sm text-bad text-center">{error}</p>}
     </div>
   );
 }

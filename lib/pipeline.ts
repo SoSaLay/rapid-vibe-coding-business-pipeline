@@ -159,22 +159,87 @@ export function phaseProducing(artifactType: string): PhaseDef | undefined {
 }
 
 /**
- * Subheadings shown beneath each phase in the docs sidebar. Display-only for now
- * (structure + future expansion) — they are NOT routed/linked yet. Colocated with
- * PHASES so they can grow into real anchors/sub-routes later.
+ * Stable anchor id for a section label. The sidebar links to `#${sectionAnchor(label)}`
+ * and <DocSection> derives the same id from its title, so a phase's sidebar entries
+ * and document headings stay in lockstep. Keep this the single slug rule.
+ */
+export function sectionAnchor(label: string): string {
+  return label
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
+/**
+ * Subheadings shown beneath each phase in the docs sidebar. These are real,
+ * clickable anchors into the phase's *document read*: each label must match a
+ * <DocSection title> rendered by that phase's component (so
+ * `#${sectionAnchor(label)}` resolves to the heading). Artifact deliverables are
+ * NOT listed here — they live in PHASE_ARTIFACTS and the artifact menu.
+ *
+ * Phases whose read is a single flowing thing or an interactive workflow with
+ * nothing to break out (Business Owner, Engineering, QA, Deployment, Operations)
+ * collapse to ONE heading; its anchor resolves to the phase header (see
+ * SINGLE_SECTION_PHASES + the page header id in the workspace page).
  */
 export const PHASE_SECTIONS: Record<PhaseId, string[]> = {
-  "business-owner": ["Capture idea", "Idea type", "Import from a tool"],
-  "product-owner": ["Review & questions", "Frameworks", "Product spec"],
-  "idea-validation": ["Demand signal", "Competitive landscape", "Verdict"],
-  "pre-marketing": ["Validation kit", "Creative direction", "Brand visuals", "Landing page", "Waitlist", "Email"],
-  "product-design": ["Design brief", "Mockups", "Design spec"],
-  engineering: ["Architect & stack", "Task graph", "Build"],
-  qa: ["Test plan", "Manual checklist", "Security", "Report"],
-  deployment: ["Environments", "Preflight", "Deploy"],
-  "marketing-sales": ["Campaign plan", "Content batches", "Channels"],
-  operations: ["Recurring checklist", "Runbooks"],
+  "business-owner": ["The idea"],
+  "product-owner": ["Summary", "Problem & users", "Scope & features", "Risks & monetization"],
+  "idea-validation": ["Verdict", "Demand signal", "Market & competitors", "Sources"],
+  "pre-marketing": ["Verdict", "Validation kit", "Distribution", "Content library"],
+  "product-design": ["Design direction", "Visual language", "UX — screens & flows", "Components & guidelines"],
+  engineering: ["Build"],
+  qa: ["QA report"],
+  deployment: ["Deploy"],
+  "marketing-sales": ["Strategy", "Launch checklist"],
+  operations: ["Runbook"],
   iteration: ["Check-in", "Traction read", "Next moves"],
+};
+
+/**
+ * Phases whose single PHASE_SECTIONS heading anchors to the phase header (rather
+ * than a <DocSection> in the body) — interactive workflows / trivial reads with
+ * nothing to break out. The workspace page stamps the header with the matching id.
+ */
+export const SINGLE_SECTION_PHASES = new Set<PhaseId>([
+  "business-owner",
+  "engineering",
+  "qa",
+  "deployment",
+  "operations",
+]);
+
+/**
+ * Per-phase artifact menu. Each artifact gets its OWN page at
+ * `/project/<id>/<phase>/artifacts/<artifactId>`; the sidebar lists them under
+ * the phase's "Generate artifact" item, and the phase component renders only the
+ * selected one. Phases whose artifacts are a single linear flow (Engineering's
+ * Execute) are intentionally omitted — they keep one combined page.
+ */
+export interface ArtifactItem {
+  id: string;
+  label: string;
+}
+export const PHASE_ARTIFACTS: Partial<Record<PhaseId, ArtifactItem[]>> = {
+  "product-owner": [{ id: "spec", label: "Spec document" }],
+  "pre-marketing": [
+    { id: "brand-visuals", label: "Brand visuals" },
+    { id: "landing", label: "Landing page" },
+    { id: "waitlist", label: "Waitlist" },
+    { id: "email", label: "Email" },
+  ],
+  "product-design": [
+    { id: "logo", label: "Logo & brand" },
+    { id: "mockups", label: "Screen mockups" },
+    { id: "approve", label: "Approve & lock" },
+  ],
+  "marketing-sales": [
+    { id: "content", label: "Content & posts" },
+    { id: "pomelli", label: "Pomelli assets" },
+    { id: "email", label: "Launch email" },
+    { id: "signoff", label: "Sign-off" },
+  ],
 };
 
 export function getPhase(id: PhaseId): PhaseDef | undefined {
