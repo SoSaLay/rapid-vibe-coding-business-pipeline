@@ -445,6 +445,15 @@ function Questionnaire({
   );
 }
 
+/** First sentence of a blob (up to the first . ! or ?), trimmed. Keeps the
+ *  "Problem solved" line to one breath even when the source is a paragraph. */
+function firstSentence(text: string): string {
+  const t = (text || "").trim();
+  if (!t) return "";
+  const m = t.match(/^.*?[.!?](?=\s|$)/);
+  return (m ? m[0] : t).trim();
+}
+
 function SpecView({ spec }: { spec: Record<string, any> }) {
   // Features are {name, description}; render name in body type with a muted detail line.
   const Features = ({ items }: { items: any[] }) =>
@@ -459,8 +468,22 @@ function SpecView({ spec }: { spec: Record<string, any> }) {
       </div>
     ) : null;
 
+  // The one-sentence elevator answer to "what does your business do?". Newer
+  // specs carry a purpose-built `problem_solved`; fall back to the value prop so
+  // specs generated before this field existed still show something. Clamp to the
+  // first sentence either way — an elevator pitch is one breath, not a paragraph.
+  const problemSolved = firstSentence(spec.problem_solved || spec.value_proposition || "");
+
   return (
     <Doc>
+      {/* ───────────── Problem solved — say it in one breath, in person ───────────── */}
+      {problemSolved && (
+        <DocSection title="Problem solved">
+          <DocP className="text-[1.35rem] font-medium leading-relaxed text-fg">{problemSolved}</DocP>
+          <DocMuted className="mt-3">The one sentence you’d say if someone asked what your business does.</DocMuted>
+        </DocSection>
+      )}
+
       {/* ───────────── Summary — the spec in one breath ───────────── */}
       <DocSection title="Summary">
         <span className="rounded-full bg-ok px-3 py-1 text-sm font-semibold text-onbright">Product spec — complete</span>
@@ -610,6 +633,7 @@ function specToMarkdown(s: Record<string, any>): string {
   };
 
   out.push("# Product Spec", "");
+  if (s.problem_solved) p(`**Problem solved:** ${s.problem_solved}`);
   p(s.summary);
   if (s.idea_type) p(`**Idea type:** ${s.idea_type}`);
   h("Problem"); p(s.problem_statement);

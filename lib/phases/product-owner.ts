@@ -112,6 +112,11 @@ export const SPEC_SCHEMA = {
   type: "object",
   additionalProperties: false,
   properties: {
+    problem_solved: {
+      type: "string",
+      description:
+        "ONE short, CASUAL sentence (20 words or fewer) — how a chill young adult would explain the app to a friend in conversation, not a marketing line. Relaxed and plain-spoken: contractions are good, buzzwords/jargon/corporate-speak are bad. Lead with the problem it solves so it instantly clicks. Think 'it basically helps you…' energy (you can drop the 'basically'). e.g. 'It helps you find actual fun stuff to do near you instead of doomscrolling all weekend.'",
+    },
     summary: { type: "string" },
     problem_statement: { type: "string" },
     target_users: { type: "array", items: { type: "string" } },
@@ -146,6 +151,7 @@ export const SPEC_SCHEMA = {
     },
   },
   required: [
+    "problem_solved",
     "summary",
     "problem_statement",
     "target_users",
@@ -260,7 +266,7 @@ export async function synthesizeSpec(
         role: "user",
         content:
           renderTranscript(idea, turns) +
-          "\n\nYou now have enough context. Write the structured product spec. Be opinionated and concrete — this spec steers market research, design, and engineering. Center everything on the customer problem: the problem statement should capture real customer pain, the value proposition should state what genuinely changes in the customer's life, and success metrics must be customer-outcome metrics (not vanity numbers). Where the owner left gaps, make a clear recommendation from the customer's perspective and record the open question.",
+          "\n\nYou now have enough context. Write the structured product spec. Be opinionated and concrete — this spec steers market research, design, and engineering. Center everything on the customer problem: the problem statement should capture real customer pain, the value proposition should state what genuinely changes in the customer's life, and success metrics must be customer-outcome metrics (not vanity numbers). For 'problem_solved', write ONE short, casual sentence (≤20 words) the way a laid-back young adult would describe the app to a friend — contractions fine, no buzzwords or marketing tone, lead with the problem so it instantly clicks. Where the owner left gaps, make a clear recommendation from the customer's perspective and record the open question.",
       },
     ],
   });

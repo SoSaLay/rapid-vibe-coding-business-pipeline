@@ -185,7 +185,7 @@ export function sectionAnchor(label: string): string {
  */
 export const PHASE_SECTIONS: Record<PhaseId, string[]> = {
   "business-owner": ["The idea"],
-  "product-owner": ["Summary", "Problem & users", "Scope & features", "Risks & monetization"],
+  "product-owner": ["Problem solved", "Summary", "Problem & users", "Scope & features", "Risks & monetization"],
   "idea-validation": ["Verdict", "Demand signal", "Market & competitors", "Sources"],
   "pre-marketing": ["Verdict", "Validation kit", "Distribution", "Content library"],
   "product-design": ["Design direction", "Visual language", "UX — screens & flows", "Components & guidelines"],
