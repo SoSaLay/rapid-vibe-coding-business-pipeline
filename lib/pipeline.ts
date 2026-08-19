@@ -172,11 +172,12 @@ export function sectionAnchor(label: string): string {
 }
 
 /**
- * Subheadings shown beneath each phase in the docs sidebar. These are real,
- * clickable anchors into the phase's *document read*: each label must match a
- * <DocSection title> rendered by that phase's component (so
- * `#${sectionAnchor(label)}` resolves to the heading). Artifact deliverables are
- * NOT listed here — they live in PHASE_ARTIFACTS and the artifact menu.
+ * The sections of each phase's *informational read*. These render as the
+ * phase page's own left-hand contents nav (NOT in the pipeline menu — that
+ * stays a flat list of phases). Each label must match a <DocSection title>
+ * rendered by that phase's component so `#${sectionAnchor(label)}` resolves to
+ * the heading. Artifact deliverables are NOT listed here — they live in
+ * PHASE_ARTIFACTS behind the contents nav's "View artifacts" button.
  *
  * Phases whose read is a single flowing thing or an interactive workflow with
  * nothing to break out (Business Owner, Engineering, QA, Deployment, Operations)
@@ -241,6 +242,20 @@ export const PHASE_ARTIFACTS: Partial<Record<PhaseId, ArtifactItem[]>> = {
     { id: "signoff", label: "Sign-off" },
   ],
 };
+
+/**
+ * Phases that own an artifact screen. Their page's contents nav ends with a
+ * "View artifacts" button routing to `/project/<id>/<phase>/artifacts`.
+ * Confirmed with the founder: Business Owner, Market Researcher, QA, Deployment,
+ * Operations and Iteration are read-only and intentionally have no button.
+ */
+export const PHASES_WITH_ARTIFACTS = new Set<PhaseId>([
+  "product-owner",
+  "pre-marketing",
+  "product-design",
+  "engineering",
+  "marketing-sales",
+]);
 
 export function getPhase(id: PhaseId): PhaseDef | undefined {
   return PHASES.find((p) => p.id === id);

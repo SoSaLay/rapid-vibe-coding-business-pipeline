@@ -17,6 +17,7 @@ import { promisify } from "util";
 import { activeProvider } from "../llm/registry";
 import { ideaTypeContext } from "../idea-types";
 import { DeployEnvVar } from "../deploy/types";
+import { SKIMMABLE_STYLE } from "./brevity";
 
 const exec = promisify(execFile);
 
@@ -83,7 +84,8 @@ export async function generateDeployPlan(args: {
     system:
       "You are a pragmatic release engineer planning the deployment of a solo founder's MVP to AWS Amplify Hosting " +
       "(Next.js SSR on Lambda, branch-based dev/uat/prod environments). The coding agent executes everything it can; " +
-      "the human only does what machines can't. Be precise about env vars — a wrong name breaks production silently.",
+      "the human only does what machines can't. Be precise about env vars — a wrong name breaks production silently.\n\n" +
+      SKIMMABLE_STYLE,
     effort: "medium",
     schema: PLAN_SCHEMA,
     messages: [

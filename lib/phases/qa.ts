@@ -18,6 +18,7 @@
 
 import { activeProvider } from "../llm/registry";
 import { ideaTypeContext } from "../idea-types";
+import { SKIMMABLE_STYLE } from "./brevity";
 
 /* ---------------- Plan types + schema ---------------- */
 
@@ -180,6 +181,7 @@ export async function generateQaPlan(
       "- Exit criteria are the ship bar: suite green, zero failed cases, zero failed security checks, zero critical " +
       "audit findings, manual checklist complete. Add app-specific criteria only when genuinely warranted.\n\n" +
       SECURITY_GUIDANCE +
+      `\n\n${SKIMMABLE_STYLE}` +
       extraContext,
     effort: "high",
     schema: PLAN_SCHEMA,

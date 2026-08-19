@@ -4,6 +4,7 @@ import { useState } from "react";
 import { VoiceInput } from "./VoiceInput";
 import { Interject } from "./Interject";
 import { StopButton, useStopper } from "./StopButton";
+import { ClampedText } from "./doc/Doc";
 
 interface CheckinQuestion {
   id: string;
@@ -270,7 +271,7 @@ export function Iteration({
               </span>
               <span className="text-[11px] uppercase tracking-wider text-muted">Traction read</span>
             </div>
-            <p className="text-sm text-fg/90">{brief.traction_read.summary}</p>
+            <ClampedText text={brief.traction_read.summary} className="text-sm text-fg/90" clampAt={280} />
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <div className="text-xs font-medium text-ok">Working</div>

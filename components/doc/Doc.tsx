@@ -9,7 +9,9 @@
  *
  * Typographic scale lives in globals.css under the `.doc*` classes.
  */
-import type { ReactNode } from "react";
+"use client";
+
+import { useState, type ReactNode } from "react";
 import { sectionAnchor } from "@/lib/pipeline";
 
 /** The document wrapper. Sets the larger reading size + rhythm. */
@@ -72,5 +74,102 @@ export function DocQuote({ quote, source, url }: { quote: string; source?: strin
           <span className="doc-muted">{source}</span>
         ))}
     </blockquote>
+  );
+}
+
+/**
+ * Generated prose, rendered to be skimmed.
+ *
+ * Use `tone="lede"` for the takeaway that opens a section — skimming heading →
+ * lede → next heading should still carry the argument.
+ *
+ * Models write paragraphs; this page is scanned. So the first sentence — which
+ * the prompts require to BE the conclusion (see lib/phases/brevity.ts) — is
+ * always shown, and anything past `clampAt` characters folds behind "Show more".
+ * Nothing is discarded: this is what makes the reports already sitting on disk,
+ * written before the brevity rules existed, readable at a glance.
+ */
+const PROSE_TONE = { body: "doc-p", lede: "doc-lede", muted: "doc-muted" } as const;
+const PROSE_LIMIT = { body: 320, lede: 260, muted: 200 } as const;
+
+export function DocProse({
+  text,
+  clampAt,
+  tone = "body",
+}: {
+  text?: string | null;
+  clampAt?: number;
+  /** "lede" opens a section, "muted" annotates a sub-heading, "body" is prose. */
+  tone?: keyof typeof PROSE_TONE;
+}) {
+  return <ClampedText text={text} clampAt={clampAt ?? PROSE_LIMIT[tone]} className={PROSE_TONE[tone]} />;
+}
+
+/**
+ * The clamp itself, unstyled. <DocProse> is this with the document's type scale;
+ * the card-based workflow phases (Engineering, QA, Deployment, Operations,
+ * Iteration) use it directly with their own smaller card type.
+ */
+export function ClampedText({
+  text,
+  clampAt = 320,
+  className = "",
+}: {
+  text?: string | null;
+  clampAt?: number;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const body = (text ?? "").trim();
+  if (!body) return null;
+
+  const head = leadSentences(body, clampAt);
+  if (head.length >= body.length) return <p className={className}>{body}</p>;
+
+  return (
+    <div>
+      <p className={className}>
+        {open ? body : head}
+        {!open && <span className="text-muted">…</span>}
+      </p>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="mt-1.5 text-[12px] font-medium text-accent2 transition-colors hover:text-fg"
+      >
+        {open ? "Show less" : "Show more"}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Cut at a sentence boundary at or before `limit`, so the visible head is always
+ * whole sentences. Falls back to the first sentence when even that runs long —
+ * a half-sentence teaser is worse than one long true one.
+ */
+function leadSentences(text: string, limit: number): string {
+  if (text.length <= limit) return text;
+  const ends = [...text.matchAll(/[.!?](\s|$)/g)].map((m) => m.index! + 1);
+  const fit = ends.filter((i) => i <= limit);
+  return text.slice(0, fit.length ? fit[fit.length - 1] : ends[0] ?? limit).trim();
+}
+
+/**
+ * A compact label/value grid for the facts a founder scans for (verdict, price,
+ * target, cadence). Rows, not prose — the whole point is not reading sentences.
+ */
+export function DocFacts({ items }: { items: { label: string; value?: ReactNode }[] }) {
+  const rows = items.filter((i) => i.value !== undefined && i.value !== null && i.value !== "");
+  if (!rows.length) return null;
+  return (
+    <dl className="doc-facts">
+      {rows.map((r) => (
+        <div key={r.label} className="doc-facts-row">
+          <dt className="doc-facts-label">{r.label}</dt>
+          <dd className="doc-facts-value">{r.value}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }

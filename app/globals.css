@@ -133,14 +133,43 @@ body {
   line-height: 1.5;
 }
 
-/* Body paragraph. Slightly softened ink for long-form comfort. */
+/* Body paragraph. Slightly softened ink for long-form comfort.
+   The measure cap is a skimming aid, not decoration: past ~70 characters the eye
+   loses the line it was on, which is exactly what makes generated prose feel like
+   a wall. Short lines let the founder scan down the left edge. */
 .doc-p {
   @apply text-fg/90;
   font-size: 1.0625rem;
   line-height: 1.75;
+  max-width: 68ch;
 }
 .doc-p + .doc-p {
   margin-top: 1rem;
+}
+
+/* A section's one-line takeaway — read this and you have the section. */
+.doc-lede {
+  @apply font-medium text-fg;
+  font-size: 1.1875rem;
+  line-height: 1.6;
+  max-width: 62ch;
+  margin-bottom: 1rem;
+}
+
+/* Key facts as scannable rows rather than sentences. */
+.doc-facts {
+  @apply mt-4 border-t border-edge;
+  max-width: 62ch;
+}
+.doc-facts-row {
+  @apply flex gap-4 border-b border-edge py-2.5;
+}
+.doc-facts-label {
+  @apply w-40 shrink-0 text-[13px] font-medium uppercase tracking-wide text-muted;
+  padding-top: 0.1rem;
+}
+.doc-facts-value {
+  @apply min-w-0 flex-1 text-[15px] leading-relaxed text-fg/90;
 }
 
 /* Secondary / annotation line. */
@@ -148,6 +177,7 @@ body {
   @apply text-muted;
   font-size: 0.95rem;
   line-height: 1.6;
+  max-width: 68ch;
 }
 
 /* Pull-quote for real voices / testimonials. */
@@ -158,6 +188,22 @@ body {
 /* A lightweight inline label (verdict / stat eyebrow). */
 .doc-label {
   @apply text-[11px] font-semibold uppercase tracking-[0.16em] text-muted;
+}
+
+/* The page's own background, as an opaque fill — for elements that stick over
+   scrolling content (the phone-width contents bar) and must not let it show through. */
+.page-bg {
+  background: rgb(var(--page-bg));
+}
+
+/* Scroll without the bar — for the phone-width contents chip strip, where a
+   native scrollbar under the chips reads as a stray rule. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
 
 /* Sticky document outline (the side "Contents" nav) */

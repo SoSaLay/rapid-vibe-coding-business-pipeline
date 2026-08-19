@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { ClampedText } from "./doc/Doc";
 
 interface TargetInfo {
   id: string;
@@ -300,7 +301,7 @@ function DeployRunView({
   return (
     <div className="space-y-4">
       <Section title="Deploy plan">
-        <p className="text-sm text-fg/90">{plan.summary}</p>
+        <ClampedText text={plan.summary} className="text-sm text-fg/90" clampAt={280} />
         <p className="mt-2 text-xs text-muted">
           AWS Amplify · 3 environments (dev / UAT / prod) · WAF {options.waf ? "on" : "off"} · domain{" "}
           {options.domain || "free amplifyapp.com URL"}

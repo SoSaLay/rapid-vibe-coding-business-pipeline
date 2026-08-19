@@ -5,7 +5,7 @@ import { EngineSelector } from "./EngineSelector";
 import { ImageZoom } from "./ImageZoom";
 import { Interject } from "./Interject";
 import { StopButton, useStopper } from "./StopButton";
-import { Doc, DocSection, DocP, DocSub, DocMuted, DocList } from "./doc/Doc";
+import { Doc, DocSection, DocP, DocSub, DocMuted, DocList, DocProse } from "./doc/Doc";
 
 interface ScreenStates {
   empty: string;
@@ -239,7 +239,9 @@ export function ProductDesign({
               Reference system{direction.system_ids.length > 1 ? "s" : ""}:{" "}
               <span className="text-accent2">{direction.system_ids.join(", ")}</span>
             </DocP>
-            <DocMuted className="mt-1">{direction.rationale}</DocMuted>
+            <div className="mt-1">
+              <DocProse text={direction.rationale} tone="muted" />
+            </div>
           </>
         ) : (
           <DocMuted>No reference system recorded — the spec stands on its own visual language below.</DocMuted>
@@ -391,13 +393,13 @@ function UxBody({ ux }: { ux: Brief["ux"] }) {
   const [open, setOpen] = useState<string | null>(null);
   return (
     <>
-      <DocMuted>{ux.target_user_summary}</DocMuted>
+      <DocProse text={ux.target_user_summary} tone="muted" />
       <div className="mt-3">
         <DocList items={ux.core_jobs} />
       </div>
-      <DocMuted className="mt-2">
-        <span className="text-fg/70">Architecture:</span> {ux.information_architecture}
-      </DocMuted>
+      <div className="mt-2">
+        <DocProse text={`Architecture: ${ux.information_architecture}`} tone="muted" />
+      </div>
 
       <div className="mt-4 space-y-2">
         {ux.screens.map((s) => {

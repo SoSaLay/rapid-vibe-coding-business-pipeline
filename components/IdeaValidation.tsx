@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Interject } from "./Interject";
 import { StopButton, useStopper } from "./StopButton";
-import { Doc, DocSection, DocP, DocSub, DocMuted, DocList, DocQuote } from "./doc/Doc";
+import { Doc, DocSection, DocP, DocSub, DocMuted, DocList, DocQuote, DocProse, DocFacts } from "./doc/Doc";
 
 interface ValidationReport {
   verdict: "build" | "refine" | "reject" | "archive";
@@ -169,12 +169,16 @@ function ReportView({ report, onRerun, busy }: { report: ValidationReport; onRer
             {busy ? "Re-running…" : "Re-run"}
           </button>
         </div>
-        <DocP className="mt-5 text-[1.2rem] leading-relaxed">{report.summary}</DocP>
+        <div className="mt-5">
+          <DocProse text={report.summary} tone="lede" />
+        </div>
 
         <div className="mt-8 space-y-8">
           <div>
             <DocSub>Recommendation</DocSub>
-            <DocP className="mt-1">{report.recommendation}</DocP>
+            <div className="mt-1">
+              <DocProse text={report.recommendation} />
+            </div>
           </div>
           <div>
             <DocSub>What must be true</DocSub>
@@ -221,16 +225,13 @@ function ReportView({ report, onRerun, busy }: { report: ValidationReport; onRer
             </div>
           </div>
 
-          <div className="grid gap-8 sm:grid-cols-2">
-            <div>
-              <DocSub>Sentiment</DocSub>
-              <DocP className="mt-1">{report.sentiment}</DocP>
-            </div>
-            <div>
-              <DocSub>Pain intensity</DocSub>
-              <DocP className="mt-1">{report.pain_intensity}</DocP>
-            </div>
-          </div>
+          <DocFacts
+            items={[
+              { label: "Sentiment", value: report.sentiment },
+              { label: "Pain intensity", value: report.pain_intensity },
+              { label: "Demand signal", value: `${report.demand_signal}/10` },
+            ]}
+          />
         </div>
       </DocSection>
 
@@ -240,11 +241,15 @@ function ReportView({ report, onRerun, busy }: { report: ValidationReport; onRer
           <div className="grid gap-8 sm:grid-cols-2">
             <div>
               <DocSub>Market overview</DocSub>
-              <DocP className="mt-1">{report.market_overview}</DocP>
+              <div className="mt-1">
+                <DocProse text={report.market_overview} />
+              </div>
             </div>
             <div>
               <DocSub>Market size</DocSub>
-              <DocP className="mt-1">{report.market_size}</DocP>
+              <div className="mt-1">
+                <DocProse text={report.market_size} />
+              </div>
             </div>
           </div>
 
@@ -255,14 +260,12 @@ function ReportView({ report, onRerun, busy }: { report: ValidationReport; onRer
                 <div key={i}>
                   <p className="font-medium text-fg">{c.name}</p>
                   <DocMuted className="mt-0.5">{c.positioning}</DocMuted>
-                  <DocP className="mt-2">
-                    <span className="font-semibold text-fg">Strengths. </span>
-                    {c.strengths}
-                  </DocP>
-                  <DocP className="mt-1 text-accent2">
-                    <span className="font-semibold">Gap. </span>
-                    {c.gaps}
-                  </DocP>
+                  <div className="mt-2">
+                    <DocProse text={`Strengths. ${c.strengths}`} clampAt={220} />
+                  </div>
+                  <div className="mt-1 text-accent2">
+                    <DocProse text={`Gap. ${c.gaps}`} clampAt={220} />
+                  </div>
                 </div>
               ))}
             </div>
@@ -283,11 +286,15 @@ function ReportView({ report, onRerun, busy }: { report: ValidationReport; onRer
           <div className="grid gap-8 sm:grid-cols-2">
             <div>
               <DocSub>Recommended positioning</DocSub>
-              <DocP className="mt-1">{report.positioning}</DocP>
+              <div className="mt-1">
+                <DocProse text={report.positioning} />
+              </div>
             </div>
             <div>
               <DocSub>Pricing signal</DocSub>
-              <DocP className="mt-1">{report.pricing_signal}</DocP>
+              <div className="mt-1">
+                <DocProse text={report.pricing_signal} />
+              </div>
             </div>
           </div>
         </div>

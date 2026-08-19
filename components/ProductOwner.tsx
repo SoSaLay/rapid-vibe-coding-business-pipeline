@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Interject } from "./Interject";
 import { StopButton, useStopper } from "./StopButton";
-import { Doc, DocSection, DocP, DocSub, DocMuted, DocList } from "./doc/Doc";
+import { Doc, DocSection, DocP, DocSub, DocMuted, DocList, DocProse } from "./doc/Doc";
 
 interface POQuestion {
   id: string;
@@ -469,7 +469,9 @@ function SpecView({ spec }: { spec: Record<string, any> }) {
         {(items ?? []).map((f, i) => (
           <div key={i}>
             <p className="font-medium text-fg">{f.name}</p>
-            <DocMuted className="mt-0.5">{f.description}</DocMuted>
+            <div className="mt-0.5">
+              <DocProse text={f.description} tone="muted" />
+            </div>
           </div>
         ))}
       </div>
@@ -494,11 +496,15 @@ function SpecView({ spec }: { spec: Record<string, any> }) {
       {/* ───────────── Summary — the spec in one breath ───────────── */}
       <DocSection title="Summary">
         <span className="rounded-full bg-ok px-3 py-1 text-sm font-semibold text-onbright">Product spec — complete</span>
-        <DocP className="mt-5 text-[1.2rem] leading-relaxed">{spec.summary}</DocP>
+        <div className="mt-5">
+          <DocProse text={spec.summary} tone="lede" />
+        </div>
         {spec.recommendation && (
           <div className="mt-8">
             <DocSub>PO recommendation</DocSub>
-            <DocP className="mt-1">{spec.recommendation}</DocP>
+            <div className="mt-1">
+              <DocProse text={spec.recommendation} />
+            </div>
           </div>
         )}
       </DocSection>
@@ -508,11 +514,15 @@ function SpecView({ spec }: { spec: Record<string, any> }) {
         <div className="space-y-8">
           <div>
             <DocSub>Problem</DocSub>
-            <DocP className="mt-1">{spec.problem_statement}</DocP>
+            <div className="mt-1">
+              <DocProse text={spec.problem_statement} />
+            </div>
           </div>
           <div>
             <DocSub>Value proposition</DocSub>
-            <DocP className="mt-1">{spec.value_proposition}</DocP>
+            <div className="mt-1">
+              <DocProse text={spec.value_proposition} />
+            </div>
           </div>
           <div>
             <DocSub>Target users</DocSub>
@@ -574,7 +584,9 @@ function SpecView({ spec }: { spec: Record<string, any> }) {
           </div>
           <div>
             <DocSub>Monetization</DocSub>
-            <DocP className="mt-1">{spec.monetization}</DocP>
+            <div className="mt-1">
+              <DocProse text={spec.monetization} />
+            </div>
           </div>
           {Array.isArray(spec.frameworks_applied) && spec.frameworks_applied.length > 0 && (
             <DocMuted>Playbooks applied: {spec.frameworks_applied.join(", ")} · via pm-skills</DocMuted>

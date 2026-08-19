@@ -18,6 +18,7 @@ import { ideaTypeContext } from "../idea-types";
 import { writeWorkspaceFile } from "../workspace";
 import { StackChoice, stackToText } from "../stack";
 import { Cadence } from "../ops-cadence";
+import { SKIMMABLE_STYLE } from "./brevity";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                               */
@@ -233,7 +234,7 @@ export async function generateOpsReport(
   contextParts.push(`Email enabled: ${emailEnabled ? "yes (founder broadcasts via Resend)" : "no"}`);
 
   const result = await provider.completeJson<OpsReport>({
-    system: OPS_SYSTEM + extraContext,
+    system: `${OPS_SYSTEM}\n\n${SKIMMABLE_STYLE}` + extraContext,
     effort: "high",
     schema: OPS_SCHEMA,
     messages: [

@@ -16,6 +16,7 @@ import { activeProvider } from "../llm/registry";
 import { ideaTypeContext } from "../idea-types";
 import { buildFrameworkContext } from "../frameworks";
 import { exaSearch, ExaResult } from "../exa";
+import { SKIMMABLE_STYLE } from "./brevity";
 
 export interface SearchPlan {
   queries: string[];
@@ -89,13 +90,16 @@ const REPORT_SCHEMA = {
     verdict: { type: "string", enum: ["build", "refine", "reject", "archive"] },
     confidence: { type: "string", enum: ["low", "medium", "high"] },
     demand_signal: { type: "integer", description: "0-10: how strong/real the demand evidence is." },
-    summary: { type: "string", description: "What people are saying + the market picture, in 2-4 sentences." },
+    summary: { type: "string", description: "The demand + market picture in AT MOST 2 sentences. Lead with the finding, not the setup." },
     themes: {
       type: "array",
       items: {
         type: "object",
         additionalProperties: false,
-        properties: { theme: { type: "string" }, detail: { type: "string" } },
+        properties: {
+          theme: { type: "string", description: "The theme as a short label, ≤8 words." },
+          detail: { type: "string", description: "What the evidence shows. ONE sentence, ≤25 words." },
+        },
         required: ["theme", "detail"],
       },
     },
@@ -109,10 +113,10 @@ const REPORT_SCHEMA = {
         required: ["quote", "source", "url"],
       },
     },
-    sentiment: { type: "string" },
-    pain_intensity: { type: "string" },
-    market_overview: { type: "string", description: "The category, where it's heading, and demand maturity." },
-    market_size: { type: "string", description: "Qualitative TAM/SAM/SOM read with the reasoning behind it." },
+    sentiment: { type: "string", description: "A short phrase, ≤10 words. e.g. 'frustrated but resigned to spreadsheets'." },
+    pain_intensity: { type: "string", description: "A short phrase, ≤10 words. e.g. 'acute — people pay to escape it today'." },
+    market_overview: { type: "string", description: "Category, direction, demand maturity — AT MOST 2 sentences." },
+    market_size: { type: "string", description: "Qualitative TAM/SAM/SOM read — AT MOST 2 sentences. Numbers over adjectives." },
     competitive_landscape: {
       type: "array",
       items: {
@@ -120,9 +124,9 @@ const REPORT_SCHEMA = {
         additionalProperties: false,
         properties: {
           name: { type: "string" },
-          positioning: { type: "string" },
-          strengths: { type: "string" },
-          gaps: { type: "string", description: "Where they fall short — the opening for this idea." },
+          positioning: { type: "string", description: "How they sell themselves. ONE sentence, ≤20 words." },
+          strengths: { type: "string", description: "What they genuinely do well. ONE sentence, ≤20 words." },
+          gaps: { type: "string", description: "Where they fall short — the opening for this idea. ONE sentence, ≤20 words." },
         },
         required: ["name", "positioning", "strengths", "gaps"],
       },
@@ -132,16 +136,16 @@ const REPORT_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        properties: { segment: { type: "string" }, description: { type: "string" } },
+        properties: { segment: { type: "string" }, description: { type: "string", description: "Who they are and what they'd pay for. ONE sentence, ≤20 words." } },
         required: ["segment", "description"],
       },
     },
-    positioning: { type: "string", description: "Recommended differentiation / how to position against the field." },
-    pricing_signal: { type: "string", description: "What the market suggests about willingness to pay / pricing." },
+    positioning: { type: "string", description: "The differentiation to claim — AT MOST 2 sentences." },
+    pricing_signal: { type: "string", description: "Willingness to pay, with the price points the evidence shows. AT MOST 2 sentences." },
     what_must_be_true: { type: "array", items: { type: "string" } },
     key_risks: { type: "array", items: { type: "string" } },
     kill_criteria: { type: "array", items: { type: "string" } },
-    recommendation: { type: "string" },
+    recommendation: { type: "string", description: "The single next move, stated as an instruction. AT MOST 2 sentences." },
   },
   required: [
     "verdict",
@@ -245,6 +249,7 @@ export async function synthesizeValidation(
     "if demand is thin or the market is crowded with happy users, reflect that in a low demand_signal and a cautious verdict. " +
     "Do not invent posts, competitors, or numbers — only what the evidence supports." +
     (frameworks ? `\n\n---\n\n${frameworks}` : "") +
+    `\n\n${SKIMMABLE_STYLE}` +
     extraContext;
 
   return provider.completeJson<Record<string, unknown>>({

@@ -21,6 +21,7 @@
 import { activeProvider } from "../llm/registry";
 import { ideaTypeContext } from "../idea-types";
 import { buildFrameworkContext, frameworkCatalog } from "../frameworks";
+import { SKIMMABLE_STYLE } from "./brevity";
 
 /* ---------------- Framework sets (fixed per task, filtered to what's vendored) ---------------- */
 
@@ -83,7 +84,7 @@ const PLAN_SCHEMA = {
   type: "object",
   additionalProperties: false,
   properties: {
-    strategy_summary: { type: "string", description: "3-4 sentences: the whole go-to-market in plain language." },
+    strategy_summary: { type: "string", description: "The whole go-to-market in AT MOST 3 sentences, plain language. Lead with the play, not the context." },
     channels: {
       type: "array",
       description: "EXACTLY 2-3 channels. Fewer done consistently beats many done badly — this cap is policy, not advice.",
@@ -92,7 +93,7 @@ const PLAN_SCHEMA = {
         additionalProperties: false,
         properties: {
           name: { type: "string", description: "e.g. 'X (Twitter)', 'LinkedIn', 'Short-form video', 'Forums/communities'." },
-          why_this_channel: { type: "string", description: "Why THIS audience is reachable here — cite the research when it exists." },
+          why_this_channel: { type: "string", description: "Why THIS audience is reachable here — cite the research when it exists. ONE sentence." },
           audience_mindset: { type: "string" },
           content_types: { type: "array", items: { type: "string" } },
           cadence: { type: "string", description: "Realistic for one busy human, e.g. '3x/week'." },
@@ -142,7 +143,7 @@ const PLAN_SCHEMA = {
           stage: { type: "string", enum: ["prep", "launch_week", "momentum"] },
           title: { type: "string", description: "Imperative, specific." },
           why: { type: "string", description: "One line: what this buys you." },
-          how: { type: "string", description: "Exactly what to do — concrete enough to execute without research." },
+          how: { type: "string", description: "Exactly what to do — concrete enough to execute without research. AT MOST 2 sentences." },
         },
         required: ["id", "stage", "title", "why", "how"],
       },
@@ -253,6 +254,7 @@ export async function generateCampaignPlan(ctx: CampaignContext, extraContext = 
       FOUNDER_MARKETING_GUIDANCE +
       "\n\n" +
       frameworks +
+      `\n\n${SKIMMABLE_STYLE}` +
       extraContext,
     effort: "high",
     schema: PLAN_SCHEMA,

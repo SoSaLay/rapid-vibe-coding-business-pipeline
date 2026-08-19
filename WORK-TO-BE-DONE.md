@@ -280,6 +280,36 @@ Validate the whole pipeline on a separate localhost with zero keys:
 
 ## Cross-cutting features (not tied to one phase)
 
+### Workspace navigation + skimmable content (2026-08-18)
+- [x] **Flat pipeline menu.** The left rail is now just the phases — one clickable page each, status
+  dot, no expand/collapse toggles and no sub-items (`components/DocSidebar.tsx`).
+- [x] **Per-page contents nav.** A phase's sections moved ONTO the phase page as its own left-hand
+  nav (`components/PhaseContents.tsx`): scroll-spy anchors into the `<DocSection>` headings, ending
+  in a **"View artifacts"** button (was "Generate artifact" in the old sidebar toggle). The artifact
+  face reuses the same column for its artifact menu + "← Back to report". `PHASES_WITH_ARTIFACTS` in
+  `lib/pipeline.ts` is the source of truth for which phases get the button.
+- [x] **Responsive reading order.** On a phone the title comes first and the contents nav is a
+  horizontal chip strip under it (chips + "View artifacts" in one 49px row); from `lg` up it's the
+  vertical rail. Explicit grid placement in the workspace page, so DOM order stays correct for both.
+- [x] **The contents nav is sticky and travels with the reader** — pinned at `top-0` on a phone
+  (opaque `.page-bg` fill + bottom rule, `z-20`) and `top-6` on desktop, with
+  `max-h-[calc(100vh-3rem)] overflow-y-auto` for long lists. **Gotcha worth remembering:** the sticky
+  must sit on the wrapping `<aside>`, not the `<nav>` inside it — a sticky child of a box that is
+  only as tall as itself has zero distance to travel and just scrolls away. Same reason the aside
+  keeps `lg:self-start` (content height) instead of stretching across both grid rows.
+- [x] **Brevity contract for every generation** (`lib/phases/brevity.ts` → `SKIMMABLE_STYLE`): answer
+  first, ≤3 sentences per prose field, list items are ≤12-word fragments, no restating the input.
+  Appended to the system prompt of every phase that writes a document (PO, Market Researcher,
+  Pre-Marketing, Design, Engineering stack, QA, Deployment, Marketing strategy, Ops, Iteration).
+  Deliberately NOT applied to task graphs, launch guides, or social posts — those need their own voice.
+- [x] **Per-field caps** added to the schemas that were previously uncapped (market_overview,
+  market_size, positioning, pricing_signal, demand_summary, spec summary/problem/value-prop/features…).
+- [x] **Skimmable rendering** (`components/doc/Doc.tsx`): `DocProse` (tones body/lede/muted) folds
+  anything past a sentence boundary behind "Show more" — which is what makes the reports ALREADY on
+  disk, written before the brevity rules, readable at a glance. `DocFacts` renders key facts as rows
+  instead of prose. `ClampedText` is the unstyled clamp used by the card-based workflow phases.
+  `.doc-p` / `.doc-lede` now cap the measure (68ch / 62ch) so lines are scannable.
+
 ### PostHog analytics (product analytics for what the pipeline SHIPS — never the orchestrator)
 Rollout is deliberately staged: instrument the earliest thing that reaches real people (the Phase-4
 landing page), then push the same connection outward through the phases that follow.

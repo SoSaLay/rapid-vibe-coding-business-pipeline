@@ -14,6 +14,7 @@
 import { activeProvider } from "../llm/registry";
 import { ideaTypeContext } from "../idea-types";
 import { STACK_SLOTS, StackChoice, getSlot, normalizeChoices, stackToText } from "../stack";
+import { SKIMMABLE_STYLE } from "./brevity";
 
 /* ---------------- Stage 1: stack proposal ---------------- */
 
@@ -35,7 +36,7 @@ const PROPOSAL_SCHEMA = {
         required: ["slot", "choice", "rationale"],
       },
     },
-    architecture_summary: { type: "string", description: "3-5 sentences: how the pieces fit, in plain language." },
+    architecture_summary: { type: "string", description: "How the pieces fit, in plain language. AT MOST 3 sentences." },
     mermaid_diagram: {
       type: "string",
       description: "A Mermaid `graph TD` of the system: user → frontend → backend → db/auth/payments/external services. Valid Mermaid only.",
@@ -102,6 +103,7 @@ export async function generateStackProposal(
       "Deviate ONLY when this specific product's requirements make the default genuinely wrong, and say why. " +
       "Slots and allowed options:\n\n" +
       slotMenu() +
+      `\n\n${SKIMMABLE_STYLE}` +
       extraContext,
     effort: "medium",
     schema: PROPOSAL_SCHEMA,

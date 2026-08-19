@@ -18,6 +18,7 @@
 
 import { activeProvider } from "../llm/registry";
 import { ideaTypeContext } from "../idea-types";
+import { SKIMMABLE_STYLE } from "./brevity";
 
 /* ------------------------------------------------------------------ */
 /*  Check-in questions                                                  */
@@ -188,8 +189,8 @@ const BRIEF_SCHEMA = {
           id: { type: "string" },
           title: { type: "string" },
           type: { type: "string", enum: ["growth", "product", "fix"] },
-          why: { type: "string", description: "The evidence from the check-in that points here." },
-          expected_impact: { type: "string", description: "What concretely improves for customers / the business." },
+          why: { type: "string", description: "The evidence from the check-in that points here. ONE sentence." },
+          expected_impact: { type: "string", description: "What concretely improves for customers / the business. ONE sentence." },
           effort: { type: "string", enum: ["small", "medium", "large"] },
         },
         required: ["id", "title", "type", "why", "expected_impact", "effort"],
@@ -231,7 +232,7 @@ export async function synthesizeIteration(
     .join("\n\n");
 
   const result = await provider.completeJson<IterationBrief>({
-    system: SYNTH_SYSTEM + extraContext,
+    system: `${SYNTH_SYSTEM}\n\n${SKIMMABLE_STYLE}` + extraContext,
     effort: "high",
     schema: BRIEF_SCHEMA,
     messages: [

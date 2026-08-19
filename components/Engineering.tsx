@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { STACK_SLOTS, StackChoice } from "@/lib/stack";
 import { Interject } from "./Interject";
 import { StopButton, useStopper } from "./StopButton";
+import { ClampedText } from "./doc/Doc";
 
 interface Proposal {
   choices: StackChoice[];
@@ -253,7 +254,9 @@ function StackView({
             </button>
           )}
         </div>
-        <p className="mt-2 text-sm text-fg/90">{proposal.architecture_summary}</p>
+        <div className="mt-2">
+          <ClampedText text={proposal.architecture_summary} className="text-sm text-fg/90" clampAt={280} />
+        </div>
 
         <div className="mt-4 grid gap-2 sm:grid-cols-2">
           {STACK_SLOTS.map((slot) => {

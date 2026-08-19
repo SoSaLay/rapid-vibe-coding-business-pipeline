@@ -12,6 +12,7 @@
 import { activeProvider } from "../llm/registry";
 import { ideaTypeContext } from "../idea-types";
 import { buildFrameworkContext, frameworkCatalog } from "../frameworks";
+import { SKIMMABLE_STYLE } from "./brevity";
 
 export interface FrameworkSelection {
   ids: string[];
@@ -92,7 +93,7 @@ const KIT_SCHEMA = {
       properties: {
         type: { type: "string", description: "e.g. founder discount, $X deposit, lifetime deal, LOI." },
         headline: { type: "string" },
-        details: { type: "string", description: "The de-risking pre-sell copy (urgency, refund, scarcity)." },
+        details: { type: "string", description: "The de-risking pre-sell copy (urgency, refund, scarcity). AT MOST 2 sentences." },
         price_hypothesis: { type: "string", description: "A price to test, grounded in the market pricing signal." },
       },
       required: ["type", "headline", "details", "price_hypothesis"],
@@ -162,8 +163,8 @@ const KIT_SCHEMA = {
         properties: {
           platform: { type: "string", description: "Platform name, e.g. 'X (Twitter)', 'LinkedIn', 'Instagram', 'Short-form video', 'Long-form', 'Forums'." },
           content_type: { type: "string", description: "Primary format: thread, carousel, reel, video essay, forum post, etc." },
-          audience_on_platform: { type: "string", description: "Who you're reaching here and their mindset on this platform." },
-          strategy: { type: "string", description: "The overarching angle and tone to take for this specific platform." },
+          audience_on_platform: { type: "string", description: "Who you reach here and their mindset. ONE sentence, ≤20 words." },
+          strategy: { type: "string", description: "The angle and tone for this platform. ONE sentence, ≤20 words." },
           themes: {
             type: "array",
             items: { type: "string" },
@@ -175,7 +176,7 @@ const KIT_SCHEMA = {
             items: { type: "string" },
             description: "2-3 strong openers/hooks the creator can riff on — not full posts, just compelling starters.",
           },
-          cta_direction: { type: "string", description: "How to drive people from this platform to the landing page (subtle vs direct)." },
+          cta_direction: { type: "string", description: "How to send people to the landing page (subtle vs direct). ONE sentence." },
         },
         required: ["platform", "content_type", "audience_on_platform", "strategy", "themes", "posting_cadence", "hook_examples", "cta_direction"],
       },
@@ -228,15 +229,15 @@ const BRIEF_SCHEMA = {
   properties: {
     verdict: { type: "string", enum: ["proceed", "pivot", "stop", "keep-collecting"] },
     confidence: { type: "string", enum: ["low", "medium", "high"] },
-    demand_summary: { type: "string", description: "What the signups + pre-sale interest tell us, honestly." },
+    demand_summary: { type: "string", description: "What the signups + pre-sale interest tell us, honestly. AT MOST 2 sentences — lead with the verdict." },
     segment_insights: {
       type: "array",
       description: "Insights from the qualifying answers (who's signing up, urgency, ICP fit).",
       items: { type: "string" },
     },
-    validated_positioning: { type: "string", description: "The positioning the evidence supports going forward." },
-    what_to_change: { type: "array", items: { type: "string" } },
-    recommendation: { type: "string" },
+    validated_positioning: { type: "string", description: "The positioning the evidence supports. ONE sentence." },
+    what_to_change: { type: "array", items: { type: "string", description: "A fragment, ≤12 words, starting with a verb." } },
+    recommendation: { type: "string", description: "The single next move, stated as an instruction. AT MOST 2 sentences." },
   },
   required: ["verdict", "confidence", "demand_summary", "segment_insights", "validated_positioning", "what_to_change", "recommendation"],
 };
@@ -258,7 +259,8 @@ export async function synthesizeAudienceBrief(
     system:
       "You are evaluating a pre-launch waitlist campaign against its own success thresholds. Be honest and " +
       "skeptical — emails are weak signal, pre-sale/deposit interest is strong signal. If the numbers are thin, " +
-      "say 'keep-collecting' or 'pivot' rather than greenlighting. 'proceed' requires a real demand signal.",
+      "say 'keep-collecting' or 'pivot' rather than greenlighting. 'proceed' requires a real demand signal.\n\n" +
+      SKIMMABLE_STYLE,
     effort: "high",
     schema: BRIEF_SCHEMA,
     messages: [
@@ -294,6 +296,7 @@ export async function generateKit(
     "Write the faq answers to directly resolve real conversion-blocking objections in plain, specific language so they can " +
     "also be cited by AI search engines." +
     (frameworks ? `\n\n---\n\n${frameworks}` : "") +
+    `\n\n${SKIMMABLE_STYLE}` +
     extraContext;
 
   return provider.completeJson<Record<string, unknown>>({

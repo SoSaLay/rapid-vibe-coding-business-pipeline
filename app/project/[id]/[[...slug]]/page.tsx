@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { DocSidebar } from "@/components/DocSidebar";
+import { PhaseContents } from "@/components/PhaseContents";
 import { OnboardingHome } from "@/components/OnboardingHome";
 import { GateBanner } from "@/components/GateBanner";
 import { ProductOwner } from "@/components/ProductOwner";
@@ -47,10 +48,10 @@ export default function ProjectWorkspace() {
   // Optional catch-all: undefined slug = Onboarding home; else [phaseId, ...].
   const slug = params.slug as string[] | undefined;
   const activeSlug = slug?.[0];
-  // Each phase has two faces in the same right-hand column: the informational
+  // Each phase has two faces in the same reading column: the informational
   // document and the artifact screen. The second URL segment selects it
   // (/project/<id>/<phase>/artifacts) so it's a real, reloadable page reached
-  // from the "Generate artifact" button in the sidebar's expanded headings.
+  // from the "View artifacts" button at the foot of the page's contents nav.
   const artifactMode = slug?.[1] === "artifacts";
   // Third segment selects one artifact (/artifacts/<artifactId>); without it the
   // artifact face shows the menu of this phase's artifacts.
@@ -205,13 +206,13 @@ export default function ProjectWorkspace() {
               </Link>
             )}
           </div>
-          <DocSidebar projectId={id} activeSlug={activeSlug} status={project.phase_status} present={present} artifactMode={artifactMode} />
+          <DocSidebar projectId={id} activeSlug={activeSlug} status={project.phase_status} present={present} />
         </aside>
 
         {/* Main reading column */}
         <article className="min-w-0">
-          <div className="mx-auto max-w-3xl">
-            {!activeSlug ? (
+          {!activeSlug ? (
+            <div className="mx-auto max-w-3xl">
               <OnboardingHome
                 projectId={id}
                 title={project.title}
@@ -223,13 +224,21 @@ export default function ProjectWorkspace() {
                 onboarding={onboarding}
                 reloadOnboarding={reloadOnboarding}
               />
-            ) : (
-              <>
+            </div>
+          ) : (
+            // A phase page carries its OWN left-hand contents nav — the sections of
+            // this phase (or its artifact menu), which used to hang off the pipeline
+            // menu. The pipeline menu itself is now a flat list of phases.
+            // Explicit grid placement, because the reading order differs by size: on a
+            // phone the title comes FIRST and the contents nav sits under it as a chip
+            // strip; from lg up the nav is a rail in its own column, spanning both rows.
+            <div className="mx-auto max-w-5xl lg:grid lg:grid-cols-[12rem_minmax(0,1fr)] lg:gap-10">
+              <div className="min-w-0 lg:col-start-2 lg:row-start-1">
                 {phaseDef && (
                   <header
-                    // Single-heading workflow phases anchor their lone sidebar
-                    // section to this header (multi-section reads anchor into
-                    // their own <DocSection> bodies instead).
+                    // Single-heading workflow phases anchor their lone contents entry
+                    // to this header (multi-section reads anchor into their own
+                    // <DocSection> bodies instead).
                     id={
                       !artifactMode && activeSlug && SINGLE_SECTION_PHASES.has(activeSlug as PhaseId)
                         ? sectionAnchor(PHASE_SECTIONS[activeSlug as PhaseId][0])
@@ -245,72 +254,43 @@ export default function ProjectWorkspace() {
                     {showDetail && <p className="wp-lede mt-2">{phaseDef.description}</p>}
                   </header>
                 )}
+              </div>
+
+              {/* The ASIDE is the sticky element (same pattern as the pipeline rail):
+                  a sticky child would be trapped inside a box that is only as tall as
+                  itself, and so would never travel. `self-start` keeps it at content
+                  height on desktop, which is what gives sticky its room in the grid. */}
+              <aside
+                className="sticky top-0 z-20 mb-6 lg:top-6 lg:z-auto lg:mb-0 lg:col-start-1 lg:row-start-1 lg:row-span-2 lg:self-start lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto"
+              >
+                <PhaseContents
+                  projectId={id}
+                  phaseId={activeSlug as PhaseId}
+                  artifactMode={artifactMode}
+                  activeArtifact={artifactSlug}
+                />
+              </aside>
+
+              <div className="min-w-0 lg:col-start-2 lg:row-start-2">
                 {artifactMode ? (
-                  <>
-                    <button
-                      onClick={() => router.push(`/project/${id}/${activeSlug}`)}
-                      className="text-sm text-muted transition-colors hover:text-fg"
-                    >
-                      ← Back to report
-                    </button>
-                    {activeSlug && PHASE_ARTIFACTS[activeSlug as keyof typeof PHASE_ARTIFACTS] ? (
-                      // Phases with a multi-artifact menu: a vertical artifact nav on
-                      // the left (like the pipeline menu), the selected artifact's
-                      // page filling the rest on the right.
-                      <div className="mt-5 lg:grid lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-8">
-                        <aside className="mb-6 lg:mb-0 lg:col-start-1 lg:row-start-1">
-                          <ArtifactNav projectId={id} phase={activeSlug} activeId={artifactSlug} />
-                        </aside>
-                        <div className="min-w-0 lg:col-start-2 lg:row-start-1">
-                          {artifactSlug ? (
-                            renderPhase("artifacts", artifactSlug)
-                          ) : (
-                            <div className="doc">
-                              <p className="doc-p">Pick an artifact from the menu to generate it.</p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="mt-5">{renderPhase("artifacts", artifactSlug)}</div>
-                    )}
-                  </>
+                  artifactSlug || !PHASE_ARTIFACTS[activeSlug as keyof typeof PHASE_ARTIFACTS] ? (
+                    renderPhase("artifacts", artifactSlug)
+                  ) : (
+                    <div className="doc">
+                      <p className="doc-p">Pick an artifact from the menu to generate it.</p>
+                    </div>
+                  )
                 ) : (
                   <>
                     {selectedDisplay?.blockedReason && <GateBanner reason={selectedDisplay.blockedReason} />}
                     {renderPhase("doc")}
                   </>
                 )}
-              </>
-            )}
-          </div>
+              </div>
+            </div>
+          )}
         </article>
       </div>
     </main>
-  );
-}
-
-/** The artifact face's vertical menu — a sidebar-style nav (mirroring the pipeline
- *  menu) that lives on the right of the content. Each item routes to that artifact's
- *  own page, where it's generated in isolation. */
-function ArtifactNav({ projectId, phase, activeId }: { projectId: string; phase: string; activeId?: string }) {
-  const items = PHASE_ARTIFACTS[phase as keyof typeof PHASE_ARTIFACTS] ?? [];
-  return (
-    <nav aria-label="Artifacts" className="lg:sticky lg:top-6 space-y-1 text-sm">
-      {items.map((it) => {
-        const active = activeId === it.id;
-        return (
-          <Link
-            key={it.id}
-            href={`/project/${projectId}/${phase}/artifacts/${it.id}`}
-            className={`block rounded-lg px-3 py-2 transition-colors ${
-              active ? "bg-accent/10 font-medium text-fg" : "text-muted hover:bg-edge/40 hover:text-fg"
-            }`}
-          >
-            {it.label}
-          </Link>
-        );
-      })}
-    </nav>
   );
 }

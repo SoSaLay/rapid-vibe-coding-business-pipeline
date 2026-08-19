@@ -18,6 +18,7 @@ import { activeProvider } from "../llm/registry";
 import { ideaTypeContext } from "../idea-types";
 import { buildFrameworkContext } from "../frameworks";
 import { designSystemCatalog, buildDesignSystemContext, loadDesignTaste } from "../design-systems";
+import { SKIMMABLE_STYLE } from "./brevity";
 
 export interface DesignDirection {
   system_ids: string[];
@@ -78,11 +79,11 @@ const BRIEF_SCHEMA = {
       additionalProperties: false,
       properties: {
         name: { type: "string", description: "The product name. Reuse the existing one unless it's clearly weak." },
-        name_rationale: { type: "string", description: "Why this name (or why the existing one was kept)." },
+        name_rationale: { type: "string", description: "Why this name (or why the existing one was kept). ONE sentence." },
         tagline: { type: "string", description: "≤8 words, sits under the logo." },
         personality: { type: "array", items: { type: "string" }, description: "3-5 brand adjectives." },
         voice: { type: "string", description: "One line on how the product talks (aligned with Phase-4 positioning if present)." },
-        logo_direction: { type: "string", description: "Concrete direction a designer/AI could execute: mark style, type treatment, color." },
+        logo_direction: { type: "string", description: "Mark style, type treatment, color — concrete enough to execute. AT MOST 2 sentences." },
       },
       required: ["name", "name_rationale", "tagline", "personality", "voice", "logo_direction"],
     },
@@ -92,7 +93,7 @@ const BRIEF_SCHEMA = {
       properties: {
         target_user_summary: { type: "string" },
         core_jobs: { type: "array", items: { type: "string" }, description: "The 2-4 jobs users hire this product for." },
-        information_architecture: { type: "string", description: "Navigation model + how content is organized, in prose." },
+        information_architecture: { type: "string", description: "Navigation model + how content is organized. AT MOST 2 sentences." },
         screens: {
           type: "array",
           description: "Every screen the MVP needs, in rough flow order.",
@@ -102,7 +103,7 @@ const BRIEF_SCHEMA = {
             properties: {
               id: { type: "string", description: "kebab-case slug, e.g. 'dashboard'." },
               name: { type: "string" },
-              purpose: { type: "string", description: "What this screen must accomplish." },
+              purpose: { type: "string", description: "What this screen must accomplish. ONE sentence, ≤20 words." },
               primary_action: { type: "string", description: "THE one action this screen drives." },
               key_elements: { type: "array", items: { type: "string" } },
               states: SCREEN_STATES,
@@ -261,6 +262,7 @@ export async function generateDesignBrief(
     "name if the current one is clearly weak, and say why either way." +
     (rules ? `\n\n---\n\n${rules}` : "") +
     (reference ? `\n\n---\n\n${reference}` : "") +
+    `\n\n${SKIMMABLE_STYLE}` +
     extraContext;
 
   const directionBlock = brandDirection

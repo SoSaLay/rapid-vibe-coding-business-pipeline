@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ImageZoom } from "./ImageZoom";
 import { Interject } from "./Interject";
 import { StopButton, useStopper } from "./StopButton";
-import { Doc, DocSection, DocP, DocSub, DocMuted } from "./doc/Doc";
+import { Doc, DocSection, DocP, DocSub, DocMuted, DocProse } from "./doc/Doc";
 
 type AssetRef = { file: string; at: string };
 type PostAssets = Record<string, { image?: AssetRef; video?: AssetRef }>;
@@ -764,7 +764,7 @@ function StrategySection({ plan }: { plan: Plan }) {
   const [open, setOpen] = useState(false);
   return (
     <DocSection title="Strategy">
-      <DocP className="text-[1.15rem] leading-relaxed">{plan.strategy_summary}</DocP>
+      <DocProse text={plan.strategy_summary} tone="lede" />
       <div className="mt-3 flex flex-wrap gap-1.5">
         {plan.channels.map((c) => (
           <span key={c.name} className="rounded-full bg-edge/60 px-2.5 py-0.5 text-[11px] text-fg">
@@ -786,7 +786,9 @@ function StrategySection({ plan }: { plan: Plan }) {
               {plan.channels.map((c) => (
                 <div key={c.name}>
                   <p className="font-medium text-fg">{c.name}</p>
-                  <DocMuted className="mt-0.5">{c.why_this_channel}</DocMuted>
+                  <div className="mt-0.5">
+                    <DocProse text={c.why_this_channel} tone="muted" />
+                  </div>
                   <DocMuted>Mindset: {c.audience_mindset}</DocMuted>
                   <DocMuted>Formats: {c.content_types.join(", ")}</DocMuted>
                 </div>
@@ -799,7 +801,9 @@ function StrategySection({ plan }: { plan: Plan }) {
               {plan.content_pillars.map((p) => (
                 <div key={p.name}>
                   <p className="font-medium text-fg">{p.name}</p>
-                  <DocMuted className="mt-0.5">{p.description}</DocMuted>
+                  <div className="mt-0.5">
+                    <DocProse text={p.description} tone="muted" />
+                  </div>
                   <DocMuted>Angles: {p.example_angles.join(" · ")}</DocMuted>
                 </div>
               ))}

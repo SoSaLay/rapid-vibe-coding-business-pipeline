@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Cadence, CADENCE_LABEL, isDue, resetsIn } from "@/lib/ops-cadence";
 import { Interject } from "./Interject";
 import { StopButton, useStopper } from "./StopButton";
+import { ClampedText } from "./doc/Doc";
 
 interface OpsCheck {
   id: string;
@@ -230,7 +231,7 @@ export function Operations({
         <>
           {/* Summary */}
           <div className="card p-4">
-            <p className="text-sm text-fg/90">{opsReport.summary}</p>
+            <ClampedText text={opsReport.summary} className="text-sm text-fg/90" clampAt={280} />
           </div>
 
           {/* Due-now rollup */}

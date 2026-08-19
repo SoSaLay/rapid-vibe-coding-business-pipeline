@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Interject } from "./Interject";
 import { StopButton, useStopper } from "./StopButton";
+import { ClampedText } from "./doc/Doc";
 
 interface QaCase {
   id: string;
@@ -226,7 +227,7 @@ function QaRunView({
   return (
     <div className="space-y-4">
       <Section title="QA plan">
-        <p className="text-sm text-fg/90">{plan.scope_summary}</p>
+        <ClampedText text={plan.scope_summary} className="text-sm text-fg/90" clampAt={280} />
         <p className="mt-2 text-xs text-muted">
           {plan.test_cases.length} automated cases · {plan.security_checks.length} security checks ·{" "}
           {plan.manual_checklist.length} manual items{fixRound > 0 ? ` · fix round ${fixRound}` : ""}
@@ -445,7 +446,7 @@ function ReportView({ report }: { report: QaReport }) {
       )}
 
       <Section title="Summary">
-        <p className="text-sm text-fg/90">{report.scope_summary}</p>
+        <ClampedText text={report.scope_summary} className="text-sm text-fg/90" clampAt={280} />
         <div className="mt-3 flex flex-wrap gap-1.5">
           <StatusPill ok={report.cases.failed === 0} label={`cases ${report.cases.passed} pass / ${report.cases.failed} fail / ${report.cases.skipped} skip`} />
           <StatusPill ok={report.security.failed === 0} label={`security ${report.security.passed} pass / ${report.security.failed} fail / ${report.security.na} n/a`} />

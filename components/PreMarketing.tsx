@@ -5,7 +5,7 @@ import { EngineSelector } from "./EngineSelector";
 import { ImageZoom } from "./ImageZoom";
 import { Interject } from "./Interject";
 import { StopButton, useStopper } from "./StopButton";
-import { Doc, DocSection, DocP, DocSub, DocMuted, DocList } from "./doc/Doc";
+import { Doc, DocSection, DocP, DocSub, DocMuted, DocList, DocProse, DocFacts } from "./doc/Doc";
 
 interface ContentPlatform {
   platform: string;
@@ -167,8 +167,12 @@ function BriefSection({ brief }: { brief: Brief }) {
           {brief.metrics ? ` · ${brief.metrics.signups} signups · ${brief.metrics.presale_interest} pre-sale` : ""}
         </span>
       </div>
-      <DocP className="mt-5 text-[1.2rem] leading-relaxed">{brief.demand_summary}</DocP>
-      <DocP className="mt-3 text-muted">{brief.recommendation}</DocP>
+      <div className="mt-5">
+        <DocProse text={brief.demand_summary} tone="lede" />
+      </div>
+      <div className="mt-3">
+        <DocProse text={brief.recommendation} tone="muted" />
+      </div>
     </DocSection>
   );
 }
@@ -947,8 +951,15 @@ function KitSections({
           <div>
             <DocSub>The offer (money signal)</DocSub>
             <DocP className="mt-1 font-medium text-fg">{kit.offer.headline}</DocP>
-            <DocMuted className="mt-1">{kit.offer.details}</DocMuted>
-            <DocP className="mt-2 text-accent2">Test price: {kit.offer.price_hypothesis}</DocP>
+            <div className="mt-1">
+              <DocProse text={kit.offer.details} tone="muted" />
+            </div>
+            <DocFacts
+              items={[
+                { label: "Offer type", value: kit.offer.type },
+                { label: "Test price", value: <span className="text-accent2">{kit.offer.price_hypothesis}</span> },
+              ]}
+            />
           </div>
         </div>
       </DocSection>
@@ -961,7 +972,9 @@ function KitSections({
                 <p className="font-medium text-fg">{d.channel}</p>
                 <Copyable text={d.template} />
               </div>
-              <DocMuted className="mt-0.5">{d.tactic}</DocMuted>
+              <div className="mt-0.5">
+                <DocProse text={d.tactic} tone="muted" />
+              </div>
               <pre className="mt-2 whitespace-pre-wrap rounded-lg border border-edge bg-ink p-3 text-xs text-fg/80">{d.template}</pre>
             </div>
           ))}

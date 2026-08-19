@@ -11,6 +11,7 @@
 
 import { activeProvider } from "../llm/registry";
 import { buildFrameworkContext, frameworkCatalog } from "../frameworks";
+import { SKIMMABLE_STYLE } from "./brevity";
 
 /**
  * Dialogue budget. The PO used to decide for itself when it had "enough", which
@@ -146,18 +147,21 @@ export const SPEC_SCHEMA = {
       description:
         "ONE short, CASUAL sentence (20 words or fewer) — how a chill young adult would explain the app to a friend in conversation, not a marketing line. Relaxed and plain-spoken: contractions are good, buzzwords/jargon/corporate-speak are bad. Lead with the problem it solves so it instantly clicks. Think 'it basically helps you…' energy (you can drop the 'basically'). e.g. 'It helps you find actual fun stuff to do near you instead of doomscrolling all weekend.'",
     },
-    summary: { type: "string" },
-    problem_statement: { type: "string" },
-    target_users: { type: "array", items: { type: "string" } },
-    value_proposition: { type: "string" },
-    goals: { type: "array", items: { type: "string" } },
-    non_goals: { type: "array", items: { type: "string" } },
+    summary: { type: "string", description: "What this product is and who it's for. AT MOST 3 sentences — no wind-up." },
+    problem_statement: { type: "string", description: "The customer pain, in their terms. AT MOST 2 sentences." },
+    target_users: { type: "array", items: { type: "string", description: "A fragment naming the user and their situation, ≤12 words." } },
+    value_proposition: { type: "string", description: "What genuinely changes in the customer's life. AT MOST 2 sentences." },
+    goals: { type: "array", items: { type: "string", description: "A fragment, ≤12 words, starting with a verb." } },
+    non_goals: { type: "array", items: { type: "string", description: "A fragment, ≤12 words. What you are deliberately NOT doing." } },
     must_have_features: {
       type: "array",
       items: {
         type: "object",
         additionalProperties: false,
-        properties: { name: { type: "string" }, description: { type: "string" } },
+        properties: {
+          name: { type: "string", description: "The feature as a short label, ≤6 words." },
+          description: { type: "string", description: "What it does and its one hard constraint. AT MOST 2 sentences." },
+        },
         required: ["name", "description"],
       },
     },
@@ -166,17 +170,20 @@ export const SPEC_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        properties: { name: { type: "string" }, description: { type: "string" } },
+        properties: {
+          name: { type: "string", description: "The feature as a short label, ≤6 words." },
+          description: { type: "string", description: "What it does. ONE sentence." },
+        },
         required: ["name", "description"],
       },
     },
-    success_metrics: { type: "array", items: { type: "string" } },
-    key_risks: { type: "array", items: { type: "string" } },
-    open_questions: { type: "array", items: { type: "string" } },
-    monetization: { type: "string" },
+    success_metrics: { type: "array", items: { type: "string", description: "A customer-outcome metric with its number, ≤12 words." } },
+    key_risks: { type: "array", items: { type: "string", description: "A fragment naming the risk, ≤12 words." } },
+    open_questions: { type: "array", items: { type: "string", description: "The question itself, ≤15 words." } },
+    monetization: { type: "string", description: "How it makes money, with a price. AT MOST 2 sentences." },
     recommendation: {
       type: "string",
-      description: "The PO's opinionated take: is this worth building, and how to approach it.",
+      description: "Is this worth building, and how to approach it. AT MOST 3 sentences — verdict first.",
     },
   },
   required: [
@@ -236,7 +243,8 @@ export async function selectFrameworks(idea: string): Promise<FrameworkSelection
 
 async function systemWithFrameworks(frameworkIds: string[]): Promise<string> {
   const context = await buildFrameworkContext(frameworkIds || []);
-  return context ? `${PO_SYSTEM}\n\n---\n\n${context}` : PO_SYSTEM;
+  const base = context ? `${PO_SYSTEM}\n\n---\n\n${context}` : PO_SYSTEM;
+  return `${base}\n\n${SKIMMABLE_STYLE}`;
 }
 
 function renderTranscript(idea: string, turns: POTurn[]): string {
