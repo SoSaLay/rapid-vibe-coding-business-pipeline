@@ -36,6 +36,19 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [x] pm-skills framework auto-selection per idea + override ("Adjust")
 - [x] Workspace UI (dialogue thread + spec view)
 - [ ] Live test with Anthropic key (dialogue + spec quality)
+- [x] **Dialogue tightened (2026-08-17)** — the loop had no round cap (the model decided when it was
+  "ready"), which with a ruthless-interrogation prompt meant ~4-6 rounds of 3-6 questions. Now:
+  `PO_MAX_ROUNDS = 2` + `PO_MAX_QUESTIONS_PER_ROUND = 4`, **enforced in `generatePOTurn`, not the
+  prompt**; once the budget is spent it returns ready WITHOUT a model call (the owner's last answer
+  goes straight to the spec button). Turn generation dropped `high` → `medium` effort (triage, not
+  synthesis; synthesis stays `high`). Prompt rewritten to "default to DECIDING, not asking" — rank
+  candidates by how much the spec would change, infer the rest. Questions are now individually
+  skippable in the UI (one unanswerable question used to block the whole round); blanks are sent as
+  an explicit skip so the PO decides them rather than assuming.
+  Measured A/B on one idea, real model: **10 questions / 59s → 6 questions / 33s**, final round
+  15s → 0.01s. Verified live: round 1 = 4 questions, 3 of 4 skipped still produced a full spec with
+  every gap in `open_questions` alongside a concrete recommended default.
+  To tune, change the two constants at the top of `lib/phases/product-owner.ts`.
 
 ### Phase 3 — Market Researcher ✅  *(optional / skippable)*
 - [x] Merged old Idea Validation + Market Researcher into one phase
@@ -266,6 +279,32 @@ Validate the whole pipeline on a separate localhost with zero keys:
   `~/Rapid Vibe Coding Apps/`
 
 ## Cross-cutting features (not tied to one phase)
+
+### PostHog analytics (product analytics for what the pipeline SHIPS — never the orchestrator)
+Rollout is deliberately staged: instrument the earliest thing that reaches real people (the Phase-4
+landing page), then push the same connection outward through the phases that follow.
+- [x] **Connector** (`lib/posthog.ts` + `/api/posthog` + `/api/posthog/configure` + Onboarding row).
+  Two keys, two jobs: `projectApiKey` (phc_…, public, write-only, safe in the browser) and an
+  OPTIONAL `personalApiKey` (phx_…, private, server-side) that unlocks READING stats back. Host is
+  prefilled to US cloud; `assetHostFor`/`apiHostFor` derive the CDN + REST origins (self-hosted
+  collapses to one). Project key is verified against the remote-config endpoint (read-only, emits no
+  event); an unknown token 404s there and the error names region mismatch as the likely cause.
+- [x] **Phase 4 landing page** (`lib/phases/landing-page.ts`) — async loader injected into `<head>`,
+  `person_profiles: 'identified_only'`, plus a real funnel: `waitlist_started` (first focus) →
+  `waitlist_submitted` (+ `identify` on the email) → `waitlist_failed`. **Localhost/file: guard** so
+  the founder's own in-app previews never land in the funnel as visitors. No key connected = page
+  renders exactly as before (verified). Existing pages need a regenerate (or a deploy, which
+  re-renders anyway) to pick up the snippet.
+- [ ] **Phase 6 stack** — add an `analytics` slot to `STACK_SLOTS` (default posthog) so the briefing
+  ships built apps instrumented from task 1
+- [ ] **Phase 8 deploy** — `NEXT_PUBLIC_POSTHOG_KEY` / `_HOST` in the env-var inventory (falls out of
+  the Phase 6 slot)
+- [ ] **Phase 10 ops** — PostHog tool card w/ console URL + recurring checks (funnel drop-off, errors)
+- [ ] **Phase 11 iteration** — query real numbers into `PulledSignal[]`; today the founder is asked to
+  TYPE users/retention/revenue from memory. Needs the personal API key. Highest-value remaining step.
+- [ ] Live test with a real PostHog key: connect → regenerate landing → deploy → confirm events land
+
+### Other
 - [x] `git init` + first commit + **pushed to GitHub** — private repo `SoSaLay/rapid-vibe-coding-pipeline`, branch `main`. README + MIT LICENSE + `.env.example` + tight `.gitignore`. Remote verified clean (no `data/`, no secrets). Flip to public when ready to open-source.
 - [ ] Per-app **project dashboard**: aggregated tools + management URLs
 - [ ] **Tech-stack table** per app (inferred from the code)

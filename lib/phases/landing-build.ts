@@ -12,6 +12,7 @@ import { getPhaseState, getProject } from "@/lib/store";
 import { getSupabaseConfig } from "@/lib/supabase";
 import { renderLandingPage } from "@/lib/phases/landing-page";
 import { readAssetBase64 } from "@/lib/brand-assets";
+import { getPostHogWebConfig } from "@/lib/posthog";
 
 export function landingDir(projectId: string): string {
   return path.join(process.cwd(), "data", "projects", projectId, "landing");
@@ -44,10 +45,12 @@ export async function buildAndWriteLanding(projectId: string, opts: BuildLanding
   const project = await getProject(projectId);
 
   const a = state.assets || {};
-  const [logo, hero, og] = await Promise.all([
+  const [logo, hero, og, posthog] = await Promise.all([
     dataUri(projectId, a.logo),
     dataUri(projectId, a.hero),
     dataUri(projectId, a.og),
+    // Analytics is opt-in by connection: no PostHog key, no snippet, no change.
+    getPostHogWebConfig(),
   ]);
 
   const html = renderLandingPage(state.kit, {
@@ -59,6 +62,7 @@ export async function buildAndWriteLanding(projectId: string, opts: BuildLanding
     threeHero: opts.threeHero ?? !!state.landingThreeHero,
     // Bake in the live URL once deployed; before that the page self-sets it at runtime.
     canonicalUrl: state.landingDeployedUrl || undefined,
+    posthog: posthog ?? undefined,
   });
 
   const file = landingFile(projectId);

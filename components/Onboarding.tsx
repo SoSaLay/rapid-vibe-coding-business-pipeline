@@ -13,6 +13,7 @@ export interface OnboardingStatus {
   google: boolean;
   supabase: boolean;
   resend: boolean;
+  posthog: boolean;
   /** An LLM engine (Claude OR OpenAI) connected — gates pipeline progression. */
   requiredComplete: boolean;
   /** Every slot connected — drives the "complete" (green) button state. */
@@ -41,6 +42,10 @@ interface Field {
   name: string;
   label: string;
   type?: string;
+  /** Not needed to connect — the row's Connect button ignores it when empty. */
+  optional?: boolean;
+  /** Prefilled value (e.g. the PostHog US host most people want). */
+  defaultValue?: string;
 }
 /* ---------------- AI engine (LLM) options ---------------- */
 
@@ -84,7 +89,7 @@ const LLM_OPTIONS: LlmOption[] = [
 ];
 
 interface Service {
-  id: "exa" | "google" | "supabase" | "resend";
+  id: "exa" | "google" | "supabase" | "resend" | "posthog";
   label: string;
   required?: boolean;
   /** Why it matters / what connecting it unlocks. */
@@ -161,6 +166,25 @@ const SERVICES: Service[] = [
     ],
     fields: [{ name: "apiKey", label: "Resend API key (re_…)", type: "password" }],
   },
+  {
+    id: "posthog",
+    label: "PostHog (analytics)",
+    unlocks: "Measures the landing pages and apps you ship — visitors, funnel drop-off, signups.",
+    help: "Free key at posthog.com → Settings → Project. The personal key is optional but lets the pipeline read your numbers back.",
+    docsUrl: "https://app.posthog.com/settings/project",
+    docs: [
+      "Sign up free at posthog.com — 1M events/mo on the free tier, no card to start. Pick the US or EU region (it can't be changed later).",
+      "Project API key: Settings → Project → 'Project API key' (starts with phc_). This one is public — it goes into the pages you ship.",
+      "Host: use https://us.i.posthog.com for the US region or https://eu.i.posthog.com for the EU. It's prefilled to US below.",
+      "Optional — Personal API key: click your avatar → Personal API keys → 'Create personal API key'. Give it read scopes for Query and Project. This is what lets Ops and Iteration pull your real numbers instead of asking you to remember them.",
+      "Paste them below. Analytics only fires on deployed pages — local previews are excluded so your own testing never pollutes the data.",
+    ],
+    fields: [
+      { name: "projectApiKey", label: "Project API key (phc_…)", type: "password" },
+      { name: "host", label: "Host", defaultValue: "https://us.i.posthog.com" },
+      { name: "personalApiKey", label: "Personal API key (phx_…) — optional, unlocks reading stats", type: "password", optional: true },
+    ],
+  },
 ];
 
 async function connectLlm(id: LlmOption["id"], apiKey: string): Promise<{ ok: boolean; error?: string }> {
@@ -198,6 +222,13 @@ async function connectService(id: Service["id"], values: Record<string, string>)
   } else if (id === "resend") {
     endpoint = "/api/email/configure";
     payload = { apiKey: values.apiKey };
+  } else if (id === "posthog") {
+    endpoint = "/api/posthog/configure";
+    payload = {
+      projectApiKey: values.projectApiKey,
+      host: values.host,
+      personalApiKey: values.personalApiKey,
+    };
   } else {
     endpoint = "/api/supabase/configure";
     payload = { url: values.url, anonKey: values.anonKey, serviceKey: values.serviceKey };
@@ -216,6 +247,13 @@ async function connectService(id: Service["id"], values: Record<string, string>)
   }
 }
 
+/** Prefilled field values (only fields that declare a default). */
+function initialValues(service: Service): Record<string, string> {
+  const v: Record<string, string> = {};
+  for (const f of service.fields) if (f.defaultValue) v[f.name] = f.defaultValue;
+  return v;
+}
+
 /* ---------------- one service row ---------------- */
 
 function ServiceRow({
@@ -229,7 +267,7 @@ function ServiceRow({
 }) {
   const [open, setOpen] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
-  const [values, setValues] = useState<Record<string, string>>({});
+  const [values, setValues] = useState<Record<string, string>>(() => initialValues(service));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -240,11 +278,11 @@ function ServiceRow({
     setBusy(false);
     if (!r.ok) return setError(r.error || "Connection failed.");
     setOpen(false);
-    setValues({});
+    setValues(initialValues(service));
     onConnected();
   }
 
-  const allFilled = service.fields.every((f) => (values[f.name] || "").trim());
+  const allFilled = service.fields.every((f) => f.optional || (values[f.name] || "").trim());
 
   return (
     <div className="rounded-lg border border-edge bg-edge/10 p-3">
@@ -488,7 +526,8 @@ export function OnboardingPanel({
       Number(status.exa) +
       Number(status.google) +
       Number(status.supabase) +
-      Number(status.resend)
+      Number(status.resend) +
+      Number(status.posthog)
     : 0;
 
   return (
@@ -509,7 +548,7 @@ export function OnboardingPanel({
               ? "◐ Ready to use · optional keys left"
               : "✕ Required key missing"}
         </span>
-        <span className="text-muted">{connectedCount}/6 services connected</span>
+        <span className="text-muted">{connectedCount}/7 services connected</span>
       </div>
 
       <div className="mt-4 space-y-2">

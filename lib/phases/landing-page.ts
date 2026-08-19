@@ -39,6 +39,40 @@ function jsonLd(obj: unknown): string {
   return `<script type="application/ld+json">${JSON.stringify(obj).replace(/</g, "\\u003c")}</script>`;
 }
 
+/**
+ * PostHog loader. Deliberately not the copy-paste stub snippet: this page is a
+ * single static file we control, so an async <script> + init on load does the
+ * same job with none of the minified stub to get wrong.
+ *
+ * The localhost guard matters — the pipeline serves this exact HTML back as an
+ * in-app preview, and without it the founder's own preview clicks would land in
+ * the funnel as real visitors and quietly ruin the only numbers they have.
+ */
+function analyticsScript(ph?: { projectApiKey: string; host: string; assetHost: string }): string {
+  if (!ph) return "";
+  const cfg = JSON.stringify({ key: ph.projectApiKey, host: ph.host, assets: ph.assetHost });
+  return `<script>
+(function(){
+  var C = ${cfg};
+  var h = location.hostname;
+  if (location.protocol === 'file:' || h === 'localhost' || h === '127.0.0.1' || h === '[::1]' || h === '') return;
+  var s = document.createElement('script');
+  s.src = C.assets + '/static/array.js';
+  s.async = true;
+  s.onload = function(){
+    if (!window.posthog || !window.posthog.init) return;
+    window.posthog.init(C.key, {
+      api_host: C.host,
+      person_profiles: 'identified_only',
+      capture_pageview: true,
+      capture_pageleave: true
+    });
+  };
+  document.head.appendChild(s);
+})();
+</script>`;
+}
+
 // Static client script (no ${} interpolation) — reads config from window.__RVC.
 const FORM_SCRIPT = `
 <script>
@@ -47,6 +81,13 @@ const FORM_SCRIPT = `
   var form = document.getElementById('waitlist');
   var ok = document.getElementById('thanks');
   if(!form) return;
+  function track(ev, props){ try{ if(window.posthog && window.posthog.capture) window.posthog.capture(ev, props||{}); }catch(e){} }
+  var started = false;
+  form.addEventListener('focusin', function(){
+    if(started) return;
+    started = true;
+    track('waitlist_started');
+  });
   form.addEventListener('submit', function(e){
     e.preventDefault();
     var btn = form.querySelector('button');
@@ -66,9 +107,19 @@ const FORM_SCRIPT = `
       headers: { 'apikey': C.anonKey, 'Authorization': 'Bearer ' + C.anonKey, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
       body: JSON.stringify(body)
     }).then(function(r){
-      if(r.ok){ form.style.display='none'; ok.style.display='block'; }
-      else { r.text().then(function(t){ alert('Something went wrong: ' + t); }); btn.disabled=false; btn.textContent='Join the waitlist'; }
-    }).catch(function(){ btn.disabled=false; btn.textContent='Join the waitlist'; alert('Network error.'); });
+      if(r.ok){
+        form.style.display='none'; ok.style.display='block';
+        try{ if(window.posthog && window.posthog.identify) window.posthog.identify(body.email, { email: body.email }); }catch(e){}
+        track('waitlist_submitted', { wants_presale: body.wants_presale, source: 'landing' });
+      }
+      else {
+        track('waitlist_failed', { status: r.status });
+        r.text().then(function(t){ alert('Something went wrong: ' + t); }); btn.disabled=false; btn.textContent='Join the waitlist';
+      }
+    }).catch(function(){
+      track('waitlist_failed', { status: 'network' });
+      btn.disabled=false; btn.textContent='Join the waitlist'; alert('Network error.');
+    });
   });
 })();
 </script>`;
@@ -154,6 +205,12 @@ export function renderLandingPage(
      * canonical/og:url to window.location at runtime — self-correcting per deploy.
      */
     canonicalUrl?: string;
+    /**
+     * PostHog web config (public ingestion key only — the personal/read key must
+     * never reach a browser). Omitted when PostHog isn't connected: the page then
+     * renders byte-identically to how it did before analytics existed.
+     */
+    posthog?: { projectApiKey: string; host: string; assetHost: string };
   }
 ): string {
   const p = kit.positioning;
@@ -262,6 +319,7 @@ ${faqLd}
 ${productLd}
 <script src="https://cdn.tailwindcss.com"></script>
 <script>window.__RVC = ${cfg};</script>
+${analyticsScript(opts.posthog)}
 ${MOTION_STYLE}
 </head>
 <body class="bg-[#05070d] text-slate-100 antialiased">

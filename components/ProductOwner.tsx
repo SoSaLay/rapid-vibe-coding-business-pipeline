@@ -339,6 +339,10 @@ export function ProductOwner({
  * always-present "Other" free-text box, so the owner answers in one click instead of
  * typing prose. Selections are assembled into a single Q/A transcript and sent to the
  * existing answer endpoint, keeping the backend contract unchanged.
+ *
+ * Questions are individually skippable: one question the owner can't answer used to
+ * block the whole round. Blanks are sent as an explicit skip so the PO decides that
+ * point itself and records it as an open question, rather than silently assuming.
  */
 const OTHER = "__other__";
 
@@ -365,10 +369,12 @@ function Questionnaire({
     return (c || "").trim();
   }
 
-  const allAnswered = questions.length > 0 && questions.every((q) => answerFor(q).length > 0);
+  const answeredCount = questions.filter((q) => answerFor(q).length > 0).length;
 
   function submit() {
-    const text = questions.map((q) => `Q: ${q.question}\nA: ${answerFor(q)}`).join("\n\n");
+    const text = questions
+      .map((q) => `Q: ${q.question}\nA: ${answerFor(q) || "(skipped — you decide, and note it as an open question)"}`)
+      .join("\n\n");
     onSubmit(text);
     setChoice({});
     setOther({});
@@ -430,14 +436,15 @@ function Questionnaire({
         );
       })}
 
-      <div className="flex justify-between pt-1">
+      <div className="flex items-center justify-between gap-3 pt-1">
         <button className="btn-ghost" disabled={busy} onClick={onSkip} title="Skip ahead and write the spec now">
           Skip &amp; generate spec
         </button>
         <div className="flex items-center gap-2">
+          <span className="hidden text-[11px] text-muted sm:inline">Skip any you're unsure of — the PO decides those.</span>
           {busy && onStop && <StopButton onStop={onStop} />}
-          <button className="btn-primary" disabled={busy || !allAnswered} onClick={submit}>
-            {busy ? "Thinking…" : "Send answers →"}
+          <button className="btn-primary" disabled={busy || answeredCount === 0} onClick={submit}>
+            {busy ? "Thinking…" : `Send answers →`}
           </button>
         </div>
       </div>

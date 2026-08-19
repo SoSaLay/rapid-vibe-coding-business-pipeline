@@ -12,6 +12,22 @@
 import { activeProvider } from "../llm/registry";
 import { buildFrameworkContext, frameworkCatalog } from "../frameworks";
 
+/**
+ * Dialogue budget. The PO used to decide for itself when it had "enough", which
+ * with a ruthless-interrogation prompt meant 4-6 rounds of 3-6 questions — 15-30
+ * questions and as many long waits before the owner saw a spec.
+ *
+ * Two rounds is the smallest budget that still buys a real back-and-forth: round
+ * 1 probes the biggest unknowns, round 2 reacts to what the owner actually said.
+ * One round would make this a form, not a conversation.
+ *
+ * The budget is enforced HERE, not in the prompt — a model that decides it needs
+ * one more round doesn't get one. Anything still unresolved is not lost: it lands
+ * in the spec's `open_questions` with the PO's own recommendation beside it.
+ */
+export const PO_MAX_ROUNDS = 2;
+export const PO_MAX_QUESTIONS_PER_ROUND = 4;
+
 export interface POQuestion {
   id: string;
   question: string;
@@ -45,8 +61,8 @@ Your north star is simple: solve a real, painful customer problem and everything
 retention, growth — takes care of itself. Great products don't ship features; they relieve genuine
 customer pain and make people's lives measurably better. Every question you ask traces back to that.
 
-A business owner has handed you a raw idea. Your job is NOT to agree and move on. Interrogate the
-idea ruthlessly — always through the customer lens:
+A business owner has handed you a raw idea. Your job is NOT to agree and move on. Pressure-test it
+ruthlessly — always through the customer lens. Think through ALL of this every round:
 
 - Customer problem first: is this a real, painful problem real people actually have — or a solution
   looking for a problem? How does the customer feel RIGHT NOW without this product?
@@ -64,9 +80,22 @@ idea ruthlessly — always through the customer lens:
 - Risks & assumptions: what has to be true about the customer's problem for this to work? What if
   the pain is shallower than assumed?
 
-Ask SHARP, specific questions tied to THIS idea and THIS customer — never generic boilerplate. Ask in
-focused rounds of 3-6 questions. Do not ask things the owner already answered. When you genuinely
-have enough to write a strong, opinionated spec, set ready=true and stop asking.
+You think through every one of those. You do NOT ask about every one of them.
+
+DEFAULT TO DECIDING, NOT ASKING. You are a senior PO, not a form. If you can make a sensible,
+defensible call from the idea itself, MAKE IT and carry it into the spec as your recommendation —
+that is your job, and it costs the owner nothing. Spend a question only when a different answer
+would genuinely change what gets built, and when you cannot reasonably infer it. A question you
+could have answered yourself is a question that wasted the owner's time.
+
+Your question budget is deliberately tight, so triage hard. Rank every candidate question by "if the
+owner answered the opposite, how much of the spec would change?" and ask only the top few. Ask SHARP,
+specific questions tied to THIS idea and THIS customer — never generic boilerplate. Never ask what
+the owner already answered, and never ask two questions that would be answered by the same fact.
+
+Unanswered is fine. Anything you don't get to — or the owner skips — goes into the spec as an
+explicit open question with your recommended default beside it. Nothing is lost by not asking, so
+there is no reason to hoard questions.
 
 Be direct and concise. You are a thought partner who sharpens the customer focus, not a yes-man. If
 the idea is solution-first rather than customer-problem-first, name it and push back hard.
@@ -224,28 +253,67 @@ function renderTranscript(idea: string, turns: POTurn[]): string {
   return lines.join("\n");
 }
 
-/** Generate the next PO turn: more questions, or readiness to synthesize. */
+/** Which round a fresh turn would be — one round per PO turn already on record. */
+export function currentRound(turns: POTurn[]): number {
+  return turns.filter((t) => t.role === "po").length + 1;
+}
+
+/**
+ * Generate the next PO turn: more questions, or readiness to synthesize.
+ *
+ * Once the round budget is spent this returns ready WITHOUT calling the model at
+ * all — the owner's last answer goes straight to a spec button instead of sitting
+ * through one more full generation just to be told the PO is done.
+ */
 export async function generatePOTurn(
   idea: string,
   turns: POTurn[],
   frameworkIds: string[] = []
 ): Promise<{ assessment: string; ready: boolean; questions: POQuestion[] }> {
+  const round = currentRound(turns);
+
+  if (round > PO_MAX_ROUNDS) {
+    return {
+      assessment:
+        "That's what I needed. Anything still open goes into the spec as an explicit open question with my recommended default — you can overrule any of it there.",
+      ready: true,
+      questions: [],
+    };
+  }
+
+  const isFinalRound = round === PO_MAX_ROUNDS;
+  const budget =
+    `\n\nROUND ${round} OF ${PO_MAX_ROUNDS}. Ask AT MOST ${PO_MAX_QUESTIONS_PER_ROUND} questions this round.` +
+    (isFinalRound
+      ? " This is your LAST round — there is no round after this one, you write the spec next. Ask only what you cannot" +
+        " responsibly decide yourself, then let the rest go: infer it, state it as your recommendation, and record it as an open question."
+      : " Spend this round on the assumptions that would most change what gets built. You get one more round after the owner replies.");
+
   const provider = activeProvider();
   const result = await provider.completeJson<{ assessment: string; ready: boolean; questions: POQuestion[] }>({
     system: await systemWithFrameworks(frameworkIds),
-    effort: "high",
+    // Deliberately below the synthesis effort: picking the sharpest few questions
+    // is triage, not the deep reasoning the spec itself needs, and every round of
+    // it is a wait the owner sits through.
+    effort: "medium",
     schema: TURN_SCHEMA,
     messages: [
       {
         role: "user",
         content:
           renderTranscript(idea, turns) +
-          "\n\nProduce your next turn. If you still have important unknowns, ask a focused round of questions. If you have enough to write a strong spec, set ready=true with an empty questions array.",
+          budget +
+          "\n\nProduce your next turn. If a genuinely spec-changing unknown remains, ask a focused round of questions. If you can write a strong spec now, set ready=true with an empty questions array — earlier is better.",
       },
     ],
   });
-  // Ensure stable ids
-  result.questions = (result.questions ?? []).map((q, i) => ({ ...q, id: q.id || `q${turns.length}_${i}` }));
+
+  // Enforce the caps rather than trusting the prompt: a model that ignores the
+  // budget must not be able to spend the owner's time anyway.
+  result.questions = (result.questions ?? [])
+    .slice(0, PO_MAX_QUESTIONS_PER_ROUND)
+    .map((q, i) => ({ ...q, id: q.id || `q${turns.length}_${i}` }));
+  if (result.questions.length === 0) result.ready = true;
   return result;
 }
 
