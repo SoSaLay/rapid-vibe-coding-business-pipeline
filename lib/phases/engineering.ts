@@ -320,6 +320,101 @@ export function renderTasksMd(graph: TaskGraph, productTitle: string): string {
   return lines.join("\n");
 }
 
+/**
+ * Auth + billing integration block for the briefing.
+ *
+ * Clerk is the studio default for BOTH slots, so the coding agent gets the exact
+ * wiring (packages, env vars, middleware, the Supabase user-id join, and the
+ * billing gate) instead of inventing it. Non-Clerk choices get their own short
+ * block so the section is never wrong for the chosen stack.
+ */
+function renderAuthBilling(choices: StackChoice[]): string {
+  const pick = (slot: string) => choices.find((c) => c.slot === slot)?.choice;
+  const auth = pick("auth");
+  const payments = pick("payments");
+  const db = pick("database");
+
+  if (auth === "none") {
+    return [
+      "## Auth & billing",
+      "",
+      "No auth slot — the app is public, with no accounts.",
+      payments === "none"
+        ? "No payments either. Don't scaffold a user table, a session, or a checkout."
+        : "Payments run without accounts: use a hosted Stripe Checkout link and key the purchase off the email Stripe returns.",
+    ].join("\n");
+  }
+
+  if (auth !== "clerk") {
+    return [
+      "## Auth & billing",
+      "",
+      `Auth: Supabase Auth. Use \`@supabase/ssr\` for cookie-based sessions; every protected route/action re-checks the session SERVER-SIDE. RLS policies key off \`auth.uid()\`.`,
+      payments === "stripe"
+        ? "Billing: Stripe direct. Own the checkout session, the webhook handler (`/api/webhooks/stripe`, verify the signature with `STRIPE_WEBHOOK_SECRET`), and a `subscriptions` table that the webhook is the ONLY writer of."
+        : "Billing: none — do not scaffold checkout, plans, or a subscriptions table.",
+    ].join("\n");
+  }
+
+  const lines = [
+    "## Auth & billing — Clerk (studio default, wire it exactly like this)",
+    "",
+    "Clerk owns identity AND billing for this app. One vendor, one dashboard, one set of keys.",
+    "",
+    "### Auth setup",
+    "",
+    "1. `npm i @clerk/nextjs`. Env vars (add BOTH to `.env.example` with comments):",
+    "   - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` — safe in the client.",
+    "   - `CLERK_SECRET_KEY` — server only. NEVER prefix it with `NEXT_PUBLIC_`.",
+    "2. Wrap the root layout in `<ClerkProvider>`. Add `middleware.ts` using `clerkMiddleware()` with a `createRouteMatcher` allowlist of PUBLIC routes; everything else requires a session by default (deny-by-default, not allow-by-default).",
+    "3. Use Clerk's prebuilt components — `<SignIn />`, `<SignUp />`, `<UserButton />`. Do not hand-roll auth screens; theme them with the design tokens instead.",
+    "4. On the server, read the user with `auth()` / `currentUser()` from `@clerk/nextjs/server` in every protected route handler and server action. A client-side redirect is UX, never the security boundary.",
+  ];
+
+  if (db === "supabase") {
+    lines.push(
+      "",
+      "### Clerk ↔ Supabase",
+      "",
+      "- Clerk is the source of truth for identity. Do NOT copy emails/passwords into Postgres.",
+      "- Own-data tables carry a `clerk_user_id text not null` column, indexed, and that is what rows are scoped by.",
+      "- Wire Supabase to accept Clerk session tokens (Clerk as a third-party auth provider) so RLS policies compare against the Clerk user id from the JWT. Keep RLS ON for every table — the policy is written in the SAME task that creates the table.",
+      "- The service-role key stays server-side and is used only where RLS genuinely must be bypassed; justify each use in a comment."
+    );
+  }
+
+  if (payments === "clerk-billing") {
+    lines.push(
+      "",
+      "### Billing setup (Clerk Billing)",
+      "",
+      "1. Enable Billing in the Clerk dashboard and define the plans + features there — plans are dashboard config, not code.",
+      "2. Render the plan picker with Clerk's `<PricingTable />`; render the customer's self-serve management from `<UserProfile />`. Don't build a bespoke checkout.",
+      "3. Gate paid functionality by FEATURE, never by plan name: `<Protect feature=\"x\">` in the UI and `has({ feature: 'x' })` server-side. The server check is the real gate — the UI check is only to hide what the user can't use.",
+      "4. Every paid API route/server action re-checks entitlement with `has()` before doing work. Never trust a plan value sent from the client.",
+      "5. Clerk holds subscription state — do NOT mirror it into your own `subscriptions` table. Read it from Clerk at request time."
+    );
+  } else if (payments === "stripe") {
+    lines.push(
+      "",
+      "### Billing setup (Stripe direct — deviation from the default)",
+      "",
+      "- Clerk handles identity; Stripe handles money. Store the `stripe_customer_id` against `clerk_user_id`.",
+      "- `/api/webhooks/stripe` verifies the signature with `STRIPE_WEBHOOK_SECRET` and is the ONLY writer of subscription state. Make it idempotent.",
+      "- Entitlement is checked server-side from your own stored state on every paid route."
+    );
+  } else {
+    lines.push(
+      "",
+      "### Billing",
+      "",
+      "- No payments this build. Don't scaffold plans, checkout, or a subscriptions table — Clerk Billing can be switched on later without touching the auth model."
+    );
+  }
+
+  return lines.join("\n");
+}
+
 export function renderClaudeMd(args: {
   productTitle: string;
   choices: StackChoice[];
@@ -382,7 +477,7 @@ GSD users: \`/gsd:import --from TASKS.md\` works; keep TASKS.md checkboxes in sy
 
 - Validate ALL external input (API route bodies, query params, form data) with zod schemas at the boundary. Reject, don't sanitize-and-hope.
 - Every Supabase table gets a row-level-security policy IN THE SAME TASK that creates it. No table ships with RLS off.
-- Auth checks happen SERVER-SIDE on every protected route/action — client-side redirects are UX, not security.
+- Auth checks happen SERVER-SIDE on every protected route/action — client-side redirects are UX, not security. Same rule for paid features: entitlement is verified on the server before any paid work runs.
 - The service-role key never appears in client code or NEXT_PUBLIC_ env vars. Client uses the anon key only.
 - No \`dangerouslySetInnerHTML\` with user-influenced content; escape anything user-provided that gets rendered.
 - Auth endpoints and public write endpoints (signups, webhooks, forms) get basic rate limiting — a simple middleware/in-memory limiter is fine for MVP; leave a comment noting the production upgrade path (host WAF, Upstash).
@@ -390,6 +485,8 @@ GSD users: \`/gsd:import --from TASKS.md\` works; keep TASKS.md checkboxes in sy
 - Log auth failures and 5xx errors server-side so incidents are visible; NEVER log secrets, tokens, or PII.
 - Don't store sensitive data the app doesn't need. HTTPS and encryption-at-rest come from the platform (host + Supabase) — don't undermine them (no plaintext exports of sensitive fields, no sensitive data in client storage).
 - Run \`npm audit\` during the final verification milestone; fix criticals. Commit the lockfile.
+
+${renderAuthBilling(choices)}
 
 ${tokens}
 

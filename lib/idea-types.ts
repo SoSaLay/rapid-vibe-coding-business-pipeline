@@ -83,7 +83,7 @@ export const IDEA_TYPES: IdeaType[] = [
     icon: "👥",
     blurb: "A paid community, online or in real life.",
     implications:
-      "Community / paid group: the 'build' is light — a landing/sales site, a payment link (Stripe), and setup of the community " +
+      "Community / paid group: the 'build' is light — a landing/sales site, a payment link (Stripe direct — a one-time/pre-sale checkout is the justified deviation from the Clerk Billing default), and setup of the community " +
       "platform (Skool/Discord/Circle) rather than custom software. Engineering should produce a much smaller task graph; " +
       "the heavy phases are positioning, pre-marketing, and ongoing content/marketing. Validation = people paying to join.",
   },
@@ -94,7 +94,7 @@ export const IDEA_TYPES: IdeaType[] = [
     blurb: "A real-world product — the pipeline builds its storefront and brand.",
     implications:
       "Physical product (workaround mode): manufacturing/fulfillment stay human; the pipeline builds the storefront or " +
-      "pre-order landing site, brand assets, and waitlist/pre-sale funnel. Payments slot defaults to Stripe pre-orders; " +
+      "pre-order landing site, brand assets, and waitlist/pre-sale funnel. Payments deviates from the Clerk Billing default to Stripe direct — pre-orders are one-time checkout, not subscriptions; " +
       "research focuses on price points and existing alternatives; design carries the brand into packaging-ready tokens.",
   },
   {
@@ -105,7 +105,7 @@ export const IDEA_TYPES: IdeaType[] = [
     implications:
       "Content / media brand: the build is a content site + subscribe funnel (newsletter capture, episode/post pages); " +
       "the heavy phases are pre-marketing and marketing — the content library and distribution plan ARE the product engine. " +
-      "Monetization usually arrives later (sponsors, paid tier via Stripe); engineering task graph stays small.",
+      "Monetization usually arrives later (sponsors, or a paid tier via the default Clerk Billing on top of Clerk auth); engineering task graph stays small.",
   },
 ];
 

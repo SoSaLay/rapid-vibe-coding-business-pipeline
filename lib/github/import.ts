@@ -265,23 +265,30 @@ export async function detectStack(dir: string): Promise<StackDetection> {
     has("@playwright/test") ||
     has("cypress");
 
+  // Map detection onto real STACK_SLOTS option ids — anything else is dropped by
+  // normalizeChoices and would render as a blank slot in the Engineering picker.
   const choices: StackChoice[] = [];
   const pushChoice = (slot: string, choice: string) => {
     if (choice) choices.push({ slot, choice, rationale: "Detected from the imported repository." });
   };
   pushChoice(
     "frontend",
-    frameworks.find((f) => ["Next.js", "React", "Vue", "Nuxt", "Angular", "Svelte"].includes(f)) ||
-      (frameworks.includes("Vite") ? "Vite" : "")
+    has("next") ? "nextjs-shadcn" : frameworks.includes("Vite") || frameworks.includes("React") ? "vite-react" : ""
   );
   pushChoice(
     "backend",
-    frameworks.find((f) => ["Express", "Fastify", "NestJS", "Django"].includes(f)) || (has("next") ? "Next.js API routes" : "")
+    frameworks.some((f) => ["Express", "Fastify", "NestJS"].includes(f))
+      ? "separate-service"
+      : has("next")
+        ? "nextjs-api"
+        : ""
   );
-  pushChoice("database", services.find((s) => ["Supabase", "Prisma", "Drizzle", "MongoDB"].includes(s)) || "");
-  pushChoice("auth", services.find((s) => ["Clerk", "Supabase"].includes(s)) || "");
-  pushChoice("payments", services.includes("Stripe") ? "Stripe" : "");
-  pushChoice("language", Array.from(languages)[0] || "");
+  pushChoice("database", services.includes("Supabase") ? "supabase" : has("@neondatabase/serverless") ? "neon" : "");
+  pushChoice("auth", services.includes("Clerk") ? "clerk" : services.includes("Supabase") ? "supabase-auth" : "");
+  pushChoice(
+    "payments",
+    services.includes("Stripe") ? "stripe" : services.includes("Clerk") && has("@clerk/backend") ? "clerk-billing" : ""
+  );
 
   const langArr = Array.from(languages);
   const allFrameworks = [...frameworks, ...services];

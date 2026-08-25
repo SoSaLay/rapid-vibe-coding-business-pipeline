@@ -172,7 +172,7 @@ export function Iteration({
       <div className="card p-6 space-y-2">
         <div className="text-sm text-ok">✓ Cycle {cycle + 1} started.</div>
         <p className="text-sm text-muted">
-          The Product Owner is re-opened with your check-in data and chosen focus. Head there to run
+          Problem Solved? is re-opened with your check-in data and chosen focus. Head there to run
           the pushback dialogue — it will produce spec v{cycle + 1} and the pipeline flows from there.
         </p>
       </div>

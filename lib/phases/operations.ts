@@ -163,7 +163,8 @@ Tool URLs — use the real identifiers from the deploy manifest, with these cons
 - AWS Billing: https://console.aws.amazon.com/billing/home
 - Supabase dashboard: https://supabase.com/dashboard (project-specific URL unknown — top level is fine)
 - GitHub: the repo URL from the manifest
-- Clerk: https://dashboard.clerk.com · Stripe: https://dashboard.stripe.com
+- Clerk (auth AND billing — the studio default for both): https://dashboard.clerk.com
+- Stripe: https://dashboard.stripe.com (only when the stack chose Stripe direct)
 - Resend (email broadcasts): https://resend.com/emails · https://resend.com/broadcasts · https://resend.com/domains
 Include a Resend tool entry ONLY when "Email enabled: yes" is set below (the founder opted this
 product into email). Its checks: weekly — review bounce/complaint rate on recent sends (a rising

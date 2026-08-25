@@ -46,12 +46,12 @@ Node 22, Next.js 14 (App Router), React 18, TypeScript, Tailwind v3. Local file 
 
 ## Phases (11 total)
 1. **Business Owner** — capture idea (voice via free Web Speech API / text / pull from Notion) → `raw-idea`.
-2. **Product Owner** — pushes back with clarifying questions, then synthesizes → `product-spec`. Auto-selects pm-skills playbooks per idea.
+2. **Problem Solved?** (phase id stays `product-owner`) — an AI product owner pries at the idea with clarifying questions round after round until the real customer problem is pinned down, then synthesizes → `product-spec`. Auto-selects pm-skills playbooks per idea.
 3. **Market Researcher** — *optional/skippable* (nudge to do it if monetizing). Exa forum search (demand) + market/competitor search → `market-report` with a build/refine/reject/archive verdict.
-4. Pre-Marketing · 5. Product Design · 6. Development & Engineering (System Design Architect; spec-driven; Claude Code executes tasks) · 7. QA (auto + **manual** + security) · 8. Deployment (Dev/UAT/Prod; AWS) · 9. Marketing & Sales · 10. Operations & Maintenance · 11. Iteration → loops back to Product Owner.
+4. Pre-Marketing · 5. Product Design · 6. Development & Engineering (System Design Architect; spec-driven; Claude Code executes tasks) · 7. QA (auto + **manual** + security) · 8. Deployment (Dev/UAT/Prod; AWS) · 9. Marketing & Sales · 10. Operations & Maintenance · 11. Iteration → loops back to Problem Solved?.
 
 ## Key decisions
-- **Default stack the pipeline RECOMMENDS for apps it builds** (not the orchestrator itself): Next.js + AWS Amplify hosting + AWS Lambda + Supabase + Clerk. Deviations should warn about cost/complexity. (To be enforced in the Engineering phase.)
+- **Default stack the pipeline RECOMMENDS for apps it builds** (not the orchestrator itself): Next.js + AWS Amplify hosting + AWS Lambda + Supabase (data) + **Clerk for BOTH auth and payments** (Clerk Billing). Clerk is the standing default for the auth *and* payments slots because it covers both on one account; `reconcile()` in `lib/stack.ts` enforces that Clerk Billing can only pair with Clerk auth, and `renderAuthBilling()` in `lib/phases/engineering.ts` puts the exact wiring (env vars, `clerkMiddleware`, the `clerk_user_id` join to Supabase, `has()`/`<Protect>` feature gating) into every build briefing. Deviations warn about cost/complexity.
 - **Engineering tools on the shelf for Phase 6:** OpenSpec + gsd-core (both spec-driven AI-coding execution; they overlap — pick one or compose later). Fed by `product-spec`.
 - **Open-source Tool Directory (future cross-cutting feature):** pull any repo → Dockerize → host → dashboard control panel; a tool can be a standalone hosted app OR an engine wired into a phase. Build as its own feature later; keep phase engines behind interfaces.
 

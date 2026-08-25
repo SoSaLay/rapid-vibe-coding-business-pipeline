@@ -224,8 +224,17 @@ function StackView({
   );
   const approved = !!approvedStack;
 
+  // Clerk Billing lives inside a Clerk account, so the auth and payments slots
+  // move together: picking one implies the other (mirrors reconcile() in lib/stack.ts).
   function setChoice(slot: string, choice: string) {
-    setChoices((p) => ({ ...p, [slot]: choice }));
+    setChoices((p) => {
+      const next = { ...p, [slot]: choice };
+      const auth = next.auth ?? "clerk";
+      const payments = next.payments ?? "clerk-billing";
+      if (slot === "auth" && choice !== "clerk" && payments === "clerk-billing") next.payments = "stripe";
+      if (slot === "payments" && choice === "clerk-billing" && auth !== "clerk") next.auth = "clerk";
+      return next;
+    });
   }
 
   function buildChoices(): StackChoice[] {

@@ -10,7 +10,7 @@ interface Interjection {
 
 /**
  * Business-owner interjection input (#8). A collapsible note box on any generate-capable
- * phase. The raw note goes to the Product Owner, who refines it into a directive that the
+ * phase. The raw note goes to the Problem Solved? agent, who refines it into a directive that the
  * phase's next generation honors. Shows the refined directives already in effect.
  */
 export function Interject({ projectId, phase }: { projectId: string; phase: string }) {
@@ -66,7 +66,7 @@ export function Interject({ projectId, phase }: { projectId: string; phase: stri
       {open && (
         <div className="mt-2 space-y-2">
           <p className="text-[11px] text-muted">
-            Steer this step — a constraint, tone, or focus. The Product Owner refines it before it feeds the next
+            Steer this step — a constraint, tone, or focus. The product owner refines it before it feeds the next
             generation.
           </p>
           <textarea
@@ -78,7 +78,7 @@ export function Interject({ projectId, phase }: { projectId: string; phase: stri
           />
           {error && <p className="text-[11px] text-bad">{error}</p>}
           <button className="btn-primary text-xs" disabled={busy || !note.trim()} onClick={send}>
-            {busy ? "Product Owner is refining…" : "Send to Product Owner"}
+            {busy ? "Refining…" : "Send to product owner"}
           </button>
         </div>
       )}

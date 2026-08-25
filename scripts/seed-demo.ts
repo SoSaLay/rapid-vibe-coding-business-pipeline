@@ -415,7 +415,7 @@ async function main() {
     { slot: "frontend", choice: "nextjs", rationale: "Studio default." },
     { slot: "backend", choice: "nextjs-api", rationale: "Studio default." },
     { slot: "database", choice: "supabase", rationale: "Studio default." },
-    { slot: "auth", choice: "supabase-auth", rationale: "Studio default." },
+    { slot: "auth", choice: "clerk", rationale: "Studio default." },
     { slot: "payments", choice: "none", rationale: "No payments until the habit is proven." },
     { slot: "hosting", choice: "amplify", rationale: "Studio default." },
     { slot: "domain", choice: "route53", rationale: "Studio default." },

@@ -44,12 +44,13 @@ export const PHASES: PhaseDef[] = [
   },
   {
     id: "product-owner",
-    name: "Product Owner",
-    short: "Spec",
+    name: "Problem Solved?",
+    short: "Problem",
     consumes: ["raw-idea"],
     produces: ["product-spec"],
     gate: "required",
-    description: "The brain. Structures the raw idea into requirements that steer every downstream phase.",
+    description:
+      "The brain. An AI product owner pries at the idea — round after round of sharp, customer-first questions — until the real problem is pinned down, then structures it into requirements that steer every downstream phase.",
   },
   {
     id: "idea-validation",
@@ -132,7 +133,7 @@ export const PHASES: PhaseDef[] = [
     consumes: ["ops-report", "campaign-report"],
     produces: ["iteration-brief"],
     gate: "optional",
-    description: "Learnings loop back to the Product Owner to restart the cycle.",
+    description: "Learnings loop back to Problem Solved? to restart the cycle.",
   },
 ];
 

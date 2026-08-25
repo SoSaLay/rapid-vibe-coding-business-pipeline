@@ -173,7 +173,7 @@ export function ProductOwner({
       <div className="card p-5 space-y-3">
         <h3 className="text-fg font-medium">Connect Claude</h3>
         <p className="text-xs text-muted">
-          The Product Owner uses Claude to interrogate and structure your idea. Paste your Anthropic API key
+          Problem Solved? uses Claude to interrogate and structure your idea. Paste your Anthropic API key
           (from console.anthropic.com). It’s stored locally and never leaves your machine.
         </p>
         <input
@@ -204,7 +204,7 @@ export function ProductOwner({
         <div className="card p-5 text-center">
           <div className="flex items-center justify-center gap-2">
             <button className="btn-primary" disabled={busy || aiReady === null} onClick={startReview}>
-              {busy ? "Reviewing…" : "Start Product Owner review"}
+              {busy ? "Reviewing…" : "Start the interrogation"}
             </button>
             {busy && <StopButton onStop={stopper.stop} />}
           </div>
@@ -282,7 +282,7 @@ export function ProductOwner({
             <div key={i}>
               {turn.role === "po" ? (
                 <div className="card p-4 border-l-2 border-l-accent">
-                  <div className="text-[11px] uppercase tracking-wider text-accent2 mb-2">Product Owner</div>
+                  <div className="text-[11px] uppercase tracking-wider text-accent2 mb-2">Problem Solved?</div>
                   {turn.assessment && <p className="text-sm text-fg/90 mb-3">{turn.assessment}</p>}
                   {(turn.questions ?? []).length > 0 && !(i === lastPoIndex && !dialogue.ready) && (
                     <ul className="space-y-2">
@@ -307,7 +307,7 @@ export function ProductOwner({
           {dialogue.ready ? (
             <div className="card p-5 text-center space-y-3 border border-ok/40">
               <p className="text-sm text-fg">
-                The Product Owner has enough to write the spec.
+                Enough has been pinned down to write the spec.
               </p>
               <div className="flex items-center justify-center gap-3">
                 <button className="btn-primary" disabled={busy} onClick={synthesize}>
@@ -604,7 +604,7 @@ function SpecExport({ spec }: { spec: Record<string, any> | null }) {
   if (!spec) {
     return (
       <div className="card p-6 text-sm text-muted">
-        Finish the Product Owner review first — the spec document is generated from the completed spec.
+        Finish the Problem Solved? review first — the spec document is generated from the completed spec.
       </div>
     );
   }

@@ -155,7 +155,7 @@ const SERVICES: Service[] = [
     id: "resend",
     label: "Resend (email)",
     unlocks: "Unlocks waitlist broadcasts + product/marketing email (opt-in per project).",
-    help: "Free key at resend.com → API Keys. Auth/billing emails stay with Clerk/Stripe.",
+    help: "Free key at resend.com → API Keys. Auth and billing emails stay with Clerk.",
     docsUrl: "https://resend.com/api-keys",
     docs: [
       "Sign up free at resend.com — 3,000 emails/mo (100/day), no card to start.",
@@ -669,7 +669,7 @@ export function OnboardingGate({ reload }: { reload: () => void }) {
       <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-bad/15 text-bad">🔑</div>
       <h3 className="mt-3 text-base font-semibold text-fg">Complete onboarding to continue</h3>
       <p className="mx-auto mt-2 max-w-md text-sm text-muted">
-        Capturing ideas is free, but moving into the Product Owner phase needs an AI engine connected. Add your Claude or
+        Capturing ideas is free, but moving into the Problem Solved? phase needs an AI engine connected. Add your Claude or
         OpenAI key (and any optional services) to unlock the rest of the pipeline.
       </p>
       <button className="btn-primary mt-4" onClick={() => setOpen(true)}>

@@ -30,7 +30,7 @@ Legend: `[x]` done · `[~]` in progress · `[ ]` not started
 - [ ] Live test Notion pull with a real token
 - [ ] (Later) Implement a second real connector (e.g. ClickUp)
 
-### Phase 2 — Product Owner (spec) ✅
+### Phase 2 — Problem Solved? (spec) ✅  *(phase id remains `product-owner`)*
 - [x] Pushback dialogue — clarifying question rounds (Claude)
 - [x] Synthesis → structured `product-spec`
 - [x] pm-skills framework auto-selection per idea + override ("Adjust")
@@ -111,7 +111,7 @@ Produces the `design-spec` the build phase works from. Two tools vendored:
 ### Phase 6 — Development & Engineering — Part A ✅ / Part B ⬜
 **Part A — the build pipeline.** Tool decision: **GSD** recommended as a one-time global install (`npx get-shit-done-cc`), NOT vendored (24MB, fast-moving canary releases, installs to `~/.claude`) — the workspace briefing is agent-agnostic (`TASKS.md` + `CLAUDE.md`), works with bare Claude Code, and the monitor detects GSD's `.planning/` when present. OpenSpec deferred to Phase 11; boilerplates (open-saas/ixartz) rejected — clean scaffold + briefing beats stripping kitchen-sink code.
 - [x] **Architect** (`lib/phases/engineering.ts`): reads product-spec + design-spec (design optional) → stack proposal + rationale + Mermaid diagram + key decisions → `stack-selection`
-- [x] **Tech-stack selector** (`lib/stack.ts`, 9 slots; defaults silent, deviations warned, hidden behind "Change tech stack"): Frontend (Next.js + shadcn/ui), Backend (Next.js API routes), Database (Supabase), Auth (Supabase Auth | Clerk), Payments (none | Stripe | Clerk Billing), Hosting (**AWS Amplify** | Vercel), Domain (**Route 53**), Coding agent (Claude Code | others coming_soon), AI model (only if the app itself needs AI)
+- [x] **Tech-stack selector** (`lib/stack.ts`, 9 slots; defaults silent, deviations warned, hidden behind "Change tech stack"): Frontend (Next.js + shadcn/ui), Backend (Next.js API routes), Database (Supabase), Auth (**Clerk** | Supabase Auth | none), Payments (**Clerk Billing** | Stripe direct | none), Hosting (**AWS Amplify** | Vercel), Domain (**Route 53**), Coding agent (Claude Code | others coming_soon), AI model (only if the app itself needs AI)
 - [x] **Workspace generator** (`lib/workspace.ts`): `~/Rapid Vibe Coding Apps/<slug>/` (git init + briefing commit) with CLAUDE.md (stack + design tokens + do's/don'ts verbatim + execution discipline + Launch-Guide template), TASKS.md (parseable checkbox tracker), SPECS/*.json. Info notice shown before folder creation. Agent scaffolds the actual app as Milestone 1 (workspace creation stays instant/offline).
 - [x] **Task graph**: milestones w/ small tasks + verifiable acceptance criteria; screen tasks must implement design-spec states; test setup early; final milestone = verification + LAUNCH-GUIDE.md → `task-graph`
 - [x] **Build monitor**: progress route parses TASKS.md checkboxes + recent commits + GSD detection; UI polls every 20s (phone-friendly). User's only build action: copy-paste one start command.
@@ -347,4 +347,4 @@ landing page), then push the same connection outward through the phases that fol
 - Exa **cannot** search Reddit (crawler wall since 2024) → forums-in-general instead.
 - Only the **Exa key** has been entered live so far; Anthropic + Notion keys still needed to run Phases 1–3 fully.
 - Orchestrator stack = Next.js 14 + Tailwind v3 (could move to v4 later — minor).
-- Default stack the pipeline recommends for **built apps**: Next.js + AWS Amplify + Lambda + Supabase + Clerk.
+- Default stack the pipeline recommends for **built apps**: Next.js + AWS Amplify + Lambda + Supabase + Clerk for both auth and payments (Clerk Billing).

@@ -57,21 +57,21 @@ export const STACK_SLOTS: StackSlot[] = [
   {
     id: "auth",
     label: "Authentication",
-    default: "supabase-auth",
+    default: "clerk",
     options: [
-      { id: "supabase-auth", label: "Supabase Auth", note: "Free, integrated with the database's row-level security." },
-      { id: "clerk", label: "Clerk", note: "Polished prebuilt auth UI, orgs, SSO.", warning: "Second vendor + webhook sync with the database; pick it when you genuinely need orgs/SSO/B2B." },
+      { id: "clerk", label: "Clerk", note: "Studio default. Prebuilt sign-in/up UI, sessions, social + passwordless, orgs and SSO — and it carries billing on the same account, so auth and payments are one vendor." },
+      { id: "supabase-auth", label: "Supabase Auth", note: "Auth inside the database vendor, native to row-level security.", warning: "Loses Clerk Billing — payments then need a separate Stripe integration you build and maintain. Pick it only when the app is free forever." },
       { id: "none", label: "No auth", note: "Public app, no accounts.", warning: "Fine for tools/landing apps; painful to retrofit later if accounts become core." },
     ],
   },
   {
     id: "payments",
     label: "Payments",
-    default: "none",
+    default: "clerk-billing",
     options: [
-      { id: "none", label: "None (MVP)", note: "Validate first; add payments when something sells." },
-      { id: "stripe", label: "Stripe", note: "The standard. Checkout + customer portal keeps it simple." },
-      { id: "clerk-billing", label: "Clerk Billing", note: "Subscriptions managed inside Clerk.", warning: "Requires Clerk as the auth slot; newer and less battle-tested than Stripe." },
+      { id: "clerk-billing", label: "Clerk Billing", note: "Studio default. Plans, subscriptions, and feature gating on top of Clerk auth — one vendor, one dashboard, no webhook plumbing to write. Requires Clerk as the auth slot." },
+      { id: "stripe", label: "Stripe (direct)", note: "Checkout + customer portal, wired yourself.", warning: "You own the checkout session, the webhooks, and the subscription state. Worth it for one-time or physical-goods checkout, usage-based metering, or billing Clerk Billing can't express." },
+      { id: "none", label: "None (validate first)", note: "No money changes hands yet — ship, validate, then turn billing on.", warning: "Choose deliberately: retrofitting billing later means revisiting the auth/user model." },
     ],
   },
   {
@@ -125,14 +125,32 @@ export interface StackChoice {
   rationale: string;
 }
 
+/**
+ * Cross-slot rules — combinations that can't physically work, applied after
+ * per-slot validation. Clerk Billing lives inside a Clerk account, so it is only
+ * a real option when Clerk is also the auth slot.
+ */
+function reconcile(choices: StackChoice[]): StackChoice[] {
+  const get = (slot: string) => choices.find((c) => c.slot === slot);
+  const auth = get("auth");
+  const payments = get("payments");
+  if (payments?.choice === "clerk-billing" && auth && auth.choice !== "clerk") {
+    payments.choice = "stripe";
+    payments.rationale = "Clerk Billing requires Clerk as the auth slot — Stripe applied instead.";
+  }
+  return choices;
+}
+
 /** Normalize LLM/user choices: drop unknown ids, fill missing slots with defaults. */
 export function normalizeChoices(raw: StackChoice[]): StackChoice[] {
   const bySlot = new Map(raw.map((c) => [c.slot, c]));
-  return STACK_SLOTS.map((slot) => {
-    const c = bySlot.get(slot.id);
-    const valid = c && slot.options.some((o) => o.id === c.choice && o.status !== "coming_soon");
-    return valid ? c! : { slot: slot.id, choice: slot.default, rationale: c ? "Invalid choice — studio default applied." : "Studio default." };
-  });
+  return reconcile(
+    STACK_SLOTS.map((slot) => {
+      const c = bySlot.get(slot.id);
+      const valid = c && slot.options.some((o) => o.id === c.choice && o.status !== "coming_soon");
+      return valid ? { ...c! } : { slot: slot.id, choice: slot.default, rationale: c ? "Invalid choice — studio default applied." : "Studio default." };
+    })
+  );
 }
 
 /** Render the chosen stack as a compact text block for prompts and briefing files. */
