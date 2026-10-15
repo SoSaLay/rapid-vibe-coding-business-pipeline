@@ -1,5 +1,5 @@
 /**
- * Phase 6 — Development & Engineering (Part A).
+ * Phase 6 — Engineering & Development (Part A).
  *
  * The architect/foreman, not the builder. Consumes product-spec + design-spec
  * (design optional) and produces:

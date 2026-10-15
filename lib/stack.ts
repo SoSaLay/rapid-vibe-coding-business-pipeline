@@ -1,5 +1,5 @@
 /**
- * Tech-stack slot catalog (Phase 6 — Development & Engineering).
+ * Tech-stack slot catalog (Phase 6 — Engineering & Development).
  *
  * Nine slots, each with a studio default and warned alternatives. Defaults are
  * applied silently; the "Change tech stack" UI exposes the per-slot options.

@@ -147,7 +147,7 @@ export async function POST(req: NextRequest) {
     // Brownfield phase map: create-phases complete, everything else open, land on Engineering.
     const meta = await getProject(project.id);
     if (meta) {
-      const status: Record<PhaseId, "complete" | "available"> = {
+      const status: Partial<Record<PhaseId, "complete" | "available">> = {
         "business-owner": "complete",
         "product-owner": "complete",
         "idea-validation": "available",

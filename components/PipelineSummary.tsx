@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { CHIP_LABEL, summarize, type Chip } from "@/lib/pipeline-status";
+import { phasesFor } from "@/lib/pipeline";
 
 type StoredState = "locked" | "available" | "active" | "complete" | "skipped";
 
@@ -28,6 +29,7 @@ export function PipelineSummary({
   status,
   present,
   currentPhaseId,
+  kind,
   onSelect,
 }: {
   title: string;
@@ -36,10 +38,11 @@ export function PipelineSummary({
   status?: Record<string, StoredState>;
   present: Set<string>;
   currentPhaseId?: string;
+  kind?: string;
   onSelect?: (id: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const { total, counts, current, nextActionable } = summarize(status, present, currentPhaseId);
+  const { total, counts, current, nextActionable } = summarize(status, present, currentPhaseId, phasesFor(kind));
   const pct = Math.round((counts.done / total) * 100);
 
   return (
@@ -106,8 +109,9 @@ export function PipelineSummary({
 
       {expanded && (
         <p className="mt-3 border-t border-edge pt-3 text-sm leading-relaxed text-muted">
-          This is your business pipeline — capture an idea, shape it into a spec, validate it,
-          design it, build it, ship it, and grow it. Every stage is clickable: jump anywhere to
+          {kind === "agent"
+            ? "This is your agent pipeline — pin down the task it takes over, validate it, design the agent, build it, secure and evaluate it, ship it, and grow it."
+            : "This is your business pipeline — capture an idea, shape it into a spec, validate it, design it, build it, ship it, and grow it."} Every stage is clickable: jump anywhere to
           read what it produced. Stages marked <span className="text-warn">Blocked</span> open
           too, but their actions stay disabled until the stage that feeds them is finished. Stages
           you don't need can be skipped. Nothing here is locked away.

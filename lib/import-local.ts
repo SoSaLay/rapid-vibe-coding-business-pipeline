@@ -136,7 +136,7 @@ export async function importLocalProject(src: string, ideaType: string = "web-ap
 
     const meta = await getProject(project.id);
     if (meta) {
-      const status: Record<PhaseId, "complete" | "available"> = {
+      const status: Partial<Record<PhaseId, "complete" | "available">> = {
         "business-owner": "complete",
         "product-owner": "complete",
         "idea-validation": "available",

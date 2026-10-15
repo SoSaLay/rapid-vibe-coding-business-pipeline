@@ -10,7 +10,7 @@ interface Interjection {
 
 /**
  * Business-owner interjection input (#8). A collapsible note box on any generate-capable
- * phase. The raw note goes to the Problem Solved? agent, who refines it into a directive that the
+ * phase. The raw note goes to the product-owner agent, who refines it into a directive that the
  * phase's next generation honors. Shows the refined directives already in effect.
  */
 export function Interject({ projectId, phase }: { projectId: string; phase: string }) {

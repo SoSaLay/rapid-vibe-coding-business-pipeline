@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ideaTypeContext } from "@/lib/idea-types";
-import { latestArtifact, savePhaseState, getPhaseState } from "@/lib/store";
+import { latestArtifact, savePhaseState, getPhaseState, getProject } from "@/lib/store";
 import { generatePOTurn, PODialogue } from "@/lib/phases/product-owner";
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
@@ -14,10 +14,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const rawIdea = await latestArtifact(params.id, "raw-idea");
   const ideaText = `${ideaTypeContext((rawIdea?.payload as any)?.idea_type)}\n\n${(rawIdea?.payload as any)?.raw_text || ""}`;
 
+  const project = await getProject(params.id);
+
   dialogue.turns.push({ role: "owner", text });
 
   try {
-    const turn = await generatePOTurn(ideaText, dialogue.turns, dialogue.frameworks?.ids ?? []);
+    const turn = await generatePOTurn(ideaText, dialogue.turns, dialogue.frameworks?.ids ?? [], project?.kind);
     dialogue.turns.push({ role: "po", assessment: turn.assessment, questions: turn.questions });
     dialogue.ready = turn.ready;
     dialogue.round += 1;

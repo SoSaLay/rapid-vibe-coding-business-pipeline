@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Interject } from "./Interject";
 import { StopButton, useStopper } from "./StopButton";
-import { Doc, DocSection, DocP, DocSub, DocMuted, DocList, DocQuote, DocProse, DocFacts } from "./doc/Doc";
+import { Doc, DocSection, DocSub, DocMuted, DocList, DocQuote, DocProse, DocFacts, DocChips, DocDetails, firstSentence } from "./doc/Doc";
 
 interface ValidationReport {
   verdict: "build" | "refine" | "reject" | "archive";
@@ -154,165 +154,150 @@ export function IdeaValidation({
 function ReportView({ report, onRerun, busy }: { report: ValidationReport; onRerun: () => void; busy: boolean }) {
   const v = VERDICT_STYLE[report.verdict] || VERDICT_STYLE.refine;
 
+  const themes = report.themes ?? [];
+  const quotes = report.representative_quotes ?? [];
+  const competitors = report.competitive_landscape ?? [];
+
+  // Two headings: the call (verdict + the demand behind it) and the market it
+  // lands in. The supporting evidence stays one toggle away.
   return (
     <Doc>
-      {/* ───────────── Verdict — the decision, up top ───────────── */}
-      <DocSection title="Verdict">
+      <DocSection title="Verdict & demand">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-1.5">
             <span className={`rounded-full px-3 py-1 text-sm font-semibold ${v.cls}`}>{v.label}</span>
-            <span className="doc-muted">
-              confidence: {report.confidence} · demand {report.demand_signal}/10
-            </span>
+            <DocChips
+              items={[
+                `Demand ${report.demand_signal}/10`,
+                report.confidence && `Confidence: ${report.confidence}`,
+                // A chip is a phrase; reports from before the length caps wrote a paragraph here.
+                report.pain_intensity?.length <= 60 && `Pain: ${report.pain_intensity}`,
+              ]}
+            />
           </div>
           <button className="btn-ghost" disabled={busy} onClick={onRerun}>
             {busy ? "Re-running…" : "Re-run"}
           </button>
         </div>
         <div className="mt-5">
-          <DocProse text={report.summary} tone="lede" />
+          <DocProse text={firstSentence(report.summary)} tone="lede" />
         </div>
+        <DocFacts
+          items={[
+            { label: "Next move", value: firstSentence(report.recommendation) },
+            { label: "Stop if", value: (report.kill_criteria ?? []).slice(0, 2).join(" · ") },
+          ]}
+        />
 
-        <div className="mt-8 space-y-8">
-          <div>
-            <DocSub>Recommendation</DocSub>
+        {themes.length > 0 && (
+          <div className="mt-8">
+            <DocSub>What people are saying</DocSub>
             <div className="mt-1">
-              <DocProse text={report.recommendation} />
+              <DocList items={themes.slice(0, 3).map((t) => t.theme)} />
             </div>
           </div>
-          <div>
-            <DocSub>What must be true</DocSub>
-            <div className="mt-1">
-              <DocList items={report.what_must_be_true} />
-            </div>
+        )}
+        {quotes.length > 0 && (
+          <div className="mt-6 space-y-5">
+            {quotes.slice(0, 2).map((q, i) => (
+              <DocQuote key={i} quote={q.quote} source={q.source} url={q.url} />
+            ))}
           </div>
-          <div>
-            <DocSub>Key risks</DocSub>
-            <div className="mt-1">
-              <DocList items={report.key_risks} />
-            </div>
-          </div>
-          <div>
-            <DocSub>Kill criteria</DocSub>
-            <div className="mt-1">
-              <DocList items={report.kill_criteria} />
-            </div>
-          </div>
-        </div>
+        )}
       </DocSection>
 
-      {/* ───────────── Demand signal — what people actually want ───────────── */}
-      <DocSection title="Demand signal">
-        <div className="space-y-10">
-          <div>
-            <DocSub>What people are saying</DocSub>
-            <div className="mt-3 space-y-5">
-              {report.themes.map((t, i) => (
-                <div key={i}>
-                  <p className="font-medium text-fg">{t.theme}</p>
-                  <DocMuted className="mt-0.5">{t.detail}</DocMuted>
-                </div>
-              ))}
-            </div>
+      <DocSection title="Market">
+        <DocFacts
+          items={[
+            { label: "Market size", value: firstSentence(report.market_size) },
+            { label: "Price signal", value: <span className="text-accent2">{firstSentence(report.pricing_signal)}</span> },
+            { label: "Your angle", value: firstSentence(report.positioning) },
+          ]}
+        />
+        {competitors.length > 0 && (
+          <div className="mt-8">
+            <DocSub>Competitors — and the gap they leave</DocSub>
+            <DocFacts items={competitors.map((c) => ({ label: c.name, value: c.gaps }))} />
           </div>
+        )}
+      </DocSection>
 
+      <DocDetails>
+        {(
+          [
+            ["What must be true", report.what_must_be_true],
+            ["Key risks", report.key_risks],
+            ["Kill criteria", report.kill_criteria],
+          ] as [string, string[] | undefined][]
+        )
+          .filter(([, items]) => (items ?? []).length > 0)
+          .map(([label, items]) => (
+            <div key={label}>
+              <DocSub>{label}</DocSub>
+              <div className="mt-1">
+                <DocList items={items ?? []} />
+              </div>
+            </div>
+          ))}
+        {themes.length > 0 && (
           <div>
-            <DocSub>Real voices</DocSub>
+            <DocSub>Demand themes</DocSub>
+            <DocFacts items={themes.map((t) => ({ label: t.theme, value: t.detail }))} />
+          </div>
+        )}
+        {quotes.length > 2 && (
+          <div>
+            <DocSub>More voices</DocSub>
             <div className="mt-3 space-y-5">
-              {report.representative_quotes.map((q, i) => (
+              {quotes.slice(2).map((q, i) => (
                 <DocQuote key={i} quote={q.quote} source={q.source} url={q.url} />
               ))}
             </div>
           </div>
-
-          <DocFacts
-            items={[
-              { label: "Sentiment", value: report.sentiment },
-              { label: "Pain intensity", value: report.pain_intensity },
-              { label: "Demand signal", value: `${report.demand_signal}/10` },
-            ]}
-          />
-        </div>
-      </DocSection>
-
-      {/* ───────────── Market & competitors — the landscape ───────────── */}
-      <DocSection title="Market & competitors">
-        <div className="space-y-10">
-          <div className="grid gap-8 sm:grid-cols-2">
-            <div>
-              <DocSub>Market overview</DocSub>
-              <div className="mt-1">
-                <DocProse text={report.market_overview} />
-              </div>
-            </div>
-            <div>
-              <DocSub>Market size</DocSub>
-              <div className="mt-1">
-                <DocProse text={report.market_size} />
-              </div>
+        )}
+        {report.market_overview && (
+          <div>
+            <DocSub>Market overview</DocSub>
+            <div className="mt-1">
+              <DocProse text={report.market_overview} />
             </div>
           </div>
-
+        )}
+        {competitors.length > 0 && (
           <div>
-            <DocSub>Competitive landscape</DocSub>
-            <div className="mt-3 space-y-6">
-              {report.competitive_landscape.map((c, i) => (
+            <DocSub>Competitors in full</DocSub>
+            <div className="mt-3 space-y-4">
+              {competitors.map((c, i) => (
                 <div key={i}>
                   <p className="font-medium text-fg">{c.name}</p>
                   <DocMuted className="mt-0.5">{c.positioning}</DocMuted>
-                  <div className="mt-2">
-                    <DocProse text={`Strengths. ${c.strengths}`} clampAt={220} />
-                  </div>
-                  <div className="mt-1 text-accent2">
-                    <DocProse text={`Gap. ${c.gaps}`} clampAt={220} />
-                  </div>
+                  <DocMuted className="mt-0.5">Strengths: {c.strengths}</DocMuted>
                 </div>
               ))}
             </div>
           </div>
-
+        )}
+        {(report.target_segments ?? []).length > 0 && (
           <div>
             <DocSub>Target segments</DocSub>
-            <div className="mt-3 space-y-4">
-              {report.target_segments.map((s, i) => (
-                <div key={i}>
-                  <p className="font-medium text-fg">{s.segment}</p>
-                  <DocMuted className="mt-0.5">{s.description}</DocMuted>
-                </div>
+            <DocFacts items={report.target_segments.map((s) => ({ label: s.segment, value: s.description }))} />
+          </div>
+        )}
+        {report.sources && report.sources.length > 0 && (
+          <div>
+            <DocSub>Sources</DocSub>
+            <ul className="mt-2 space-y-2 text-sm">
+              {report.sources.map((s, i) => (
+                <li key={i}>
+                  <a href={s.url} target="_blank" rel="noreferrer" className="text-accent2 hover:underline">
+                    {s.title || s.url}
+                  </a>
+                </li>
               ))}
-            </div>
+            </ul>
           </div>
-
-          <div className="grid gap-8 sm:grid-cols-2">
-            <div>
-              <DocSub>Recommended positioning</DocSub>
-              <div className="mt-1">
-                <DocProse text={report.positioning} />
-              </div>
-            </div>
-            <div>
-              <DocSub>Pricing signal</DocSub>
-              <div className="mt-1">
-                <DocProse text={report.pricing_signal} />
-              </div>
-            </div>
-          </div>
-        </div>
-      </DocSection>
-
-      {report.sources && report.sources.length > 0 && (
-        <DocSection title="Sources">
-          <ul className="space-y-2">
-            {report.sources.map((s, i) => (
-              <li key={i}>
-                <a href={s.url} target="_blank" rel="noreferrer" className="text-accent2 hover:underline">
-                  {s.title || s.url}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </DocSection>
-      )}
+        )}
+      </DocDetails>
     </Doc>
   );
 }

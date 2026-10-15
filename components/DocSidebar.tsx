@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { PHASES } from "@/lib/pipeline";
+import { phasesFor } from "@/lib/pipeline";
 import { phaseDisplayStatus, type Chip } from "@/lib/pipeline-status";
+import { onboardingProgress, TONE_DOT, type OnboardingStatus } from "./Onboarding";
 
 type StoredState = "locked" | "available" | "active" | "complete" | "skipped";
 
@@ -26,18 +27,27 @@ export function DocSidebar({
   activeSlug,
   status,
   present,
+  kind,
+  onboarding,
 }: {
   projectId: string;
   /** undefined = Onboarding home; otherwise the active phase id. */
   activeSlug?: string;
   status?: Record<string, StoredState>;
   present: Set<string>;
+  /** Which pipeline to list (project | agent). */
+  kind?: string;
+  /** Key-connection status — drives the Onboarding item's dot + status words. */
+  onboarding?: OnboardingStatus | null;
 }) {
+  const progress = onboardingProgress(onboarding ?? null, kind);
   const base = `/project/${projectId}`;
+  const phases = phasesFor(kind);
   const onboardingActive = !activeSlug;
   // Iteration is an action (loop back to restart a cycle), not a numbered step — pull it
   // out of the numbered list and render it as a refresh action at the bottom.
-  const steps = PHASES.filter((p) => p.id !== "iteration");
+  const steps = phases.filter((p) => p.id !== "iteration");
+  const hasIteration = steps.length !== phases.length;
   const iterationActive = activeSlug === "iteration";
 
   return (
@@ -48,8 +58,11 @@ export function DocSidebar({
           onboardingActive ? "bg-accent/10 text-fg" : "text-muted hover:bg-edge/50 hover:text-fg"
         }`}
       >
-        <span aria-hidden>🚀</span>
-        Onboarding
+        <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${progress ? TONE_DOT[progress.tone] : "bg-edge"}`} aria-hidden />
+        <span className="min-w-0">
+          <span className="block">Onboarding</span>
+          {progress && <span className="block truncate text-[11px] font-normal text-muted">{progress.label}</span>}
+        </span>
       </Link>
 
       <div className="my-2 h-px bg-edge" />
@@ -57,7 +70,7 @@ export function DocSidebar({
 
       <ol className="space-y-0.5">
         {steps.map((p, i) => {
-          const { chip } = phaseDisplayStatus(p, status, present);
+          const { chip } = phaseDisplayStatus(p, status, present, phases);
           const isActive = activeSlug === p.id;
           return (
             <li key={p.id}>
@@ -79,6 +92,7 @@ export function DocSidebar({
       </ol>
 
       {/* Iteration — an action (loop back), not a numbered step */}
+      {hasIteration && (
       <div className="mt-3 border-t border-edge pt-3">
         <Link
           href={`${base}/iteration`}
@@ -97,6 +111,7 @@ export function DocSidebar({
           <span className={iterationActive ? "font-medium text-fg" : ""}>Iteration</span>
         </Link>
       </div>
+      )}
     </nav>
   );
 }

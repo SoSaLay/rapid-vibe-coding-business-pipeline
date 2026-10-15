@@ -5,12 +5,16 @@
  */
 
 export type PhaseId =
+  // Not a stage: capture happens on the home page. Kept as the id the raw-idea
+  // artifact is stamped with, and so legacy phase_status maps still type-check.
   | "business-owner"
   | "product-owner"
   | "idea-validation"
   | "pre-marketing"
   | "product-design"
+  | "agent-design"
   | "engineering"
+  | "security"
   | "qa"
   | "deployment"
   | "marketing-sales"
@@ -33,18 +37,8 @@ export interface PhaseDef {
 
 export const PHASES: PhaseDef[] = [
   {
-    id: "business-owner",
-    name: "Business Owner",
-    short: "Capture",
-    consumes: [],
-    produces: ["raw-idea"],
-    gate: "required",
-    description:
-      "The front door. Speak or type your raw idea, or pull it from a project-management tool. Emits a raw-idea artifact.",
-  },
-  {
     id: "product-owner",
-    name: "Problem Solved?",
+    name: "Define the Problem",
     short: "Problem",
     consumes: ["raw-idea"],
     produces: ["product-spec"],
@@ -82,7 +76,7 @@ export const PHASES: PhaseDef[] = [
   },
   {
     id: "engineering",
-    name: "Development & Engineering",
+    name: "Engineering & Development",
     short: "Build",
     consumes: ["product-spec", "design-spec"],
     produces: ["stack-selection", "task-graph", "build-manifest"],
@@ -119,7 +113,7 @@ export const PHASES: PhaseDef[] = [
   },
   {
     id: "operations",
-    name: "Operations & Maintenance",
+    name: "Operations",
     short: "Ops",
     consumes: ["deploy-manifest"],
     produces: ["ops-report"],
@@ -133,9 +127,88 @@ export const PHASES: PhaseDef[] = [
     consumes: ["ops-report", "campaign-report"],
     produces: ["iteration-brief"],
     gate: "optional",
-    description: "Learnings loop back to Problem Solved? to restart the cycle.",
+    description: "Learnings loop back to Define the Problem to restart the cycle.",
   },
 ];
+
+/**
+ * Pipeline kinds. A "project" runs the product pipeline above; an "agent" runs a
+ * variant built for shipping AI agents: same spine and artifact contract, with
+ * agent-specific stages (Agent Design, Security, Evaluations) and no market-research, pre-marketing or marketing stages. Missing kind on a stored project = "project" (legacy).
+ */
+export type PipelineKind = "project" | "agent";
+
+/** Agent-only stage. Placeholder until its tools are chosen — no logic behind it yet. */
+const SECURITY_PHASE: PhaseDef = {
+  id: "security",
+  name: "Security",
+  short: "Security",
+  consumes: ["build-manifest"],
+  produces: ["security-report"],
+  gate: "optional",
+  description:
+    "Hardens the agent before it's evaluated: prompt-injection and jailbreak resistance, tool and data permissions (least privilege), secrets handling, and guardrails on what the agent may do unattended.",
+};
+
+/** Agent-only stage. Placeholder until its tools are chosen — no logic behind it yet. */
+const DESIGN_AGENT_PHASE: PhaseDef = {
+  id: "agent-design",
+  name: "Agent Design",
+  short: "Design",
+  consumes: ["product-spec"],
+  produces: ["agent-design"],
+  gate: "optional",
+  description:
+    "How the agent works before it's built: its job and instructions, the tools and data it can reach, memory and context, the step-by-step workflow, where a human approves, and the model it runs on.",
+};
+
+/** Stage order for the agent pipeline. Like the project pipeline, it opens at the problem-definition stage (here: Define the Job). */
+const AGENT_ORDER: PhaseId[] = [
+  "product-owner",
+  "agent-design",
+  "engineering",
+  "security",
+  "qa",
+  "deployment",
+  "operations",
+  "iteration",
+];
+
+/** What the agent pipeline changes about a shared stage (ids stay the same so the phase modules are reused). */
+const AGENT_OVERRIDES: Partial<Record<PhaseId, Partial<PhaseDef>>> = {
+  "product-owner": {
+    name: "Define the Job",
+    description:
+      "The problem the agent is solving. An AI product owner pries at the idea through an agent lens — which repetitive task it takes over, how often it happens, what the agent needs access to, and where a human must stay in the loop — then structures it into the spec that steers every downstream stage.",
+  },
+  iteration: {
+    description: "Learnings loop back to Define the Job to restart the cycle.",
+  },
+  qa: {
+    name: "Evaluations",
+    short: "Evals",
+    description:
+      "Evaluations first: a test set of real tasks scored for success rate, quality, cost, and latency — then automated, manual, and regression QA of the surrounding build.",
+  },
+  deployment: {
+    // Same name as the project stage; the agent version also covers scaling.
+    short: "Deploy",
+    description:
+      "Dev / UAT / Prod environments, then scaling the agent: concurrency, rate limits, per-run cost ceilings, queues, and fallbacks.",
+  },
+};
+
+const AGENT_ONLY: Partial<Record<PhaseId, PhaseDef>> = { "agent-design": DESIGN_AGENT_PHASE, security: SECURITY_PHASE };
+
+export const AGENT_PHASES: PhaseDef[] = AGENT_ORDER.map((id) => ({
+  ...(AGENT_ONLY[id] ?? PHASES.find((p) => p.id === id)!),
+  ...AGENT_OVERRIDES[id],
+}));
+
+/** The phase list a project of this kind runs. */
+export function phasesFor(kind?: string | null): PhaseDef[] {
+  return kind === "agent" ? AGENT_PHASES : PHASES;
+}
 
 /**
  * Hard prerequisites — the artifact that MUST exist before a phase's action can run.
@@ -147,6 +220,7 @@ export const PHASES: PhaseDef[] = [
 export const HARD_PREREQ: Partial<Record<PhaseId, string>> = {
   "product-owner": "raw-idea",
   engineering: "product-spec",
+  security: "build-manifest",
   qa: "build-manifest",
   deployment: "qa-report",
   "marketing-sales": "deploy-manifest",
@@ -155,8 +229,8 @@ export const HARD_PREREQ: Partial<Record<PhaseId, string>> = {
 };
 
 /** The phase that produces a given artifact type (for human-readable blocked reasons). */
-export function phaseProducing(artifactType: string): PhaseDef | undefined {
-  return PHASES.find((p) => p.produces.includes(artifactType));
+export function phaseProducing(artifactType: string, phases: PhaseDef[] = PHASES): PhaseDef | undefined {
+  return phases.find((p) => p.produces.includes(artifactType));
 }
 
 /**
@@ -173,81 +247,41 @@ export function sectionAnchor(label: string): string {
 }
 
 /**
- * The sections of each phase's *informational read*. These render as the
- * phase page's own left-hand contents nav (NOT in the pipeline menu — that
- * stays a flat list of phases). Each label must match a <DocSection title>
- * rendered by that phase's component so `#${sectionAnchor(label)}` resolves to
- * the heading. Artifact deliverables are NOT listed here — they live in
- * PHASE_ARTIFACTS behind the contents nav's "View artifacts" button.
- *
- * Phases whose read is a single flowing thing or an interactive workflow with
- * nothing to break out (Business Owner, Engineering, QA, Deployment, Operations)
- * collapse to ONE heading; its anchor resolves to the phase header (see
- * SINGLE_SECTION_PHASES + the page header id in the workspace page).
- */
-export const PHASE_SECTIONS: Record<PhaseId, string[]> = {
-  "business-owner": ["The idea"],
-  "product-owner": ["Problem solved", "Summary", "Problem & users", "Scope & features", "Risks & monetization"],
-  "idea-validation": ["Verdict", "Demand signal", "Market & competitors", "Sources"],
-  "pre-marketing": ["Verdict", "Validation kit", "Distribution", "Content library"],
-  "product-design": ["Design direction", "Visual language", "UX — screens & flows", "Components & guidelines"],
-  engineering: ["Build"],
-  qa: ["QA report"],
-  deployment: ["Deploy"],
-  "marketing-sales": ["Strategy", "Launch checklist"],
-  operations: ["Runbook"],
-  iteration: ["Check-in", "Traction read", "Next moves"],
-};
-
-/**
- * Phases whose single PHASE_SECTIONS heading anchors to the phase header (rather
- * than a <DocSection> in the body) — interactive workflows / trivial reads with
- * nothing to break out. The workspace page stamps the header with the matching id.
- */
-export const SINGLE_SECTION_PHASES = new Set<PhaseId>([
-  "business-owner",
-  "engineering",
-  "qa",
-  "deployment",
-  "operations",
-]);
-
-/**
  * Per-phase artifact menu. Each artifact gets its OWN page at
- * `/project/<id>/<phase>/artifacts/<artifactId>`; the sidebar lists them under
- * the phase's "Generate artifact" item, and the phase component renders only the
+ * `/project/<id>/<phase>/artifacts/<artifactId>`; the phase page shows them as
+ * tiles at the top (see <ArtifactTiles>), and the phase component renders only the
  * selected one. Phases whose artifacts are a single linear flow (Engineering's
  * Execute) are intentionally omitted — they keep one combined page.
  */
 export interface ArtifactItem {
   id: string;
   label: string;
+  icon: string;
 }
 export const PHASE_ARTIFACTS: Partial<Record<PhaseId, ArtifactItem[]>> = {
-  "product-owner": [{ id: "spec", label: "Spec document" }],
+  "product-owner": [{ id: "spec", label: "Spec document", icon: "📄" }],
   "pre-marketing": [
-    { id: "brand-visuals", label: "Brand visuals" },
-    { id: "landing", label: "Landing page" },
-    { id: "waitlist", label: "Waitlist" },
-    { id: "email", label: "Email" },
+    { id: "brand-visuals", label: "Brand visuals", icon: "🎨" },
+    { id: "landing", label: "Landing page", icon: "🌐" },
+    { id: "waitlist", label: "Waitlist", icon: "📋" },
+    { id: "email", label: "Email", icon: "✉️" },
   ],
   "product-design": [
-    { id: "logo", label: "Logo & brand" },
-    { id: "mockups", label: "Screen mockups" },
-    { id: "approve", label: "Approve & lock" },
+    { id: "logo", label: "Logo & brand", icon: "✨" },
+    { id: "mockups", label: "Screen mockups", icon: "🖼️" },
+    { id: "approve", label: "Approve & lock", icon: "🔒" },
   ],
   "marketing-sales": [
-    { id: "content", label: "Content & posts" },
-    { id: "pomelli", label: "Pomelli assets" },
-    { id: "email", label: "Launch email" },
-    { id: "signoff", label: "Sign-off" },
+    { id: "content", label: "Content & posts", icon: "📝" },
+    { id: "pomelli", label: "Pomelli assets", icon: "🍊" },
+    { id: "email", label: "Launch email", icon: "✉️" },
+    { id: "signoff", label: "Sign-off", icon: "✅" },
   ],
 };
 
 /**
- * Phases that own an artifact screen. Their page's contents nav ends with a
- * "View artifacts" button routing to `/project/<id>/<phase>/artifacts`.
- * Confirmed with the founder: Business Owner, Market Researcher, QA, Deployment,
+ * Phases that own an artifact screen at `/project/<id>/<phase>/artifacts`.
+ * Confirmed with the founder: Market Researcher, QA, Deployment,
  * Operations and Iteration are read-only and intentionally have no button.
  */
 export const PHASES_WITH_ARTIFACTS = new Set<PhaseId>([
@@ -258,8 +292,19 @@ export const PHASES_WITH_ARTIFACTS = new Set<PhaseId>([
   "marketing-sales",
 ]);
 
-export function getPhase(id: PhaseId): PhaseDef | undefined {
-  return PHASES.find((p) => p.id === id);
+/**
+ * The artifact tiles for a phase: one per PHASE_ARTIFACTS entry (`path` is its
+ * page under `/artifacts/`), or a single tile opening the combined artifact
+ * screen for phases that own one without a menu (Engineering).
+ */
+export function artifactTiles(phaseId: PhaseId): (ArtifactItem & { path: string })[] {
+  const items = PHASE_ARTIFACTS[phaseId];
+  if (items) return items.map((it) => ({ ...it, path: `artifacts/${it.id}` }));
+  if (PHASES_WITH_ARTIFACTS.has(phaseId)) return [{ id: "build", label: "Build & execute", icon: "🛠️", path: "artifacts" }];
+  return [];
 }
 
-export const FIRST_PHASE: PhaseId = "business-owner";
+export function getPhase(id: PhaseId, kind?: string | null): PhaseDef | undefined {
+  return phasesFor(kind).find((p) => p.id === id);
+}
+

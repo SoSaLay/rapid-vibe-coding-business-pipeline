@@ -107,6 +107,33 @@ user?" → specific segments you infer from the idea, not generic placeholders).
 genuinely useful guesses, not filler. Never add an "Other" option yourself — the interface always
 offers a free-text "Other" so the owner can answer in their own words.`;
 
+/**
+ * Agent pipeline: the same PO, re-aimed at what makes a GOOD AGENT. Appended to
+ * the system prompt when the project's kind is "agent".
+ */
+const AGENT_PO_FOCUS = `THIS IS AN AI AGENT, NOT AN APP. The "customer problem" is a task someone does over and over that
+an agent could take off their plate. Re-aim every question at what makes an agent worth building:
+
+- The repetitive task: exactly what is done by hand today, step by step, by whom, how often, and how
+  long each run takes? High-volume, rule-shaped, tedious work is a good agent; rare one-offs are not.
+- Trigger and output: what kicks a run off (a schedule, an inbox, an event, a person asking) and what
+  finished work does the agent hand back, in what form?
+- Inputs and tools: which systems, data, and accounts must the agent read or act on to do the job?
+- Judgment vs. rules: which steps are mechanical, and which need judgment? Where is the agent most
+  likely to be wrong?
+- Autonomy and blast radius: what may it do unattended, what needs human approval first, and what is
+  the worst outcome of a bad run — and is that reversible?
+- "Good" is measurable: what does a correct run look like, concretely enough to grade? Those examples
+  become the evaluation set, so push for real ones.
+- Economics: hours or dollars saved per run versus what a run costs in tokens and tool calls.
+
+If the task is not actually repetitive, has no clear definition of done, or one mistake is
+catastrophic and irreversible, say so — that is an agent that should not be built as described.
+
+In the spec: the features are the agent's CAPABILITIES (trigger, tools, steps, hand-offs, approvals),
+success metrics are task outcomes (time saved, success rate, cost per run), and key risks include the
+agent's failure modes. 'problem_solved' describes the chore it takes over.`;
+
 const TURN_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -241,9 +268,10 @@ export async function selectFrameworks(idea: string): Promise<FrameworkSelection
   return { ids: (result.framework_ids || []).filter((id) => valid.has(id)), rationale: result.rationale || "" };
 }
 
-async function systemWithFrameworks(frameworkIds: string[]): Promise<string> {
+async function systemWithFrameworks(frameworkIds: string[], kind?: string | null): Promise<string> {
   const context = await buildFrameworkContext(frameworkIds || []);
-  const base = context ? `${PO_SYSTEM}\n\n---\n\n${context}` : PO_SYSTEM;
+  const po = kind === "agent" ? `${PO_SYSTEM}\n\n${AGENT_PO_FOCUS}` : PO_SYSTEM;
+  const base = context ? `${po}\n\n---\n\n${context}` : po;
   return `${base}\n\n${SKIMMABLE_STYLE}`;
 }
 
@@ -276,7 +304,8 @@ export function currentRound(turns: POTurn[]): number {
 export async function generatePOTurn(
   idea: string,
   turns: POTurn[],
-  frameworkIds: string[] = []
+  frameworkIds: string[] = [],
+  kind?: string | null
 ): Promise<{ assessment: string; ready: boolean; questions: POQuestion[] }> {
   const round = currentRound(turns);
 
@@ -299,7 +328,7 @@ export async function generatePOTurn(
 
   const provider = activeProvider();
   const result = await provider.completeJson<{ assessment: string; ready: boolean; questions: POQuestion[] }>({
-    system: await systemWithFrameworks(frameworkIds),
+    system: await systemWithFrameworks(frameworkIds, kind),
     // Deliberately below the synthesis effort: picking the sharpest few questions
     // is triage, not the deep reasoning the spec itself needs, and every round of
     // it is a wait the owner sits through.
@@ -330,11 +359,12 @@ export async function synthesizeSpec(
   idea: string,
   turns: POTurn[],
   frameworkIds: string[] = [],
-  extraContext = ""
+  extraContext = "",
+  kind?: string | null
 ): Promise<Record<string, unknown>> {
   const provider = activeProvider();
   return provider.completeJson<Record<string, unknown>>({
-    system: (await systemWithFrameworks(frameworkIds)) + extraContext,
+    system: (await systemWithFrameworks(frameworkIds, kind)) + extraContext,
     effort: "high",
     schema: SPEC_SCHEMA,
     messages: [

@@ -22,7 +22,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   try {
     // The PO picks the playbooks that fit this idea (option 1: auto-select).
     const frameworks = await selectFrameworks(ideaText);
-    const turn = await generatePOTurn(ideaText, [], frameworks.ids);
+    const turn = await generatePOTurn(ideaText, [], frameworks.ids, project?.kind);
     const dialogue: PODialogue = {
       turns: [{ role: "po", assessment: turn.assessment, questions: turn.questions }],
       ready: turn.ready,

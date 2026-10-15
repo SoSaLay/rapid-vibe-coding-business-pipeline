@@ -35,7 +35,8 @@ export const CHIP_LABEL: Record<Chip, string> = {
 export function phaseDisplayStatus(
   phase: PhaseDef,
   status: Record<string, StoredState> | undefined,
-  present: Set<string>
+  present: Set<string>,
+  phases: PhaseDef[] = PHASES
 ): PhaseDisplay {
   const stored = status?.[phase.id];
 
@@ -46,7 +47,7 @@ export function phaseDisplayStatus(
   // Not started (available / locked / undefined): ready unless a hard prereq is missing.
   const reqArtifact = HARD_PREREQ[phase.id];
   if (reqArtifact && !present.has(reqArtifact)) {
-    const producer = phaseProducing(reqArtifact);
+    const producer = phaseProducing(reqArtifact, phases);
     const blockedReason = producer
       ? `Complete ${producer.name} to run ${phase.name}.`
       : `A prerequisite is missing to run ${phase.name}.`;
@@ -68,17 +69,18 @@ export interface PipelineSummaryData {
 export function summarize(
   status: Record<string, StoredState> | undefined,
   present: Set<string>,
-  currentPhaseId?: string
+  currentPhaseId?: string,
+  phases: PhaseDef[] = PHASES
 ): PipelineSummaryData {
   // Iteration is a recurring action (loops back to Product Owner), not a one-time
   // build stage — exclude it from the progress count so the pipeline reads X/10.
-  const counted = PHASES.filter((p) => p.id !== "iteration");
+  const counted = phases.filter((p) => p.id !== "iteration");
   const counts: Record<Chip, number> = { done: 0, active: 0, ready: 0, blocked: 0, skipped: 0 };
-  for (const p of counted) counts[phaseDisplayStatus(p, status, present).chip]++;
+  for (const p of counted) counts[phaseDisplayStatus(p, status, present, phases).chip]++;
 
-  const current = PHASES.find((p) => p.id === currentPhaseId);
+  const current = phases.find((p) => p.id === currentPhaseId);
   const nextActionable = counted.find((p) => {
-    const c = phaseDisplayStatus(p, status, present).chip;
+    const c = phaseDisplayStatus(p, status, present, phases).chip;
     return c === "active" || c === "ready";
   });
 

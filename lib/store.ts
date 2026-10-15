@@ -13,7 +13,7 @@
 import { promises as fs } from "fs";
 import path from "path";
 import crypto from "crypto";
-import { PHASES, PhaseId, FIRST_PHASE } from "./pipeline";
+import { PhaseId, PipelineKind, phasesFor } from "./pipeline";
 
 /** DATA_DIR override lets demo mode use a separate store (e.g. data-demo/) without touching real projects. */
 const DATA_ROOT = path.join(process.cwd(), process.env.DATA_DIR || "data");
@@ -39,6 +39,8 @@ export type PhaseState = "locked" | "available" | "active" | "complete" | "skipp
 export interface ProjectMeta {
   id: string;
   title: string;
+  /** Which pipeline this runs (see lib/pipeline.ts). Missing on legacy projects = "project". */
+  kind?: PipelineKind;
   /** Idea-type label from capture (see lib/idea-types.ts). Missing on legacy projects = web-app. */
   idea_type?: string;
   /** Whether the owner has explicitly labeled the idea type (via the "Label me" dropdown).
@@ -67,25 +69,26 @@ function artifactsDir(id: string) {
   return path.join(projectDir(id), "artifacts");
 }
 
-function freshPhaseStatus(): Record<string, PhaseState> {
+function freshPhaseStatus(kind?: PipelineKind): Record<string, PhaseState> {
   const status: Record<string, PhaseState> = {};
-  PHASES.forEach((p, i) => {
+  phasesFor(kind).forEach((p, i) => {
     status[p.id] = i === 0 ? "active" : "locked";
   });
   return status;
 }
 
-export async function createProject(title: string, ideaType?: string): Promise<ProjectMeta> {
+export async function createProject(title: string, ideaType?: string, kind: PipelineKind = "project"): Promise<ProjectMeta> {
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   const meta: ProjectMeta = {
     id,
     title: title.trim() || "Untitled idea",
+    kind,
     idea_type: ideaType,
     created_at: now,
     updated_at: now,
-    current_phase: FIRST_PHASE,
-    phase_status: freshPhaseStatus(),
+    current_phase: phasesFor(kind)[0].id,
+    phase_status: freshPhaseStatus(kind),
   };
   await ensureDir(artifactsDir(id));
   await writeMeta(meta);
@@ -252,8 +255,9 @@ export async function completePhase(projectId: string, phase: PhaseId): Promise<
   const meta = await getProject(projectId);
   if (!meta) return null;
   meta.phase_status[phase] = "complete";
-  const idx = PHASES.findIndex((p) => p.id === phase);
-  const next = PHASES[idx + 1];
+  const phases = phasesFor(meta.kind);
+  const idx = phases.findIndex((p) => p.id === phase);
+  const next = idx >= 0 ? phases[idx + 1] : undefined;
   if (next) {
     meta.phase_status[next.id] = "active";
     meta.current_phase = next.id;
@@ -281,8 +285,9 @@ export async function startNextCycle(projectId: string): Promise<ProjectMeta | n
   const meta = await getProject(projectId);
   if (!meta) return null;
   meta.cycle = (meta.cycle ?? 1) + 1;
-  const poIdx = PHASES.findIndex((p) => p.id === "product-owner");
-  PHASES.forEach((p, i) => {
+  const phases = phasesFor(meta.kind);
+  const poIdx = phases.findIndex((p) => p.id === "product-owner");
+  phases.forEach((p, i) => {
     if (i === poIdx) meta.phase_status[p.id] = "active";
     else if (i > poIdx) meta.phase_status[p.id] = "locked";
   });
@@ -321,11 +326,12 @@ export async function deleteProject(projectId: string): Promise<boolean> {
 export async function skipPhase(projectId: string, phase: PhaseId): Promise<ProjectMeta | null> {
   const meta = await getProject(projectId);
   if (!meta) return null;
-  const def = PHASES.find((p) => p.id === phase);
+  const phases = phasesFor(meta.kind);
+  const def = phases.find((p) => p.id === phase);
   if (def?.gate !== "optional") return meta; // only optional phases may be skipped
   meta.phase_status[phase] = "skipped";
-  const idx = PHASES.findIndex((p) => p.id === phase);
-  const next = PHASES[idx + 1];
+  const idx = phases.findIndex((p) => p.id === phase);
+  const next = phases[idx + 1];
   if (next) {
     meta.phase_status[next.id] = "active";
     meta.current_phase = next.id;

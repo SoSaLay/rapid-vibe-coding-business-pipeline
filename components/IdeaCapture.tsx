@@ -12,7 +12,8 @@ import { FolderUpload } from "./FolderUpload";
  *  • Pull an existing project folder from this computer (brownfield, local)
  * Idea-type labeling now happens later, per-idea, on the home list.
  */
-export function IdeaCapture({ onCreated }: { onCreated: () => void }) {
+export function IdeaCapture({ onCreated, kind = "project" }: { onCreated: () => void; kind?: "project" | "agent" }) {
+  const isAgent = kind === "agent";
   const router = useRouter();
   const [tab, setTab] = useState<"direct" | "github" | "files">("direct");
   const [busy, setBusy] = useState(false);
@@ -39,7 +40,7 @@ export function IdeaCapture({ onCreated }: { onCreated: () => void }) {
     const res = await fetch("/api/ideas", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, text, inputMethod: usedVoice ? "voice" : "text" }),
+      body: JSON.stringify({ title, text, inputMethod: usedVoice ? "voice" : "text", kind }),
     });
     setBusy(false);
     if (!res.ok) {
@@ -98,17 +99,20 @@ export function IdeaCapture({ onCreated }: { onCreated: () => void }) {
 
   return (
     <div className="card p-5">
-      <div className="mb-5 flex flex-wrap items-center gap-2">
-        <TabButton active={tab === "direct"} onClick={() => setTab("direct")}>🎙️ Speak or type</TabButton>
-        <TabButton active={tab === "github"} onClick={() => setTab("github")}>🐙 Use GitHub repo</TabButton>
-        <TabButton active={tab === "files"} onClick={() => setTab("files")}>📁 Upload projects</TabButton>
-      </div>
+      {/* Agents start from a spoken/typed idea only — the repo/folder imports build a product pipeline. */}
+      {!isAgent && (
+        <div className="mb-5 flex flex-wrap items-center gap-2">
+          <TabButton active={tab === "direct"} onClick={() => setTab("direct")}>🎙️ Speak or type</TabButton>
+          <TabButton active={tab === "github"} onClick={() => setTab("github")}>🐙 Use GitHub repo</TabButton>
+          <TabButton active={tab === "files"} onClick={() => setTab("files")}>📁 Upload projects</TabButton>
+        </div>
+      )}
 
       {tab === "direct" && (
         <div className="space-y-3">
           <input
             className="input"
-            placeholder="Idea title (optional)"
+            placeholder={isAgent ? "Agent name (optional)" : "Idea title (optional)"}
             value={title}
             onChange={(e) => setTitle(e.target.value)}
           />
@@ -123,13 +127,17 @@ export function IdeaCapture({ onCreated }: { onCreated: () => void }) {
           </div>
           <textarea
             className="input min-h-[140px] resize-y"
-            placeholder="What's the idea? Describe the problem, who it's for, and what you imagine building."
+            placeholder={
+              isAgent
+                ? "What should the agent do? Describe the repetitive task it takes over, who does it today, and how often."
+                : "What's the idea? Describe the problem, who it's for, and what you imagine building."
+            }
             value={text}
             onChange={(e) => setText(e.target.value)}
           />
           <div className="flex justify-end">
             <button className="btn-primary" disabled={busy} onClick={submitDirect}>
-              {busy ? "Capturing…" : "Capture idea →"}
+              {busy ? "Creating…" : isAgent ? "Create agent →" : "Create project →"}
             </button>
           </div>
         </div>

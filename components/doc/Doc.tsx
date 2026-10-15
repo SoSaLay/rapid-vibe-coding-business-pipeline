@@ -173,3 +173,42 @@ export function DocFacts({ items }: { items: { label: string; value?: ReactNode 
     </dl>
   );
 }
+
+/** First sentence of a blob (up to the first . ! or ?) — one breath, not a paragraph. */
+export function firstSentence(text?: string | null): string {
+  const t = (text || "").trim();
+  if (!t) return "";
+  const m = t.match(/^.*?[.!?](?=\s|$)/);
+  return (m ? m[0] : t).trim();
+}
+
+/** A row of small pills for the values a founder scans for (score, price, target). */
+export function DocChips({ items }: { items: (string | null | undefined | false)[] }) {
+  const chips = items.filter(Boolean) as string[];
+  if (!chips.length) return null;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {chips.map((c, i) => (
+        <span key={i} className="rounded-full bg-edge px-2.5 py-1 text-xs font-medium text-fg/90">
+          {c}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Everything a page generated but doesn't need on first read, folded behind one
+ * toggle. The read above it stays a single screen; nothing is thrown away.
+ */
+export function DocDetails({ label = "Details", children }: { label?: string; children: ReactNode }) {
+  return (
+    <details className="group mt-10 border-t border-edge pt-4">
+      <summary className="cursor-pointer list-none text-[13px] font-medium text-muted transition-colors hover:text-fg">
+        <span className="mr-1.5 inline-block transition-transform group-open:rotate-90">›</span>
+        {label}
+      </summary>
+      <div className="mt-6 space-y-8">{children}</div>
+    </details>
+  );
+}

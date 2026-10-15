@@ -108,7 +108,7 @@ Produces the `design-spec` the build phase works from. Two tools vendored:
 - [ ] Live test with Anthropic key (brief + mockup quality)
 - [ ] Live test Stitch-mode with a real Gemini key (screen HTML quality vs Claude engine)
 
-### Phase 6 — Development & Engineering — Part A ✅ / Part B ⬜
+### Phase 6 — Engineering & Development — Part A ✅ / Part B ⬜
 **Part A — the build pipeline.** Tool decision: **GSD** recommended as a one-time global install (`npx get-shit-done-cc`), NOT vendored (24MB, fast-moving canary releases, installs to `~/.claude`) — the workspace briefing is agent-agnostic (`TASKS.md` + `CLAUDE.md`), works with bare Claude Code, and the monitor detects GSD's `.planning/` when present. OpenSpec deferred to Phase 11; boilerplates (open-saas/ixartz) rejected — clean scaffold + briefing beats stripping kitchen-sink code.
 - [x] **Architect** (`lib/phases/engineering.ts`): reads product-spec + design-spec (design optional) → stack proposal + rationale + Mermaid diagram + key decisions → `stack-selection`
 - [x] **Tech-stack selector** (`lib/stack.ts`, 9 slots; defaults silent, deviations warned, hidden behind "Change tech stack"): Frontend (Next.js + shadcn/ui), Backend (Next.js API routes), Database (Supabase), Auth (**Clerk** | Supabase Auth | none), Payments (**Clerk Billing** | Stripe direct | none), Hosting (**AWS Amplify** | Vercel), Domain (**Route 53**), Coding agent (Claude Code | others coming_soon), AI model (only if the app itself needs AI)
@@ -336,6 +336,14 @@ landing page), then push the same connection outward through the phases that fol
 
 ### Other
 - [x] `git init` + first commit + **pushed to GitHub** — private repo `SoSaLay/rapid-vibe-coding-pipeline`, branch `main`. README + MIT LICENSE + `.env.example` + tight `.gitignore`. Remote verified clean (no `data/`, no secrets). Flip to public when ready to open-source.
+- [x] Home restructure: **Start a project** / **Create an agent** tabs, each with a "New …" button + its own list (`ProjectMeta.kind`, `phasesFor(kind)`)
+- [x] **Agent pipeline** skeleton (10 stages) + agent-aimed Problem Solved? prompt
+- [ ] Agent pipeline: build the **Agent Design** and **Security** stages (placeholders today — no tools chosen)
+- [ ] Agent pipeline: agent-specific logic for **Evaluations** and **Deployment** (renamed only; still run the product `qa` / `deployment` modules)
+- [ ] Operations **Iterate** panel: make it dynamic (generated from support messages, PostHog usage, run logs, eval results). Static lists today in `lib/ops-iterate.ts`.
+- [x] Onboarding revamp: page is just the **Toolbox** table (tool · section · status · Update → narrow key pop-up with help steps); sidebar shows a red/yellow/green dot + status words. Per-pipeline toolbox in `components/Onboarding.tsx` (`TOOLBOX`).
+- [x] Agent release plan written from the owner's research → `release-deployment.md` (stage-by-stage tasks); agent toolbox lists the researched tools (not wired yet).
+- [ ] Execute `release-deployment.md` — adapter layer (`lib/agent/`, LangChain as default not dependency) first, then 1 → 2 → 3 → 4, then 5 → 6 → 7.
 - [ ] Per-app **project dashboard**: aggregated tools + management URLs
 - [ ] **Tech-stack table** per app (inferred from the code)
 - [ ] **Open-Source Tool Directory**: pull repo → Dockerize → host → control panel (status/ports/logs)

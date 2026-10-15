@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createProject, listProjects, saveArtifact, completePhase, getProject, writeMeta } from "@/lib/store";
+import { createProject, listProjects, saveArtifact, getProject, writeMeta } from "@/lib/store";
 import { isValidIdeaType } from "@/lib/idea-types";
 
 export interface RawIdeaPayload {
@@ -28,10 +28,12 @@ export async function POST(req: NextRequest) {
 
   // Idea type is no longer chosen at capture — the owner labels it later on the home list.
   // Default to web-app for safe downstream context; mark unlabeled unless one was explicitly sent.
-  const explicit = isValidIdeaType(body.ideaType);
-  const ideaType = explicit ? (body.ideaType as string) : "web-app";
+  // An agent IS its idea type — it arrives labeled.
+  const kind = body.kind === "agent" ? "agent" : "project";
+  const explicit = kind === "agent" || isValidIdeaType(body.ideaType);
+  const ideaType = kind === "agent" ? "ai-agent" : explicit ? (body.ideaType as string) : "web-app";
 
-  const project = await createProject(title, ideaType);
+  const project = await createProject(title, ideaType, kind);
   const payload: RawIdeaPayload = {
     source: "direct",
     input_method: inputMethod,
@@ -53,8 +55,7 @@ export async function POST(req: NextRequest) {
     await writeMeta(meta);
   }
 
-  // Phase 1 done — hand off to the Product Owner.
-  const advanced = await completePhase(project.id, "business-owner");
+  // Capture happens here, not in a stage — the project opens at Define the Problem (agents: Define the Job).
 
-  return NextResponse.json({ project: advanced ?? meta ?? project, artifact }, { status: 201 });
+  return NextResponse.json({ project: meta ?? project, artifact }, { status: 201 });
 }

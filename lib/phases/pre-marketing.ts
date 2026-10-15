@@ -120,16 +120,25 @@ const KIT_SCHEMA = {
     },
     distribution_plan: {
       type: "array",
-      description: "Where to drive ICP traffic + a ready-to-send outreach template per channel.",
+      description:
+        "The ONE or TWO channels this founder should commit to first — never more. Starting out, going all-in on 1-2 channels and posting there consistently beats spreading thin. Pick them for THIS idea: where this specific audience already spends time and where this kind of product is discovered. The content_library covers every other channel; this is the focus.",
+      minItems: 1,
+      maxItems: 2,
       items: {
         type: "object",
         additionalProperties: false,
         properties: {
           channel: { type: "string" },
-          tactic: { type: "string" },
-          template: { type: "string", description: "A copy-paste outreach/post template for this channel." },
+          why: { type: "string", description: "Why THIS channel for THIS idea's audience. A fragment, ≤15 words." },
+          cadence: { type: "string", description: "A posting rhythm one person can sustain, e.g. '3x/week', '1 post/day'." },
+          start_steps: {
+            type: "array",
+            items: { type: "string", description: "A fragment, ≤12 words, starting with a verb." },
+            description: "EXACTLY 3 steps to start posting here this week, in order.",
+          },
+          template: { type: "string", description: "A copy-paste first post/outreach message for this channel." },
         },
-        required: ["channel", "tactic", "template"],
+        required: ["channel", "why", "cadence", "start_steps", "template"],
       },
     },
     fake_door_tests: {

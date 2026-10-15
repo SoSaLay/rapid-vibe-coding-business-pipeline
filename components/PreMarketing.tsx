@@ -5,7 +5,7 @@ import { EngineSelector } from "./EngineSelector";
 import { ImageZoom } from "./ImageZoom";
 import { Interject } from "./Interject";
 import { StopButton, useStopper } from "./StopButton";
-import { Doc, DocSection, DocP, DocSub, DocMuted, DocList, DocProse, DocFacts } from "./doc/Doc";
+import { Doc, DocSection, DocMuted, DocList, DocChips } from "./doc/Doc";
 
 interface ContentPlatform {
   platform: string;
@@ -29,7 +29,8 @@ interface Kit {
   offer: { type: string; headline: string; details: string; price_hypothesis: string };
   qualifying_questions: { question: string; why: string }[];
   social_proof: { quote: string; source: string }[];
-  distribution_plan: { channel: string; tactic: string; template: string }[];
+  // Kits generated before the 1-2 channel focus carry `tactic` instead of why/cadence/start_steps.
+  distribution_plan: { channel: string; tactic?: string; why?: string; cadence?: string; start_steps?: string[]; template: string }[];
   fake_door_tests: { feature: string; copy: string }[];
   success_thresholds: { landing_conversion: string; waitlist_target: string; presale_target: string; decision_rule: string };
   content_library?: ContentPlatform[];
@@ -108,7 +109,7 @@ export function PreMarketing({
         </div>
       );
     }
-    // One artifact per page (selected from the sidebar menu).
+    // One artifact per page (selected from the artifact tiles).
     return (
       <div className="space-y-4">
         <Interject projectId={projectId} phase="pre-marketing" />
@@ -120,11 +121,10 @@ export function PreMarketing({
     );
   }
 
-  // Document face — the informational read (verdict brief + validation kit).
+  // Document face — the action plan: where to post, and what to post.
   if (kit) {
     return (
       <Doc>
-        {brief && <BriefSection brief={brief} />}
         <KitSections kit={kit} frameworks={frameworks} onRegen={generate} busy={busy} />
       </Doc>
     );
@@ -148,32 +148,6 @@ export function PreMarketing({
       </div>
       {error && <p className="text-sm text-bad text-center">{error}</p>}
     </div>
-  );
-}
-
-function BriefSection({ brief }: { brief: Brief }) {
-  const style: Record<string, string> = {
-    proceed: "text-onbright bg-ok",
-    pivot: "text-onbright bg-warn",
-    stop: "text-fg bg-bad",
-    "keep-collecting": "text-fg bg-edge",
-  };
-  return (
-    <DocSection title="Verdict">
-      <div className="flex items-center gap-3">
-        <span className={`rounded-full px-3 py-1 text-sm font-semibold ${style[brief.verdict]}`}>{brief.verdict}</span>
-        <span className="doc-muted">
-          confidence: {brief.confidence}
-          {brief.metrics ? ` · ${brief.metrics.signups} signups · ${brief.metrics.presale_interest} pre-sale` : ""}
-        </span>
-      </div>
-      <div className="mt-5">
-        <DocProse text={brief.demand_summary} tone="lede" />
-      </div>
-      <div className="mt-3">
-        <DocProse text={brief.recommendation} tone="muted" />
-      </div>
-    </DocSection>
   );
 }
 
@@ -926,56 +900,35 @@ function KitSections({
   onRegen: () => void;
   busy: boolean;
 }) {
-  const p = kit.positioning;
+  // Focus: the first two channels only. Older kits listed more — the rest of the
+  // channels are what the content library is for.
+  const focus = (kit.distribution_plan ?? []).slice(0, 2);
   return (
     <>
-      <DocSection title="Validation kit">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h3 className="text-2xl font-semibold text-fg">{p.headline}</h3>
-            <p className="mt-1 text-muted">{p.subheadline}</p>
-          </div>
-          <button className="btn-ghost shrink-0" disabled={busy} onClick={onRegen}>
-            {busy ? "…" : "Regenerate"}
-          </button>
-        </div>
-        <DocMuted className="mt-3 italic">{p.problem_statement}</DocMuted>
-
-        <div className="mt-8 space-y-8">
-          <div>
-            <DocSub>Benefit bullets</DocSub>
-            <div className="mt-1">
-              <DocList items={p.benefit_bullets} />
-            </div>
-          </div>
-          <div>
-            <DocSub>The offer (money signal)</DocSub>
-            <DocP className="mt-1 font-medium text-fg">{kit.offer.headline}</DocP>
-            <div className="mt-1">
-              <DocProse text={kit.offer.details} tone="muted" />
-            </div>
-            <DocFacts
-              items={[
-                { label: "Offer type", value: kit.offer.type },
-                { label: "Test price", value: <span className="text-accent2">{kit.offer.price_hypothesis}</span> },
-              ]}
-            />
-          </div>
-        </div>
-      </DocSection>
-
       <DocSection title="Distribution">
-        <div className="space-y-6">
-          {kit.distribution_plan.map((d, i) => (
+        <DocMuted className="mb-5">
+          Go all-in on {focus.length === 1 ? "this one channel" : "these two channels"} and post consistently before adding more.
+        </DocMuted>
+        <div className="space-y-8">
+          {focus.map((d, i) => (
             <div key={i}>
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <p className="font-medium text-fg">{d.channel}</p>
-                <Copyable text={d.template} />
+                <DocChips items={[d.cadence]} />
               </div>
-              <div className="mt-0.5">
-                <DocProse text={d.tactic} tone="muted" />
-              </div>
-              <pre className="mt-2 whitespace-pre-wrap rounded-lg border border-edge bg-ink p-3 text-xs text-fg/80">{d.template}</pre>
+              <DocMuted className="mt-0.5">{d.why ?? d.tactic}</DocMuted>
+              {d.start_steps?.length ? (
+                <div className="mt-2">
+                  <DocList items={d.start_steps} />
+                </div>
+              ) : null}
+              <details className="mt-2">
+                <summary className="cursor-pointer text-[12px] font-medium text-accent2 hover:text-fg">First post template</summary>
+                <div className="mt-2 flex justify-end">
+                  <Copyable text={d.template} />
+                </div>
+                <pre className="mt-1 whitespace-pre-wrap rounded-lg border border-edge bg-ink p-3 text-xs text-fg/80">{d.template}</pre>
+              </details>
             </div>
           ))}
         </div>
@@ -983,9 +936,16 @@ function KitSections({
 
       {kit.content_library?.length ? <ContentLibrarySection platforms={kit.content_library} /> : null}
 
-      {frameworks?.ids?.length ? (
-        <DocMuted>Playbooks applied: {frameworks.ids.join(", ")} · via marketing-skills</DocMuted>
-      ) : null}
+      <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
+        {frameworks?.ids?.length ? (
+          <DocMuted>Playbooks applied: {frameworks.ids.join(", ")} · via marketing-skills</DocMuted>
+        ) : (
+          <span />
+        )}
+        <button className="btn-ghost shrink-0" disabled={busy} onClick={onRegen}>
+          {busy ? "…" : "Regenerate"}
+        </button>
+      </div>
     </>
   );
 }
@@ -1004,10 +964,7 @@ function ContentLibrarySection({ platforms }: { platforms: ContentPlatform[] }) 
 
   return (
     <DocSection title="Content library">
-      <DocMuted className="mb-4">
-        Evergreen direction for each channel. Not a content calendar — a strategic brief so every post you make moves
-        people toward your landing page.
-      </DocMuted>
+      <DocMuted className="mb-4">Every channel, for when you're ready to expand. Tap one for its angle and hooks.</DocMuted>
       <div className="space-y-2">
         {platforms.map((p) => {
           const isOpen = open === p.platform;
@@ -1027,35 +984,16 @@ function ContentLibrarySection({ platforms }: { platforms: ContentPlatform[] }) 
               </button>
 
               {isOpen && (
-                <div className="px-4 pb-4 pt-1 space-y-3 border-t border-edge">
-                  <div>
-                    <div className="text-[11px] uppercase tracking-wider text-muted mb-1">Who you're reaching</div>
-                    <p className="text-xs text-fg/80">{p.audience_on_platform}</p>
-                  </div>
-                  <div>
-                    <div className="text-[11px] uppercase tracking-wider text-muted mb-1">Strategy & tone</div>
-                    <p className="text-xs text-fg/80">{p.strategy}</p>
-                  </div>
-                  <div>
-                    <div className="text-[11px] uppercase tracking-wider text-muted mb-1">Evergreen themes</div>
-                    <ul className="list-disc ml-5 space-y-0.5 text-xs text-fg/80">
-                      {p.themes.map((t, i) => <li key={i}>{t}</li>)}
-                    </ul>
-                  </div>
-                  <div>
-                    <div className="text-[11px] uppercase tracking-wider text-muted mb-1">Hook starters (riff on these)</div>
-                    <div className="space-y-1.5">
-                      {p.hook_examples.map((h, i) => (
-                        <div key={i} className="flex items-start gap-2 rounded bg-ink/60 px-3 py-2">
-                          <span className="text-accent2 text-[11px] mt-0.5">→</span>
-                          <p className="text-xs text-fg/90 italic">"{h}"</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[11px] uppercase tracking-wider text-muted mb-1">CTA direction</div>
-                    <p className="text-xs text-fg/80">{p.cta_direction}</p>
+                <div className="px-4 pb-4 pt-3 space-y-3 border-t border-edge">
+                  <p className="text-xs text-fg/80">{p.strategy}</p>
+                  <DocChips items={p.themes} />
+                  <div className="space-y-1.5">
+                    {p.hook_examples.slice(0, 2).map((h, i) => (
+                      <div key={i} className="flex items-start gap-2 rounded bg-ink/60 px-3 py-2">
+                        <span className="text-accent2 text-[11px] mt-0.5">→</span>
+                        <p className="text-xs text-fg/90 italic">"{h}"</p>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}

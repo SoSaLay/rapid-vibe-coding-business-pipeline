@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { activeProvider } from "@/lib/llm/registry";
 import { addInterjection, listInterjections } from "@/lib/interjections";
-import { latestArtifact } from "@/lib/store";
+import { getProject, latestArtifact } from "@/lib/store";
 import { getPhase } from "@/lib/pipeline";
 
 /** List the refined interjections already recorded for a phase. */
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const note = (body.note || "").trim();
   if (!phase || !note) return NextResponse.json({ error: "Missing phase or note." }, { status: 400 });
 
-  const phaseDef = getPhase(phase as any);
+  const phaseDef = getPhase(phase as any, (await getProject(params.id))?.kind);
   const spec = (await latestArtifact(params.id, "product-spec"))?.payload as Record<string, any> | undefined;
 
   try {

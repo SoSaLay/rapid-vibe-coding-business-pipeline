@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Interject } from "./Interject";
 import { StopButton, useStopper } from "./StopButton";
-import { Doc, DocSection, DocP, DocSub, DocMuted, DocList, DocProse } from "./doc/Doc";
+import { Doc, DocSection, DocP, DocMuted, DocFacts, DocChips, firstSentence } from "./doc/Doc";
 
 interface POQuestion {
   id: string;
@@ -36,15 +36,16 @@ interface FrameworkSummary {
 
 export function ProductOwner({
   projectId,
-  ideaText,
   initialDialogue,
   spec,
   mode = "doc",
   artifact,
+  stageName = "Define the Problem",
   onUpdated,
 }: {
   projectId: string;
-  ideaText: string;
+  /** This stage's display name — "Define the Problem" (project) or "Define the Job" (agent). */
+  stageName?: string;
   initialDialogue: PODialogue | null;
   spec: Record<string, any> | null;
   mode?: "doc" | "artifacts";
@@ -163,7 +164,7 @@ export function ProductOwner({
   }
 
   // Artifact face — the exportable spec document.
-  if (mode === "artifacts") return <SpecExport spec={spec} />;
+  if (mode === "artifacts") return <SpecExport spec={spec} stageName={stageName} />;
 
   // Spec already produced — show it.
   if (spec) return <SpecView spec={spec} />;
@@ -173,7 +174,7 @@ export function ProductOwner({
       <div className="card p-5 space-y-3">
         <h3 className="text-fg font-medium">Connect Claude</h3>
         <p className="text-xs text-muted">
-          Problem Solved? uses Claude to interrogate and structure your idea. Paste your Anthropic API key
+          {stageName} uses Claude to interrogate and structure your idea. Paste your Anthropic API key
           (from console.anthropic.com). It’s stored locally and never leaves your machine.
         </p>
         <input
@@ -193,11 +194,6 @@ export function ProductOwner({
 
   return (
     <div className="space-y-4">
-      <div className="card p-4">
-        <div className="text-xs uppercase tracking-wider text-muted mb-1">The idea</div>
-        <p className="text-sm text-fg/90 whitespace-pre-wrap">{ideaText}</p>
-      </div>
-
       <Interject projectId={projectId} phase="product-owner" />
 
       {!dialogue && (
@@ -282,7 +278,7 @@ export function ProductOwner({
             <div key={i}>
               {turn.role === "po" ? (
                 <div className="card p-4 border-l-2 border-l-accent">
-                  <div className="text-[11px] uppercase tracking-wider text-accent2 mb-2">Problem Solved?</div>
+                  <div className="text-[11px] uppercase tracking-wider text-accent2 mb-2">{stageName}</div>
                   {turn.assessment && <p className="text-sm text-fg/90 mb-3">{turn.assessment}</p>}
                   {(turn.questions ?? []).length > 0 && !(i === lastPoIndex && !dialogue.ready) && (
                     <ul className="space-y-2">
@@ -452,159 +448,60 @@ function Questionnaire({
   );
 }
 
-/** First sentence of a blob (up to the first . ! or ?), trimmed. Keeps the
- *  "Problem solved" line to one breath even when the source is a paragraph. */
-function firstSentence(text: string): string {
-  const t = (text || "").trim();
-  if (!t) return "";
-  const m = t.match(/^.*?[.!?](?=\s|$)/);
-  return (m ? m[0] : t).trim();
-}
-
 function SpecView({ spec }: { spec: Record<string, any> }) {
-  // Features are {name, description}; render name in body type with a muted detail line.
-  const Features = ({ items }: { items: any[] }) =>
-    (items ?? []).length ? (
-      <div className="mt-3 space-y-3">
-        {(items ?? []).map((f, i) => (
-          <div key={i}>
-            <p className="font-medium text-fg">{f.name}</p>
-            <div className="mt-0.5">
-              <DocProse text={f.description} tone="muted" />
-            </div>
-          </div>
-        ))}
-      </div>
-    ) : null;
-
   // The one-sentence elevator answer to "what does your business do?". Newer
   // specs carry a purpose-built `problem_solved`; fall back to the value prop so
-  // specs generated before this field existed still show something. Clamp to the
-  // first sentence either way — an elevator pitch is one breath, not a paragraph.
+  // specs generated before this field existed still show something.
   const problemSolved = firstSentence(spec.problem_solved || spec.value_proposition || "");
+  const whatChanges = firstSentence(spec.value_proposition);
+  const list = (v: any): string[] => (Array.isArray(v) ? v : []);
+  const mustHaves: any[] = Array.isArray(spec.must_have_features) ? spec.must_have_features : [];
 
+  // The read is two headings — what hurts, and what gets built. Everything else
+  // the spec carries still steers the later phases; it just isn't shown here.
   return (
     <Doc>
-      {/* ───────────── Problem solved — say it in one breath, in person ───────────── */}
-      {problemSolved && (
-        <DocSection title="Problem solved">
-          <DocP className="text-[1.35rem] font-medium leading-relaxed text-fg">{problemSolved}</DocP>
-          <DocMuted className="mt-3">The one sentence you’d say if someone asked what your business does.</DocMuted>
-        </DocSection>
-      )}
-
-      {/* ───────────── Summary — the spec in one breath ───────────── */}
-      <DocSection title="Summary">
-        <span className="rounded-full bg-ok px-3 py-1 text-sm font-semibold text-onbright">Product spec — complete</span>
-        <div className="mt-5">
-          <DocProse text={spec.summary} tone="lede" />
-        </div>
-        {spec.recommendation && (
-          <div className="mt-8">
-            <DocSub>PO recommendation</DocSub>
-            <div className="mt-1">
-              <DocProse text={spec.recommendation} />
-            </div>
-          </div>
-        )}
+      <DocSection title="The problem">
+        {problemSolved && <DocP className="text-[1.35rem] font-medium leading-relaxed text-fg">{problemSolved}</DocP>}
+        <DocFacts
+          items={[
+            { label: "Who it's for", value: list(spec.target_users)[0] },
+            // Older specs reuse the value prop as the pitch above — don't say it twice.
+            { label: "What changes", value: whatChanges === problemSolved ? "" : whatChanges },
+          ]}
+        />
       </DocSection>
 
-      {/* ───────────── Problem & users — who & why ───────────── */}
-      <DocSection title="Problem & users">
-        <div className="space-y-8">
-          <div>
-            <DocSub>Problem</DocSub>
-            <div className="mt-1">
-              <DocProse text={spec.problem_statement} />
-            </div>
-          </div>
-          <div>
-            <DocSub>Value proposition</DocSub>
-            <div className="mt-1">
-              <DocProse text={spec.value_proposition} />
-            </div>
-          </div>
-          <div>
-            <DocSub>Target users</DocSub>
-            <div className="mt-1">
-              <DocList items={spec.target_users} />
-            </div>
-          </div>
+      <DocSection title="What we're building">
+        <ul className="doc-p space-y-2">
+          {mustHaves.map((f, i) => (
+            <li key={i}>
+              {/* Name only; the description is one tap away. */}
+              <details>
+                <summary className="cursor-pointer font-medium text-fg">{f.name}</summary>
+                <DocMuted className="mt-1">{f.description}</DocMuted>
+              </details>
+            </li>
+          ))}
+        </ul>
+        <DocFacts items={[{ label: "Not building", value: list(spec.non_goals).slice(0, 3).join(" · ") }]} />
+        <div className="mt-4">
+          <DocChips items={list(spec.success_metrics).slice(0, 2)} />
         </div>
       </DocSection>
 
-      {/* ───────────── Scope & features — what we will (and won't) build ───────────── */}
-      <DocSection title="Scope & features">
-        <div className="space-y-8">
-          <div className="grid gap-8 sm:grid-cols-2">
-            <div>
-              <DocSub>Goals</DocSub>
-              <div className="mt-1">
-                <DocList items={spec.goals} />
-              </div>
-            </div>
-            <div>
-              <DocSub>Non-goals</DocSub>
-              <div className="mt-1">
-                <DocList items={spec.non_goals} />
-              </div>
-            </div>
-          </div>
-          <div>
-            <DocSub>Must-have features</DocSub>
-            <Features items={spec.must_have_features} />
-          </div>
-          <div>
-            <DocSub>Nice-to-have features</DocSub>
-            <Features items={spec.nice_to_have_features} />
-          </div>
-          <div>
-            <DocSub>Success metrics</DocSub>
-            <div className="mt-1">
-              <DocList items={spec.success_metrics} />
-            </div>
-          </div>
-        </div>
-      </DocSection>
-
-      {/* ───────────── Risks & monetization — what could break, how it pays ───────────── */}
-      <DocSection title="Risks & monetization">
-        <div className="space-y-8">
-          <div>
-            <DocSub>Key risks</DocSub>
-            <div className="mt-1">
-              <DocList items={spec.key_risks} />
-            </div>
-          </div>
-          <div>
-            <DocSub>Open questions</DocSub>
-            <div className="mt-1">
-              <DocList items={spec.open_questions} />
-            </div>
-          </div>
-          <div>
-            <DocSub>Monetization</DocSub>
-            <div className="mt-1">
-              <DocProse text={spec.monetization} />
-            </div>
-          </div>
-          {Array.isArray(spec.frameworks_applied) && spec.frameworks_applied.length > 0 && (
-            <DocMuted>Playbooks applied: {spec.frameworks_applied.join(", ")} · via pm-skills</DocMuted>
-          )}
-        </div>
-      </DocSection>
     </Doc>
   );
 }
 
 /** Artifact: the product spec packaged as an exportable Markdown document. */
-function SpecExport({ spec }: { spec: Record<string, any> | null }) {
+function SpecExport({ spec, stageName }: { spec: Record<string, any> | null; stageName: string }) {
   const [copied, setCopied] = useState(false);
 
   if (!spec) {
     return (
       <div className="card p-6 text-sm text-muted">
-        Finish the Problem Solved? review first — the spec document is generated from the completed spec.
+        Finish the {stageName} review first — the spec document is generated from the completed spec.
       </div>
     );
   }

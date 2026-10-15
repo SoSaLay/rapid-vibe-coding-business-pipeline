@@ -16,13 +16,20 @@ interface Project {
   archived?: boolean;
   idea_type?: string;
   labeled?: boolean;
+  kind?: string;
 }
 
-type Tab = "create" | "pipelines";
+/** The two things you can start here; each tab lists its own and runs its own pipeline. */
+type Tab = "project" | "agent";
+const TAB_COPY: Record<Tab, { heading: string; create: string; noun: string }> = {
+  project: { heading: "Start a project", create: "New project", noun: "project" },
+  agent: { heading: "Create an agent", create: "New agent", noun: "agent" },
+};
 
 export default function Home() {
   const [projects, setProjects] = useState<Project[]>([]);
-  const [tab, setTab] = useState<Tab>("create");
+  const [tab, setTab] = useState<Tab>("project");
+  const [creating, setCreating] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const { status: onboarding, reload: reloadOnboarding } = useOnboarding();
 
@@ -34,8 +41,16 @@ export default function Home() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  const active = projects.filter((p) => !p.archived);
-  const archived = projects.filter((p) => p.archived);
+  const ofTab = (t: Tab) => projects.filter((p) => (p.kind ?? "project") === t);
+  const active = ofTab(tab).filter((p) => !p.archived);
+  const archived = ofTab(tab).filter((p) => p.archived);
+  const copy = TAB_COPY[tab];
+
+  function switchTab(t: Tab) {
+    setTab(t);
+    setCreating(false);
+    setShowArchived(false);
+  }
 
   async function setArchived(id: string, value: boolean) {
     await fetch(`/api/projects/${id}/archive`, {
@@ -46,10 +61,10 @@ export default function Home() {
     refresh();
   }
 
-  // After capturing a fresh idea, jump to the pipelines tab where it now lives.
+  // After capturing a fresh idea, fold the form away — it now sits at the top of the list.
   function onCreated() {
     refresh();
-    setTab("pipelines");
+    setCreating(false);
   }
 
   return (
@@ -60,27 +75,37 @@ export default function Home() {
           <p className="mt-1 text-sm text-muted">From a spoken idea to a shipped, marketed product — one phase at a time.</p>
         </div>
         <div className="mt-1 flex shrink-0 items-center gap-2">
-          <OnboardingButton status={onboarding} reload={reloadOnboarding} highlight={!onboarding?.requiredComplete} />
+          <OnboardingButton status={onboarding} reload={reloadOnboarding} highlight={!onboarding?.requiredComplete} kind={tab} />
           <ThemeToggle />
         </div>
       </header>
 
       {/* Tabs */}
       <div className="mb-6 flex items-center gap-2 border-b border-edge">
-        <TabButton active={tab === "create"} onClick={() => setTab("create")}>Create idea</TabButton>
-        <TabButton active={tab === "pipelines"} onClick={() => setTab("pipelines")}>
-          Launch a pipeline {active.length > 0 && <span className="text-muted">({active.length})</span>}
-        </TabButton>
+        {(Object.keys(TAB_COPY) as Tab[]).map((t) => {
+          const n = ofTab(t).filter((p) => !p.archived).length;
+          return (
+            <TabButton key={t} active={tab === t} onClick={() => switchTab(t)}>
+              {TAB_COPY[t].heading} {n > 0 && <span className="text-muted">({n})</span>}
+            </TabButton>
+          );
+        })}
       </div>
 
-      {tab === "create" && <IdeaCapture onCreated={onCreated} />}
+      <div className="space-y-6">
+          <div className="flex justify-end">
+            <button className={creating ? "btn-ghost" : "btn-primary"} onClick={() => setCreating((v) => !v)}>
+              {creating ? "Cancel" : `+ ${copy.create}`}
+            </button>
+          </div>
 
-      {tab === "pipelines" && (
-        <div className="space-y-6">
+          {/* key: a fresh form per tab, so a half-typed project never becomes an agent */}
+          {creating && <IdeaCapture key={tab} kind={tab} onCreated={onCreated} />}
+
           <section className="space-y-2">
-            {active.length === 0 && (
+            {active.length === 0 && !creating && (
               <div className="card p-6 text-center text-sm text-muted">
-                No ideas yet. Switch to <button className="text-accent2 hover:text-fg" onClick={() => setTab("create")}>Create idea</button> to start one.
+                No {copy.noun}s yet. Hit <button className="text-accent2 hover:text-fg" onClick={() => setCreating(true)}>{copy.create}</button> to start one.
               </div>
             )}
             {active.map((p) => (
@@ -96,9 +121,11 @@ export default function Home() {
                     <div className="mt-0.5 text-xs text-muted">
                       {new Date(p.created_at).toLocaleString()} · at {p.current_phase}
                     </div>
-                    <div className="mt-2">
-                      <LabelDropdown project={p} onLabeled={refresh} />
-                    </div>
+                    {tab === "project" && (
+                      <div className="mt-2">
+                        <LabelDropdown project={p} onLabeled={refresh} />
+                      </div>
+                    )}
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     <button
@@ -152,7 +179,6 @@ export default function Home() {
             </section>
           )}
         </div>
-      )}
     </main>
   );
 }
@@ -265,7 +291,7 @@ function DeleteIdea({ id, title, onDeleted }: { id: string; title: string; onDel
       {open && (
         <div className="absolute right-0 top-full z-10 mt-2 w-72 rounded-lg border border-bad/40 bg-panel p-3 text-left shadow-lg">
           <p className="text-xs text-fg">
-            Permanently delete this idea and <span className="font-medium">all its data</span>? This can’t be undone.
+            Permanently delete this and <span className="font-medium">all its data</span>? This can’t be undone.
           </p>
           <p className="mt-2 text-[11px] text-muted">
             Type <span className="font-medium text-fg">{title}</span> to confirm:
