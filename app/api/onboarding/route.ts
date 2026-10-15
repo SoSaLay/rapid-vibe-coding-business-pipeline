@@ -5,6 +5,8 @@ import { isGoogleConfigured } from "@/lib/google/genai";
 import { isSupabaseConfigured } from "@/lib/supabase";
 import { activeEmailProvider } from "@/lib/email/registry";
 import { isPostHogConfigured } from "@/lib/posthog";
+import { langfuseConfig, langsmithKey } from "@/lib/agent/registry";
+import { readConnectorConfig } from "@/lib/connectors/config";
 
 /**
  * Aggregate connection status for the onboarding panel.
@@ -16,6 +18,12 @@ export async function GET() {
   const providers = await listProviderInfo();
   const anthropic = !!providers.find((p) => p.id === "ai-anthropic")?.configured;
   const openai = !!providers.find((p) => p.id === "ai-openai")?.configured;
+  const [langfuse, langsmith, aws, railway] = await Promise.all([
+    langfuseConfig().then(Boolean),
+    langsmithKey().then(Boolean),
+    readConnectorConfig("aws").then((c) => !!c?.accessKeyId),
+    readConnectorConfig("railway").then((c) => !!c?.productionToken),
+  ]);
   const [exa, google, supabase, resend, posthog] = await Promise.all([
     isExaConfigured(),
     isGoogleConfigured(),
@@ -35,6 +43,10 @@ export async function GET() {
     supabase,
     resend,
     posthog,
+    langfuse,
+    langsmith,
+    aws,
+    railway,
     // requiredComplete gates progression (any LLM engine); allComplete = every slot in.
     requiredComplete: llm,
     allComplete: llm && exa && google && supabase && resend && posthog,

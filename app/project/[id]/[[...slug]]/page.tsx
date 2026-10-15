@@ -14,6 +14,12 @@ import { IdeaValidation } from "@/components/IdeaValidation";
 import { PreMarketing } from "@/components/PreMarketing";
 import { ProductDesign } from "@/components/ProductDesign";
 import { Engineering } from "@/components/Engineering";
+import { AgentDesign } from "@/components/AgentDesign";
+import { AgentEngineering } from "@/components/AgentEngineering";
+import { AgentSecurity } from "@/components/AgentSecurity";
+import { AgentEvals } from "@/components/AgentEvals";
+import { AgentDeployment } from "@/components/AgentDeployment";
+import { AgentOperations } from "@/components/AgentOperations";
 import { QA } from "@/components/QA";
 import { Deployment } from "@/components/Deployment";
 import { Marketing } from "@/components/Marketing";
@@ -83,6 +89,7 @@ export default function ProjectWorkspace() {
   const productSpec = artifacts.filter((a) => a.artifact_type === "product-spec").slice(-1)[0];
   const marketReport = artifacts.filter((a) => a.artifact_type === "market-report").slice(-1)[0];
   const audienceBrief = artifacts.filter((a) => a.artifact_type === "audience-brief").slice(-1)[0];
+  const agentDesignArt = artifacts.filter((a) => a.artifact_type === "agent-design").slice(-1)[0];
   const designSpec = artifacts.filter((a) => a.artifact_type === "design-spec").slice(-1)[0];
   const buildManifest = artifacts.filter((a) => a.artifact_type === "build-manifest").slice(-1)[0];
   const qaReport = artifacts.filter((a) => a.artifact_type === "qa-report").slice(-1)[0];
@@ -162,23 +169,69 @@ export default function ProjectWorkspace() {
           />
         );
       case "engineering":
+        if (project.kind === "agent") {
+          return (
+            <AgentEngineering
+              projectId={project.id}
+              hasDesign={!!agentDesignArt}
+              designVersion={agentDesignArt?.version ?? 0}
+              build={engineering?.agentBuild ?? null}
+              manifest={buildManifest?.payload ?? null}
+              onUpdated={refresh}
+            />
+          );
+        }
         return <Engineering projectId={project.id} hasSpec={!!productSpec} state={engineering} manifest={buildManifest?.payload ?? null} mode={mode} onUpdated={refresh} />;
       case "agent-design":
+        return <AgentDesign projectId={project.id} hasSpec={!!productSpec} state={(phaseState as any)?.["agent-design"] ?? null} onUpdated={refresh} />;
       case "security":
         return (
-          <div className="card p-6 space-y-2">
-            <div className="text-[11px] uppercase tracking-wider text-muted">Coming next</div>
-            <p className="text-sm text-fg/90">{phaseDef?.description}</p>
-            <p className="text-sm text-muted">This stage isn't wired to tools yet — it holds its place in the agent pipeline.</p>
-          </div>
+          <AgentSecurity
+            projectId={project.id}
+            hasBuild={!!buildManifest}
+            report={(phaseState as any)?.security?.report ?? null}
+            completed={project.phase_status.security === "complete"}
+            onUpdated={refresh}
+          />
         );
       case "qa":
+        if (project.kind === "agent") {
+          return (
+            <AgentEvals
+              projectId={project.id}
+              hasSecurity={project.phase_status.security === "complete"}
+              state={qa}
+              completed={project.phase_status.qa === "complete"}
+              onUpdated={refresh}
+            />
+          );
+        }
         return <QA projectId={project.id} hasManifest={!!buildManifest} state={qa} report={qaReport?.payload ?? null} onUpdated={refresh} />;
       case "deployment":
+        if (project.kind === "agent") {
+          return (
+            <AgentDeployment
+              projectId={project.id}
+              hasEvals={project.phase_status.qa === "complete"}
+              completed={project.phase_status.deployment === "complete"}
+              onUpdated={refresh}
+            />
+          );
+        }
         return <Deployment projectId={project.id} hasQaReport={!!qaReport} state={deployment} manifest={deployManifest?.payload ?? null} onUpdated={refresh} />;
       case "marketing-sales":
         return <Marketing projectId={project.id} hasDeploy={!!deployManifest} state={marketing} report={campaignReport?.payload ?? null} mode={mode} artifact={artifact} onUpdated={refresh} />;
       case "operations":
+        if (project.kind === "agent") {
+          return (
+            <AgentOperations
+              projectId={project.id}
+              live={project.phase_status.deployment === "complete"}
+              completed={project.phase_status.operations === "complete"}
+              onUpdated={refresh}
+            />
+          );
+        }
         return <Operations projectId={project.id} hasDeploy={!!deployManifest} state={operations} report={opsReport?.payload ?? null} onUpdated={refresh} />;
       case "iteration":
         return <Iteration projectId={project.id} hasDeploy={!!deployManifest} state={iteration} cycle={project.cycle ?? 1} archived={!!project.archived} onUpdated={refresh} />;
@@ -251,7 +304,7 @@ export default function ProjectWorkspace() {
                         >
                           ↻ {showIterate ? "Hide iterate" : "Iterate"}
                         </button>
-                        {showIterate && <OperationsIterate kind={project.kind} />}
+                        {showIterate && <OperationsIterate kind={project.kind} projectId={project.id} />}
                       </>
                     ) : null}
                   </header>

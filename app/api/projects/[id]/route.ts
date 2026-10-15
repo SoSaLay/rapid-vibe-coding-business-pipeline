@@ -16,6 +16,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const marketing = await getPhaseState(params.id, "marketing-sales");
   const operations = await getPhaseState(params.id, "operations");
   const iteration = await getPhaseState(params.id, "iteration");
+  const agentDesign = await getPhaseState(params.id, "agent-design");
+  const security = await getPhaseState(params.id, "security");
   return NextResponse.json({
     project,
     artifacts,
@@ -30,6 +32,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       "marketing-sales": marketing,
       operations,
       iteration,
+      "agent-design": agentDesign,
+      security,
     },
   });
 }

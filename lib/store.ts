@@ -222,6 +222,10 @@ export interface ProjectSettings {
   emailEnabled?: boolean;
   /** Which email provider the broadcasts go through. Defaults to "resend". */
   emailProvider?: string;
+  /** Agent pipeline: chosen adapter id per slot (see lib/agent/registry.ts). Unset slot = default. */
+  agentStack?: Record<string, string>;
+  /** Agent pipeline: expected runs per month, for the monthly cost estimate. */
+  agentRunsPerMonth?: number;
 }
 
 function settingsPath(id: string) {

@@ -1,0 +1,132 @@
+import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
+import { loadBuild } from "@/lib/agent/build-context";
+import { addProductionCase, getOps, opsEnv, runOps, saveOps, type Incident } from "@/lib/agent/ops";
+import { getEvals, saveEvals } from "@/lib/agent/evals-state";
+import { completePhase, getProject, saveArtifact } from "@/lib/store";
+
+/**
+ * One endpoint for the Operations page's actions. Body: { action, ... }
+ *   kill { disabled }              · tool { name, on }          · online-eval { sample }      · alert
+ *   settings { owner, oncall, alertEmail, thresholds }         · add-case { runId, expected }
+ *   incident { title, severity, whatHappened, approvals, correctiveAction, runIds } · resolve { id }
+ *   review                          — records the ops-report and completes the stage
+ */
+export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  const b = await req.json().catch(() => ({}));
+  const ctx = await loadBuild(params.id);
+  if (!ctx.design) return NextResponse.json({ error: "No agent design." }, { status: 400 });
+  const ops = await getOps(params.id);
+
+  if (b.action === "settings") {
+    const num = (v: unknown) => (v === "" || v === undefined || v === null || !Number.isFinite(Number(v)) ? undefined : Number(v));
+    const next = {
+      ...ops,
+      owner: typeof b.owner === "string" ? b.owner.trim().slice(0, 120) : ops.owner,
+      oncall: typeof b.oncall === "string" ? b.oncall.trim().slice(0, 200) : ops.oncall,
+      alert_email: typeof b.alertEmail === "string" ? b.alertEmail.trim().slice(0, 200) : ops.alert_email,
+      thresholds: b.thresholds
+        ? {
+            min_success: num(b.thresholds.min_success),
+            max_p95_s: num(b.thresholds.max_p95_s),
+            max_cost_per_run: num(b.thresholds.max_cost_per_run),
+            max_thumbs_down: num(b.thresholds.max_thumbs_down),
+          }
+        : ops.thresholds,
+    };
+    await saveOps(params.id, next);
+    return NextResponse.json({ ops: next });
+  }
+
+  if (b.action === "incident") {
+    const inc: Incident = {
+      id: crypto.randomUUID().slice(0, 8),
+      opened_at: new Date().toISOString(),
+      title: String(b.title ?? "").slice(0, 200) || "Untitled incident",
+      severity: ["low", "medium", "high"].includes(b.severity) ? b.severity : "medium",
+      what_happened: String(b.whatHappened ?? "").slice(0, 4000),
+      approvals: String(b.approvals ?? "").slice(0, 2000),
+      corrective_action: String(b.correctiveAction ?? "").slice(0, 4000),
+      status: "open",
+      run_ids: Array.isArray(b.runIds) ? b.runIds.map(Number).filter(Number.isFinite) : [],
+    };
+    const next = { ...ops, incidents: [inc, ...ops.incidents] };
+    await saveOps(params.id, next);
+    return NextResponse.json({ ops: next });
+  }
+
+  if (b.action === "resolve") {
+    const next = {
+      ...ops,
+      incidents: ops.incidents.map((i) =>
+        i.id === b.id ? { ...i, status: "resolved" as const, resolved_at: new Date().toISOString(), corrective_action: b.correctiveAction ? String(b.correctiveAction).slice(0, 4000) : i.corrective_action } : i
+      ),
+    };
+    await saveOps(params.id, next);
+    return NextResponse.json({ ops: next });
+  }
+
+  const env = await opsEnv(params.id, ctx.design, ctx.slug);
+  if (!env) return NextResponse.json({ error: "Set up the state database in Deployment first." }, { status: 400 });
+
+  if (b.action === "kill") {
+    const r = await runOps(ctx.dir, env, ["deploy.state", b.disabled ? "disable" : "enable"]);
+    return NextResponse.json({ controls: r.json }, { status: r.ok ? 200 : 500 });
+  }
+  if (b.action === "tool") {
+    if (!ctx.design.tools.some((t) => t.name === b.name)) return NextResponse.json({ error: "Unknown tool." }, { status: 400 });
+    const r = await runOps(ctx.dir, env, ["deploy.state", b.on ? "enable-tool" : "disable-tool", b.name]);
+    return NextResponse.json({ controls: r.json }, { status: r.ok ? 200 : 500 });
+  }
+  if (b.action === "online-eval") {
+    const n = Math.min(100, Math.max(1, Number(b.sample) || 20));
+    const r = await runOps(ctx.dir, env, ["deploy.ops", "online-eval", "--sample", String(n)], 15 * 60_000);
+    return NextResponse.json(r.json ?? { error: r.out.slice(-1500) }, { status: r.ok ? 200 : 500 });
+  }
+  if (b.action === "alert") {
+    const r = await runOps(ctx.dir, env, ["deploy.ops", "alert"]);
+    if (!r.ok) return NextResponse.json({ error: r.out.slice(-1500) }, { status: 500 });
+    const next = { ...ops, last_alert: { at: new Date().toISOString(), alerts: r.json?.alerts ?? [], emailed: !!r.json?.emailed } };
+    await saveOps(params.id, next);
+    return NextResponse.json({ ops: next, result: r.json });
+  }
+  if (b.action === "add-case") {
+    const expected = String(b.expected ?? "").trim();
+    if (!expected) return NextResponse.json({ error: "Write what the agent should have done." }, { status: 400 });
+    const failures = await runOps(ctx.dir, env, ["deploy.ops", "failures", "--limit", "200"]);
+    const run = (failures.json ?? []).find((f: any) => Number(f.id) === Number(b.runId));
+    if (!run) return NextResponse.json({ error: "Run not found." }, { status: 404 });
+    const { dataset, caseId } = await addProductionCase({ dir: ctx.dir, run, expected });
+    const ev = await getEvals(params.id);
+    const counts: Record<string, number> = {};
+    for (const c of dataset.cases) counts[c.category] = (counts[c.category] ?? 0) + 1;
+    await saveEvals(params.id, { ...ev, dataset_version: dataset.version, dataset_counts: counts });
+    const next = { ...ops, cases_added: [...ops.cases_added, { run_id: Number(b.runId), case_id: caseId, at: new Date().toISOString() }] };
+    await saveOps(params.id, next);
+    return NextResponse.json({ ops: next, case: caseId, dataset_version: dataset.version });
+  }
+  if (b.action === "review") {
+    const meta = await getProject(params.id);
+    if (meta?.phase_status.deployment !== "complete") return NextResponse.json({ error: "Go live in Deployment first." }, { status: 400 });
+    const stats = await runOps(ctx.dir, env, ["deploy.ops", "stats", "--days", "7"]);
+    const artifact = await saveArtifact({
+      projectId: params.id,
+      phase: "operations",
+      artifactType: "ops-report",
+      payload: {
+        kind: "agent",
+        reviewed_at: new Date().toISOString(),
+        owner: ops.owner,
+        oncall: ops.oncall,
+        stats_7d: stats.json,
+        incidents: ops.incidents,
+        cases_added: ops.cases_added,
+        last_alert: ops.last_alert,
+      },
+      inputs: ["deploy-manifest"],
+    });
+    if (meta.phase_status.operations !== "complete") await completePhase(params.id, "operations");
+    return NextResponse.json({ artifact });
+  }
+  return NextResponse.json({ error: "Unknown action." }, { status: 400 });
+}

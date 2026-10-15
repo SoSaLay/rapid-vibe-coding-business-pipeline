@@ -338,8 +338,8 @@ landing page), then push the same connection outward through the phases that fol
 - [x] `git init` + first commit + **pushed to GitHub** — private repo `SoSaLay/rapid-vibe-coding-pipeline`, branch `main`. README + MIT LICENSE + `.env.example` + tight `.gitignore`. Remote verified clean (no `data/`, no secrets). Flip to public when ready to open-source.
 - [x] Home restructure: **Start a project** / **Create an agent** tabs, each with a "New …" button + its own list (`ProjectMeta.kind`, `phasesFor(kind)`)
 - [x] **Agent pipeline** skeleton (10 stages) + agent-aimed Problem Solved? prompt
-- [ ] Agent pipeline: build the **Agent Design** and **Security** stages (placeholders today — no tools chosen)
-- [ ] Agent pipeline: agent-specific logic for **Evaluations** and **Deployment** (renamed only; still run the product `qa` / `deployment` modules)
+- [x] Agent pipeline stages 1–5 (Define the Job `agent` block, Agent Design, automatic Engineering build, Security gate, local Evaluations gate + Langfuse tracing) — verified end to end; details in `release-deployment.md`
+- [x] Agent pipeline stages 6–7 (Deployment: AgentCore/Railway, Postgres state, login, releases + live check + rollback; Operations: run-log dashboard, kill switch, alerts, online evals, incidents, failures → test cases) — locally verified; live AgentCore/Railway push needs keys
 - [ ] Operations **Iterate** panel: make it dynamic (generated from support messages, PostHog usage, run logs, eval results). Static lists today in `lib/ops-iterate.ts`.
 - [x] Onboarding revamp: page is just the **Toolbox** table (tool · section · status · Update → narrow key pop-up with help steps); sidebar shows a red/yellow/green dot + status words. Per-pipeline toolbox in `components/Onboarding.tsx` (`TOOLBOX`).
 - [x] Agent release plan written from the owner's research → `release-deployment.md` (stage-by-stage tasks); agent toolbox lists the researched tools (not wired yet).

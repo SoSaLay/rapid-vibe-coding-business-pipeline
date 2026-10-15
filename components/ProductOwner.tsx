@@ -472,7 +472,9 @@ function SpecView({ spec }: { spec: Record<string, any> }) {
         />
       </DocSection>
 
-      <DocSection title="What we're building">
+      {spec.agent && <AgentJobSections agent={spec.agent} />}
+
+      {!spec.agent && <DocSection title="What we're building">
         <ul className="doc-p space-y-2">
           {mustHaves.map((f, i) => (
             <li key={i}>
@@ -488,9 +490,67 @@ function SpecView({ spec }: { spec: Record<string, any> }) {
         <div className="mt-4">
           <DocChips items={list(spec.success_metrics).slice(0, 2)} />
         </div>
-      </DocSection>
+      </DocSection>}
 
     </Doc>
+  );
+}
+
+const SENSITIVITY: Record<string, string> = { public: "Public", internal: "Internal", pii: "Personal data (PII)", regulated: "Regulated" };
+
+/** Agent pipeline: the spec's `agent` block, in the same two short sections as the project read. */
+function AgentJobSections({ agent }: { agent: Record<string, any> }) {
+  const list = (v: any): string[] => (Array.isArray(v) ? v : []);
+  const examples: { input: string; expected: string }[] = Array.isArray(agent.example_tasks) ? agent.example_tasks : [];
+  return (
+    <>
+      <DocSection title="The job">
+        {agent.task && <DocP className="text-[1.15rem] font-medium text-fg">{agent.task}</DocP>}
+        <DocFacts
+          items={[
+            { label: "Who uses it", value: list(agent.users).join(" · ") },
+            { label: "Starts when", value: agent.trigger },
+            { label: "Done right", value: list(agent.success_criteria).join(" · ") },
+            { label: "Done wrong", value: list(agent.failure_criteria).join(" · ") },
+          ]}
+        />
+        {examples.length > 0 && (
+          <details className="mt-4">
+            <summary className="cursor-pointer text-sm font-medium text-fg">{examples.length} example tasks (these become the tests)</summary>
+            <ol className="mt-2 list-decimal space-y-2 pl-5 text-sm">
+              {examples.map((ex, i) => (
+                <li key={i}>
+                  <div className="text-fg">{ex.input}</div>
+                  <DocMuted>→ {ex.expected}</DocMuted>
+                </li>
+              ))}
+            </ol>
+          </details>
+        )}
+      </DocSection>
+
+      <DocSection title="Boundaries & budgets">
+        <DocFacts
+          items={[
+            { label: "May do", value: list(agent.allowed_actions).join(" · ") },
+            { label: "Never does", value: list(agent.forbidden_actions).join(" · ") },
+            { label: "Speed", value: agent.latency_budget },
+            { label: "Cost", value: agent.cost_budget },
+            { label: "Data", value: SENSITIVITY[agent.data_sensitivity] ?? agent.data_sensitivity },
+            { label: "Human fallback", value: agent.human_fallback },
+            {
+              label: "Who uses it",
+              value:
+                agent.people_use_it === undefined
+                  ? ""
+                  : agent.people_use_it
+                    ? agent.charges_users ? "People, and you'll charge them" : "People, free"
+                    : "Nobody directly; it runs on its own",
+            },
+          ]}
+        />
+      </DocSection>
+    </>
   );
 }
 
@@ -562,6 +622,24 @@ function specToMarkdown(s: Record<string, any>): string {
   if (s.success_metrics?.length) { h("Success metrics"); bullets(s.success_metrics); }
   if (s.key_risks?.length) { h("Key risks"); bullets(s.key_risks); }
   if (s.open_questions?.length) { h("Open questions"); bullets(s.open_questions); }
+  if (s.agent) {
+    const a = s.agent;
+    h("The job"); p(a.task);
+    if (a.trigger) p(`**Starts when:** ${a.trigger}`);
+    if (a.users?.length) { out.push("**Users**", ""); bullets(a.users); }
+    if (a.success_criteria?.length) { out.push("**Success criteria**", ""); bullets(a.success_criteria); }
+    if (a.failure_criteria?.length) { out.push("**Failure criteria**", ""); bullets(a.failure_criteria); }
+    h("Boundaries & budgets");
+    if (a.allowed_actions?.length) { out.push("**Allowed actions**", ""); bullets(a.allowed_actions); }
+    if (a.forbidden_actions?.length) { out.push("**Forbidden actions**", ""); bullets(a.forbidden_actions); }
+    p(`**Latency:** ${a.latency_budget || "—"} · **Cost:** ${a.cost_budget || "—"} · **Data:** ${a.data_sensitivity || "—"}`);
+    if (a.human_fallback) p(`**Human fallback:** ${a.human_fallback}`);
+    if (a.example_tasks?.length) {
+      h("Example tasks");
+      a.example_tasks.forEach((ex: any, i: number) => out.push(`${i + 1}. ${ex.input}`, `   - Expected: ${ex.expected}`));
+      out.push("");
+    }
+  }
   h("Monetization"); p(s.monetization);
   h("PO recommendation"); p(s.recommendation);
   if (Array.isArray(s.frameworks_applied) && s.frameworks_applied.length) {

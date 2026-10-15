@@ -127,8 +127,23 @@ an agent could take off their plate. Re-aim every question at what makes an agen
   become the evaluation set, so push for real ones.
 - Economics: hours or dollars saved per run versus what a run costs in tokens and tool calls.
 
-If the task is not actually repetitive, has no clear definition of done, or one mistake is
-catastrophic and irreversible, say so — that is an agent that should not be built as described.
+Every round, aim your questions at the gaps in what the spec's AGENT block must pin down: the users, the
+ONE task, success and failure criteria, the actions it may and may never take, the latency and cost
+budgets, how sensitive the data is, the human fallback, whether people use it directly and whether the
+owner will charge them for it, and 3-5 REAL example tasks (an input paired with
+what the right output looks like). Decide what you can infer; ask only for what you can't — real example
+tasks are worth asking for, because they become the test set.
+
+Agents fit best on repetitive, predictable work: a recurring trigger, the same kind of input each
+time, real tools or data to act on, and a clear definition of done. Some ideas don't fit that shape
+yet, for example a one-off question (a plain chat prompt would do), a single text transformation
+with no tools, or open-ended creative work with no way to grade it. When an idea is like that, don't
+warn, lecture or refuse. Steer it: use your questions and answer options to reshape the idea into the
+nearest agent-shaped version (what recurs? what would trigger it? which systems would it read or act
+on? what does done look like?). Offer those reframings as concrete tappable options. If the owner
+keeps their original framing, go with it and write the best spec you can. Never block or nag.
+
+If one mistake would be catastrophic and irreversible, steer it toward human approval on that step.
 
 In the spec: the features are the agent's CAPABILITIES (trigger, tools, steps, hand-offs, approvals),
 success metrics are task outcomes (time saved, success rate, cost per run), and key risks include the
@@ -162,6 +177,59 @@ const TURN_SCHEMA = {
     },
   },
   required: ["assessment", "ready", "questions"],
+};
+
+/**
+ * Agent pipeline only: the `agent` block every later agent stage reads
+ * (release-deployment.md → stage 1). Added to the spec schema when kind = "agent".
+ */
+export const AGENT_BLOCK_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    users: { type: "array", items: { type: "string", description: "Who runs or relies on the agent, ≤12 words." } },
+    task: { type: "string", description: "The ONE task the agent does, start to finish. ONE sentence." },
+    trigger: { type: "string", description: "What starts a run: a schedule, an inbox, an event, a person asking. ≤15 words." },
+    success_criteria: { type: "array", items: { type: "string", description: "A gradable sign of a correct run, ≤15 words." } },
+    failure_criteria: { type: "array", items: { type: "string", description: "A gradable sign of a bad run, ≤15 words." } },
+    allowed_actions: { type: "array", items: { type: "string", description: "One action the agent may take, verb first, ≤10 words." } },
+    forbidden_actions: { type: "array", items: { type: "string", description: "One action it must never take, verb first, ≤10 words." } },
+    latency_budget: { type: "string", description: "e.g. '< 30s per run'." },
+    cost_budget: { type: "string", description: "e.g. '< $0.10 per run'." },
+    data_sensitivity: { type: "string", enum: ["public", "internal", "pii", "regulated"] },
+    human_fallback: { type: "string", description: "Who takes over, and when. ONE sentence." },
+    people_use_it: { type: "boolean", description: "True if people talk to or use the agent directly (chat, a form, a request). False if it only runs on its own (schedule, inbox, events)." },
+    charges_users: { type: "boolean", description: "True only if the owner plans to sell the agent to its users (subscriptions, paid access)." },
+    example_tasks: {
+      type: "array",
+      description: "3-5 REAL inputs paired with the right output. Use the owner's examples; fill gaps with realistic ones.",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          input: { type: "string", description: "The task exactly as the agent would receive it." },
+          expected: { type: "string", description: "What a correct run produces or does, concretely enough to grade." },
+        },
+        required: ["input", "expected"],
+      },
+    },
+  },
+  required: [
+    "users",
+    "task",
+    "trigger",
+    "success_criteria",
+    "failure_criteria",
+    "allowed_actions",
+    "forbidden_actions",
+    "latency_budget",
+    "cost_budget",
+    "data_sensitivity",
+    "human_fallback",
+    "people_use_it",
+    "charges_users",
+    "example_tasks",
+  ],
 };
 
 /** Exported so the GitHub-import comprehension pass produces a downstream-identical spec. */
@@ -363,16 +431,23 @@ export async function synthesizeSpec(
   kind?: string | null
 ): Promise<Record<string, unknown>> {
   const provider = activeProvider();
+  const schema =
+    kind === "agent"
+      ? { ...SPEC_SCHEMA, properties: { ...SPEC_SCHEMA.properties, agent: AGENT_BLOCK_SCHEMA }, required: [...SPEC_SCHEMA.required, "agent"] }
+      : SPEC_SCHEMA;
   return provider.completeJson<Record<string, unknown>>({
     system: (await systemWithFrameworks(frameworkIds, kind)) + extraContext,
     effort: "high",
-    schema: SPEC_SCHEMA,
+    schema,
     messages: [
       {
         role: "user",
         content:
           renderTranscript(idea, turns) +
-          "\n\nYou now have enough context. Write the structured product spec. Be opinionated and concrete — this spec steers market research, design, and engineering. Center everything on the customer problem: the problem statement should capture real customer pain, the value proposition should state what genuinely changes in the customer's life, and success metrics must be customer-outcome metrics (not vanity numbers). For 'problem_solved', write ONE short, casual sentence (≤20 words) the way a laid-back young adult would describe the app to a friend — contractions fine, no buzzwords or marketing tone, lead with the problem so it instantly clicks. Where the owner left gaps, make a clear recommendation from the customer's perspective and record the open question.",
+          "\n\nYou now have enough context. Write the structured product spec. Be opinionated and concrete — this spec steers market research, design, and engineering. Center everything on the customer problem: the problem statement should capture real customer pain, the value proposition should state what genuinely changes in the customer's life, and success metrics must be customer-outcome metrics (not vanity numbers). For 'problem_solved', write ONE short, casual sentence (≤20 words) the way a laid-back young adult would describe the app to a friend — contractions fine, no buzzwords or marketing tone, lead with the problem so it instantly clicks. Where the owner left gaps, make a clear recommendation from the customer's perspective and record the open question." +
+          (kind === "agent"
+            ? " This is an AGENT: fill the `agent` block completely — exactly one task, and 3-5 example_tasks built from the owner's real examples (fill gaps with realistic ones). Every later stage (design, tests, evals) is built from that block."
+            : ""),
       },
     ],
   });

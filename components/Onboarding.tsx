@@ -14,6 +14,10 @@ export interface OnboardingStatus {
   supabase: boolean;
   resend: boolean;
   posthog: boolean;
+  langfuse: boolean;
+  langsmith: boolean;
+  aws: boolean;
+  railway: boolean;
   /** An LLM engine (Claude OR OpenAI) connected — gates pipeline progression. */
   requiredComplete: boolean;
   /** Every slot connected — drives the "complete" (green) button state. */
@@ -89,7 +93,7 @@ const LLM_OPTIONS: LlmOption[] = [
 ];
 
 interface Service {
-  id: "exa" | "google" | "supabase" | "resend" | "posthog";
+  id: "exa" | "google" | "supabase" | "resend" | "posthog" | "langfuse" | "langsmith" | "aws" | "railway";
   label: string;
   /** Why it matters / what connecting it unlocks. */
   unlocks: string;
@@ -184,6 +188,75 @@ const SERVICES: Service[] = [
       { name: "personalApiKey", label: "Personal API key (phx_…) — optional, unlocks reading stats", type: "password", optional: true },
     ],
   },
+  {
+    id: "langfuse",
+    label: "Langfuse (tracing & evals)",
+    unlocks: "See every agent run step by step, and every evaluation run, in one dashboard.",
+    help: "Free cloud tier at cloud.langfuse.com, or self-host it free (open source).",
+    docsUrl: "https://cloud.langfuse.com",
+    docs: [
+      "Sign up free at cloud.langfuse.com (the Hobby tier needs no card), or self-host Langfuse with Docker.",
+      "Create an organization and a project.",
+      "In the project, open Settings → API Keys → 'Create new API keys'.",
+      "Copy the Public key (pk-lf-…) and Secret key (sk-lf-…) and paste them below.",
+      "Host: https://cloud.langfuse.com for EU, https://us.cloud.langfuse.com for US, or your own server's URL.",
+    ],
+    fields: [
+      { name: "publicKey", label: "Public key (pk-lf-…)" },
+      { name: "secretKey", label: "Secret key (sk-lf-…)", type: "password" },
+      { name: "host", label: "Host", defaultValue: "https://cloud.langfuse.com" },
+    ],
+  },
+  {
+    id: "langsmith",
+    label: "LangSmith (tracing)",
+    unlocks: "Traces every agent run and lets LangSmith Studio inspect them locally.",
+    help: "Free Developer tier at smith.langchain.com (5k traces/month).",
+    docsUrl: "https://smith.langchain.com/settings",
+    docs: [
+      "Sign up free at smith.langchain.com.",
+      "Open Settings → API Keys → 'Create API Key' (a Personal Access Token is fine).",
+      "Copy the key (starts with lsv2_) and paste it below.",
+    ],
+    fields: [{ name: "apiKey", label: "LangSmith API key (lsv2_…)", type: "password" }],
+  },
+  {
+    id: "aws",
+    label: "Amazon Bedrock AgentCore (AWS)",
+    unlocks: "Hosts your agents on AgentCore: pay only while they run, each session isolated.",
+    help: "An AWS access key for a user that can deploy to AgentCore. New accounts get up to $200 in credits.",
+    docsUrl: "https://console.aws.amazon.com/iam/home#/users",
+    docs: [
+      "Sign in to the AWS console (create an account at aws.amazon.com if you don't have one).",
+      "Open IAM → Users → 'Create user' (e.g. agent-deployer).",
+      "Attach the AWS managed policy 'BedrockAgentCoreFullAccess', plus permissions for CodeBuild, ECR, IAM role creation and S3 (or AdministratorAccess on a personal account).",
+      "Open the user → Security credentials → 'Create access key' → 'Command Line Interface'.",
+      "Copy the Access key ID (AKIA…) and Secret access key, and pick a region where AgentCore runs (e.g. us-east-1).",
+    ],
+    fields: [
+      { name: "accessKeyId", label: "Access key ID (AKIA…)" },
+      { name: "secretAccessKey", label: "Secret access key", type: "password" },
+      { name: "region", label: "Region", defaultValue: "us-east-1" },
+    ],
+  },
+  {
+    id: "railway",
+    label: "Railway",
+    unlocks: "Hosts your agents on Railway: it builds the Docker image for you.",
+    help: "Project tokens from railway.com. Hobby plan is about $5/month including $5 of usage.",
+    docsUrl: "https://railway.com/dashboard",
+    docs: [
+      "Sign up at railway.com and create a new project (an empty one is fine).",
+      "Add an empty service to it, then Settings → Networking → 'Generate domain' so it gets a public URL.",
+      "Optional: add a second environment named 'staging' (Project → Environments) for test releases.",
+      "Project Settings → Tokens → create a token for the production environment (and one for staging, if you made it).",
+      "Paste the tokens below. You'll paste the service URL(s) on the agent's Deployment page.",
+    ],
+    fields: [
+      { name: "productionToken", label: "Production project token", type: "password" },
+      { name: "stagingToken", label: "Staging project token (optional)", type: "password", optional: true },
+    ],
+  },
 ];
 
 async function connectLlm(id: LlmOption["id"], apiKey: string): Promise<{ ok: boolean; error?: string }> {
@@ -228,6 +301,9 @@ async function connectService(id: Service["id"], values: Record<string, string>)
       host: values.host,
       personalApiKey: values.personalApiKey,
     };
+  } else if (id === "langfuse" || id === "langsmith" || id === "aws" || id === "railway") {
+    endpoint = "/api/agent-tools/configure";
+    payload = { id, values };
   } else {
     endpoint = "/api/supabase/configure";
     payload = { url: values.url, anonKey: values.anonKey, serviceKey: values.serviceKey };
@@ -297,12 +373,6 @@ const AI_ENGINES: Slot[] = [
   { id: "ai-openai", label: "AI engine", section: "Every stage", options: [llm("ai-openai")] },
 ];
 
-const LANGSMITH: PlaceholderTool = {
-  id: "langsmith",
-  label: "LangSmith",
-  blurb: "One key covers tracing, auth, evaluation, deployment and monitoring.",
-};
-
 /**
  * One toolbox per pipeline. Keys are global (stored once, reused by every
  * project); the toolbox only decides which jobs a pipeline shows.
@@ -326,13 +396,16 @@ const TOOLBOX: Record<PipelineKindKey, Slot[]> = {
       id: "framework",
       label: "Agent framework",
       section: "Agent Design · Engineering & Development",
-      options: [placeholder({ id: "langchain", label: "LangChain", blurb: "Model and tool integrations, plus create_agent — the loop with structured responses.", statusText: "No key needed" })],
+      options: [
+        placeholder({ id: "langchain", label: "LangChain", blurb: "Model and tool integrations, plus create_agent — the loop with structured responses.", statusText: "No key needed" }),
+        placeholder({ id: "crewai", label: "CrewAI", blurb: "Teams of role-based agents that hand work to each other (Python). Not wired yet." }),
+      ],
     },
     {
       id: "tracing",
-      label: "Tracing & monitoring",
-      section: "Engineering & Development · Operations",
-      options: [placeholder(LANGSMITH)],
+      label: "Tracing",
+      section: "Engineering & Development · Evaluations · Operations",
+      options: [service("langfuse"), service("langsmith")],
     },
     {
       id: "approval",
@@ -340,29 +413,48 @@ const TOOLBOX: Record<PipelineKindKey, Slot[]> = {
       section: "Security",
       options: [placeholder({ id: "langgraph", label: "LangGraph", blurb: "Interrupts pause consequential actions until a human approves.", statusText: "No key needed" })],
     },
-    { id: "auth", label: "Authorization", section: "Security", options: [placeholder(LANGSMITH)] },
+    {
+      id: "auth",
+      label: "User login & authorization",
+      section: "Security · Deployment",
+      options: [
+        placeholder({ id: "supabase-auth", label: "Supabase Auth", blurb: "Default. Comes with the Supabase state database: one account, free tier, and the database itself keeps each user's data separate." }),
+        placeholder({ id: "clerk", label: "Clerk", blurb: "Pick this if the agent will charge users — login and payments in one account." }),
+      ],
+    },
     {
       id: "unit-tests",
       label: "Unit tests",
       section: "Evaluations",
       options: [placeholder({ id: "pytest", label: "pytest", blurb: "Deterministic unit and integration tests for the agent's code and tools.", statusText: "No key needed" })],
     },
-    { id: "evals", label: "Eval runner", section: "Evaluations", options: [placeholder(LANGSMITH)] },
-    { id: "runtime", label: "Runtime host", section: "Deployment", options: [placeholder(LANGSMITH)] },
     {
-      id: "chat-ui",
-      label: "Chat UI",
+      id: "evals",
+      label: "Eval runner",
+      section: "Evaluations",
+      options: [placeholder({ id: "local-evals", label: "Built-in eval runner", blurb: "Versioned test cases in your agent's repo, repeat tries, a pinned baseline and a release gate. Runs on your machine.", statusText: "Built in" })],
+    },
+    {
+      id: "runtime",
+      label: "Agent host",
+      section: "Deployment",
+      options: [service("aws"), service("railway")],
+    },
+    {
+      id: "state-db",
+      label: "Agent state database",
       section: "Deployment",
       options: [
-        placeholder({
-          id: "agent-chat-ui",
-          label: "Agent Chat UI",
-          blurb: "Ready-made streaming chat frontend. Production needs a secured proxy or custom auth — never a browser-exposed LangSmith key.",
-          statusText: "No key needed",
-        }),
+        placeholder({ id: "supabase-postgres", label: "Supabase Postgres", blurb: "Keeps conversations, memory and actions waiting for your approval. Free tier." }),
+        placeholder({ id: "neon", label: "Neon Postgres", blurb: "Serverless Postgres alternative. Free tier." }),
       ],
     },
-    { id: "web-host", label: "Web host", section: "Deployment", options: [placeholder({ id: "vercel", label: "Vercel", blurb: "Hosts the chat web app." })] },
+    {
+      id: "web-host",
+      label: "Chat page (only if people need to talk to the agent)",
+      section: "Deployment",
+      options: [placeholder({ id: "vercel", label: "Vercel", blurb: "Hosts the login-protected chat page. Agents that run on their own skip it." })],
+    },
     {
       id: "ci",
       label: "CI / release gates",
