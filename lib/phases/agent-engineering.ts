@@ -13,7 +13,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
-import { activeProvider } from "../llm/registry";
+import { completeCodeJson } from "../llm/coding";
 import type { AgentDesign } from "../agent/design";
 import type { ExampleTask, FilledLogic, GeneratedFile } from "../agent/types";
 import { pyIdent } from "../agent/adapters/langchain";
@@ -100,7 +100,7 @@ function toolSpecText(design: AgentDesign): string {
 
 /** The only model-written code. Everything safety-related stays in the template. */
 export async function generateLogic(design: AgentDesign, spec: Record<string, any>, title: string, fixHint = ""): Promise<FilledLogic> {
-  const result = await activeProvider().completeJson<FilledLogic>({
+  const result = await completeCodeJson<FilledLogic>({
     system:
       "You are a senior Python engineer writing production LangChain agent code from an APPROVED design. Implement the design exactly; " +
       "add no tools and change no permissions. Tool bodies must be real working code against the named library or API — never a stub, " +

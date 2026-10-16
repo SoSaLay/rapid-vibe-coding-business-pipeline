@@ -183,7 +183,7 @@ export default function ProjectWorkspace() {
         }
         return <Engineering projectId={project.id} hasSpec={!!productSpec} state={engineering} manifest={buildManifest?.payload ?? null} mode={mode} onUpdated={refresh} />;
       case "agent-design":
-        return <AgentDesign projectId={project.id} hasSpec={!!productSpec} state={(phaseState as any)?.["agent-design"] ?? null} onUpdated={refresh} />;
+        return <AgentDesign projectId={project.id} hasSpec={!!productSpec} state={(phaseState as any)?.["agent-design"] ?? null} spec={productSpec?.payload ?? null} onUpdated={refresh} />;
       case "security":
         return (
           <AgentSecurity

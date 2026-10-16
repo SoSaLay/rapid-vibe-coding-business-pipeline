@@ -70,7 +70,7 @@ export const anthropicProvider: LlmProvider = {
     const effort = args.effort ?? "high";
 
     const response = await client.messages.create({
-      model: MODEL,
+      model: args.model || MODEL,
       max_tokens: MAX_TOKENS_BY_EFFORT[effort],
       thinking: { type: "adaptive" },
       system: [{ type: "text", text: args.system, cache_control: { type: "ephemeral" } }],

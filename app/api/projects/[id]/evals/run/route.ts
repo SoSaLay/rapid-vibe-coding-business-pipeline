@@ -31,7 +31,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!run.ok) return NextResponse.json({ error: "The eval run failed.", output: run.output }, { status: 500 });
 
   const raw = JSON.parse(await fs.readFile(path.join(ctx.dir, ".results", "evals.json"), "utf8"));
-  const summary = summarize(raw);
+  const summary = summarize(raw, ctx.design.model_price);
   const state = await getEvals(params.id);
   const budgets = (await latestArtifact(params.id, "product-spec"))?.payload as any;
   const checks = gate(summary, state.baseline, { latency: budgets?.agent?.latency_budget, cost: budgets?.agent?.cost_budget });

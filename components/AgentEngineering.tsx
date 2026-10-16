@@ -82,6 +82,25 @@ export function AgentEngineering({
     setBusy(null);
   }
 
+  /** Light update: re-render without rewriting code (skills, knowledge, model, limits), then re-run the tests. */
+  async function light() {
+    setError(null);
+    setLog(null);
+    setBusy("Applying the design changes (no code rewrite)…");
+    try {
+      const b = await step("refresh");
+      onUpdated();
+      if (b) {
+        setBusy(STEPS[2].busy);
+        await step("test");
+        onUpdated();
+      }
+    } catch (e: any) {
+      if (!stopper.isAbort(e)) setError(e?.message || "Light update failed.");
+    }
+    setBusy(null);
+  }
+
   async function complete(force: boolean) {
     setBusy("Finishing…");
     setError(null);
@@ -137,15 +156,25 @@ export function AgentEngineering({
             </>
           ) : (
             <>
-              <button className="btn-primary" onClick={() => runFrom(0)}>
-                {!build ? "Build my agent →" : stale ? "Rebuild from the new design →" : "Rebuild from scratch"}
+              {stale && (
+                <button className="btn-primary" onClick={light}>
+                  Apply design changes →
+                </button>
+              )}
+              <button className={stale ? "btn-ghost" : "btn-primary"} onClick={() => runFrom(0)}>
+                {!build ? "Build my agent →" : stale ? "Rebuild everything" : "Rebuild from scratch"}
               </button>
               {build && !stale && !done.install && <button className="btn-ghost" onClick={() => runFrom(1)}>Retry install</button>}
               {done.install && <button className="btn-ghost" onClick={() => runFrom(2)}>Re-run tests</button>}
             </>
           )}
         </div>
-        {stale && <DocMuted className="mt-2">The design changed after this build. Rebuild to match it.</DocMuted>}
+        {stale && (
+          <DocMuted className="mt-2">
+            The design changed after this build. If you only changed skills, knowledge, the model, memory, approvals or limits, apply the
+            changes. Nothing is rewritten. New or changed tools need Rebuild everything.
+          </DocMuted>
+        )}
         {error && <p className="mt-3 text-sm text-bad">{error}</p>}
         {log && <pre className="mt-3 max-h-60 overflow-auto rounded-lg border border-edge bg-ink p-3 text-[11px] text-fg/80 whitespace-pre-wrap">{log}</pre>}
       </DocSection>

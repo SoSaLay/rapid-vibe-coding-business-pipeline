@@ -7,6 +7,7 @@ import { activeEmailProvider } from "@/lib/email/registry";
 import { isPostHogConfigured } from "@/lib/posthog";
 import { langfuseConfig, langsmithKey } from "@/lib/agent/registry";
 import { readConnectorConfig } from "@/lib/connectors/config";
+import { getCodingModel } from "@/lib/llm/coding";
 
 /**
  * Aggregate connection status for the onboarding panel.
@@ -47,6 +48,7 @@ export async function GET() {
     langsmith,
     aws,
     railway,
+    "coding-model": !!(await getCodingModel()),
     // requiredComplete gates progression (any LLM engine); allComplete = every slot in.
     requiredComplete: llm,
     allComplete: llm && exa && google && supabase && resend && posthog,

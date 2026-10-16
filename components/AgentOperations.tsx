@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { OpsState } from "@/lib/agent/ops";
+import Link from "next/link";
 import { Doc, DocSection, DocP, DocMuted, DocFacts } from "./doc/Doc";
 
 interface OpsResp {
@@ -70,6 +71,8 @@ export function AgentOperations({ projectId, live, completed, onUpdated }: { pro
   return (
     <Doc>
       {!live && <div className="card mb-6 p-3 text-sm text-muted">Not live in production yet. These numbers come from staging and local runs.</div>}
+
+      <AgentConsole projectId={projectId} />
 
       <DocSection title="How it's doing">
         <div className="mb-3 flex gap-2">
@@ -192,6 +195,8 @@ export function AgentOperations({ projectId, live, completed, onUpdated }: { pro
         </ul>
       </DocSection>
 
+      <UserMemory projectId={projectId} />
+
       <DocSection title="Incidents">
         {open.length > 0 && <p className="mb-2 text-sm text-bad">{open.length} open</p>}
         <ul className="space-y-2 text-sm">
@@ -278,5 +283,152 @@ export function AgentOperations({ projectId, live, completed, onUpdated }: { pro
       {note && <p className="text-sm text-ok">{note}</p>}
       {error && <p className="text-sm text-bad">{error}</p>}
     </Doc>
+  );
+}
+
+const KNOWLEDGE_NAME: Record<string, string> = { none: "None", skills: "Built into skills", rag: "Document search" };
+
+/**
+ * Agent console: what the agent runs today and how to change it. Light changes (skills, knowledge, model,
+ * limits) go Design → Apply → Evaluations → Release; new tools take the full Build path.
+ */
+function AgentConsole({ projectId }: { projectId: string }) {
+  const [st, setSt] = useState<any>(null);
+  useEffect(() => {
+    fetch(`/api/projects/${projectId}/agent-status`).then((r) => r.json()).then(setSt).catch(() => {});
+  }, [projectId]);
+  if (!st) return null;
+  const base = `/project/${projectId}`;
+  return (
+    <DocSection title="Your agent">
+      <DocFacts
+        items={[
+          { label: "Model", value: st.model },
+          { label: "Skills", value: st.skills.join(", ") || "None" },
+          { label: "Knowledge", value: `${KNOWLEDGE_NAME[st.knowledge] ?? st.knowledge}${st.knowledge === "rag" ? ` (${st.knowledge_sources} sources)` : ""}` },
+          { label: "Tools", value: st.tools.join(", ") || "None" },
+          { label: "Live", value: st.live ? `Release ${st.live.release}` : "Not live yet" },
+          { label: "Last evaluation", value: st.evaluated ? `${st.evaluated.passed ? "passed" : "failed"} · ${new Date(st.evaluated.at).toLocaleDateString()} · dataset v${st.evaluated.dataset}` : "Never" },
+        ]}
+      />
+      {st.next ? (
+        <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-accent/40 bg-accent/5 p-3 text-sm">
+          <span className="text-fg">
+            <span className="font-semibold">Next: {st.next.step}.</span> {st.next.why}
+          </span>
+          <Link className="btn-primary ml-auto text-sm" href={`${base}/${st.next.page}`}>Go →</Link>
+        </div>
+      ) : (
+        <DocMuted className="mt-3">Everything is in step: what's live is what you designed and evaluated.</DocMuted>
+      )}
+      <div className="mt-3 flex flex-wrap gap-2 text-sm">
+        <Link className="btn-ghost" href={`${base}/agent-design`}>Add a skill</Link>
+        <Link className="btn-ghost" href={`${base}/agent-design`}>Change the model</Link>
+        <Link className="btn-ghost" href={`${base}/agent-design`}>Change knowledge</Link>
+        <Link className="btn-ghost" href={`${base}/agent-design`}>Add or change a tool</Link>
+      </div>
+      <DocMuted className="mt-2">
+        Skills, knowledge, model and limits are light changes: approve → apply (no code rewrite) → Evaluations → release. A new or
+        changed tool rewrites code, so it goes through the full build. Either way, the evaluation gate decides what reaches production.
+      </DocMuted>
+    </DocSection>
+  );
+}
+
+/** See what the agent remembers about a user, and erase it on request (right to be forgotten). */
+function UserMemory({ projectId }: { projectId: string }) {
+  const [search, setSearch] = useState("");
+  const [users, setUsers] = useState<{ user: string; facts: number; conversations: number; last: string | null }[] | null>(null);
+  const [forgotten, setForgotten] = useState<{ user: string; at: string; removed: Record<string, number> }[]>([]);
+  const [open, setOpen] = useState<string | null>(null);
+  const [items, setItems] = useState<{ id: number; kind: string; category: string; text: string; at: string }[]>([]);
+  const [confirm, setConfirm] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function call(body: any) {
+    setBusy(true);
+    const res = await fetch(`/api/projects/${projectId}/ops/action`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const r = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) setMsg(r.error || "That didn't work.");
+    return res.ok ? r : null;
+  }
+  async function find() {
+    const r = await call({ action: "memory-users", search });
+    if (r) {
+      setUsers(r.users);
+      setForgotten(r.forgotten ?? []);
+    }
+  }
+  async function show(user: string) {
+    if (open === user) return setOpen(null);
+    const r = await call({ action: "memory-show", user });
+    if (r) {
+      setItems(r.items);
+      setOpen(user);
+      setConfirm("");
+    }
+  }
+  async function forget(user: string) {
+    const r = await call({ action: "memory-forget", user, confirm });
+    if (r) {
+      const n = r.removed ?? {};
+      setMsg(`Forgot ${user}: ${n.memory ?? 0} memories, ${n.conversation_checkpoints ?? 0} saved conversation steps, ${n.runs ?? 0} run-log entries.`);
+      setOpen(null);
+      await find();
+    }
+  }
+  useEffect(() => { find(); }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <DocSection title="User memory">
+      <DocMuted>What the agent remembers about each person. If someone asks to be forgotten, erase it here. That removes their memories, saved conversations and run-log entries for this agent.</DocMuted>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <input className="input h-9 min-w-0 flex-1" placeholder="Find a user id" value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && find()} />
+        <button className="btn-ghost" disabled={busy} onClick={find}>Search</button>
+      </div>
+      <ul className="mt-3 space-y-2 text-sm">
+        {(users ?? []).map((u) => (
+          <li key={u.user} className="rounded-lg border border-edge p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <code className="text-fg">{u.user}</code>
+              <span className="text-xs text-muted">{u.facts} facts · {u.conversations} conversations · last {u.last ? new Date(u.last).toLocaleDateString() : "—"}</span>
+              <button className="ml-auto text-xs text-accent underline" onClick={() => show(u.user)}>{open === u.user ? "Close" : "View"}</button>
+            </div>
+            {open === u.user && (
+              <div className="mt-2 space-y-2">
+                <ul className="max-h-60 space-y-1 overflow-auto text-xs">
+                  {items.map((i) => (
+                    <li key={i.id}>
+                      <span className="text-muted">{new Date(i.at).toLocaleDateString()} · {i.kind === "profile" ? `fact (${i.category})` : "conversation"}:</span>{" "}
+                      <span className="text-fg/90">{i.text}</span>
+                    </li>
+                  ))}
+                  {items.length === 0 && <li className="text-muted">Nothing stored.</li>}
+                </ul>
+                <div className="flex flex-wrap items-center gap-2 rounded-md border border-bad/30 bg-bad/5 p-2">
+                  <input className="input h-8 min-w-0 flex-1 text-xs" placeholder={`Type ${u.user} to confirm`} value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+                  <button className="btn-ghost border-bad/40 text-xs text-bad" disabled={busy || confirm !== u.user} onClick={() => forget(u.user)}>Forget this user</button>
+                </div>
+                <p className="text-[11px] text-muted">This can't be undone. Traces already sent to Langfuse are deleted separately in Langfuse.</p>
+              </div>
+            )}
+          </li>
+        ))}
+        {users && users.length === 0 && <DocMuted>No one is remembered yet.</DocMuted>}
+      </ul>
+      {msg && <p className="mt-2 text-sm text-ok">{msg}</p>}
+      {forgotten.length > 0 && (
+        <details className="mt-3">
+          <summary className="cursor-pointer text-xs text-muted">Deletion log ({forgotten.length})</summary>
+          <ul className="mt-1 space-y-0.5 text-xs text-muted">
+            {forgotten.map((f) => (
+              <li key={f.user + f.at}>{new Date(f.at).toLocaleString()} · {f.user} · removed {Object.entries(f.removed).map(([k, v]) => `${v} ${k.replace(/_/g, " ")}`).join(", ")}</li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </DocSection>
   );
 }

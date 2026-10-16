@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { AgentDesign as Design, Choice, ToolContract } from "@/lib/agent/design";
-import { designBlockers, needsNoTool } from "@/lib/agent/design";
+import type { AgentDesign as Design, Choice, ToolContract, SkillDef } from "@/lib/agent/design";
+import { designBlockers, needsNoTool, MODEL_PROVIDERS, modelProvider, effectiveMemory, effectiveLimits, defaultToolLimit, stopRules } from "@/lib/agent/design";
+import type { MemoryConfig } from "@/lib/agent/design";
 import { Doc, DocSection, DocP, DocMuted, DocFacts } from "./doc/Doc";
 import { Interject } from "./Interject";
 import { StopButton, useStopper } from "./StopButton";
@@ -23,11 +24,13 @@ export function AgentDesign({
   projectId,
   hasSpec,
   state,
+  spec,
   onUpdated,
 }: {
   projectId: string;
   hasSpec: boolean;
   state: { design?: Design; approved?: boolean } | null;
+  spec?: Record<string, any> | null;
   onUpdated: () => void;
 }) {
   const [design, setDesign] = useState<Design | null>(state?.design ?? null);
@@ -83,6 +86,22 @@ export function AgentDesign({
       setDirty(false);
       onUpdated();
     }
+  }
+
+  /** Skills / knowledge changes go through their own routes; unsaved edits are saved first so nothing is lost. */
+  async function designAction(path: "skills" | "knowledge", body: any, label: string): Promise<boolean> {
+    setBusy(label);
+    if (dirty && design && !(await call("save", { design }))) {
+      setBusy(null);
+      return false;
+    }
+    const d = await call(path, body);
+    setBusy(null);
+    if (d) {
+      setDirty(false);
+      onUpdated();
+    }
+    return !!d;
   }
 
   function edit(patch: Partial<Design>) {
@@ -142,6 +161,8 @@ export function AgentDesign({
         )}
       </div>
 
+      <DocMuted className="mb-4">Set up only what your agent needs today. You can add skills, knowledge, tools or a different model any time later.</DocMuted>
+
       <DocSection title="Overview">
         <DocP>{design.summary}</DocP>
         <DocFacts
@@ -157,7 +178,8 @@ export function AgentDesign({
       </DocSection>
 
       <DocSection title="Model">
-        <ChoicePicker choice={design.model} onPick={(id) => edit({ model: { ...design.model, selected: id } })} />
+        <ChoicePicker choice={design.model} onPick={(id) => edit({ model: { ...design.model, selected: id }, model_endpoint: undefined, model_price: undefined })} />
+        <CustomModel design={design} onChange={edit} />
       </DocSection>
 
       <DocSection title="Tools">
@@ -192,20 +214,29 @@ export function AgentDesign({
         </DocSection>
       )}
 
-      <DocSection title="Memory & knowledge">
-        <ChoicePicker choice={design.memory} onPick={(id) => edit({ memory: { ...design.memory, selected: id as any } })} />
-        <label className="mt-4 flex items-start gap-3 text-sm">
-          <input
-            type="checkbox"
-            className="mt-1"
-            checked={design.retrieval.enabled}
-            onChange={(e) => edit({ retrieval: { ...design.retrieval, enabled: e.target.checked } })}
-          />
-          <span>
-            <span className="font-medium text-fg">Look things up in your documents (retrieval)</span>
-            <DocMuted>{design.retrieval.rationale}</DocMuted>
-          </span>
-        </label>
+      <DocSection title="Skills">
+        <DocMuted>
+          Skills are step-by-step playbooks the agent opens only when a task needs them, so they don&apos;t crowd its attention. Add new
+          ones any time instead of building a new agent.
+        </DocMuted>
+        <SkillsEditor design={design} run={designAction} busy={!!busy} />
+      </DocSection>
+
+      <DocSection title="Knowledge">
+        <KnowledgeEditor design={design} run={designAction} busy={!!busy} />
+      </DocSection>
+
+      <DocSection title="Memory">
+        <MemoryEditor
+          value={effectiveMemory(design, spec?.agent)}
+          sensitive={["pii", "regulated"].includes(spec?.agent?.data_sensitivity)}
+          onChange={(m) =>
+            edit({
+              memory_config: m,
+              memory: { ...design.memory, selected: m.user_profile.enabled || m.past_conversations.enabled ? "long-term" : m.conversation ? "conversation" : "none" },
+            })
+          }
+        />
       </DocSection>
 
       <DocSection title="Safety">
@@ -244,6 +275,11 @@ export function AgentDesign({
           </ul>
         </details>
       </DocSection>
+
+      <details className="doc-section">
+        <summary className="cursor-pointer text-sm font-semibold text-fg">Limits &amp; stopping (advanced)</summary>
+        <LimitsEditor design={design} spec={spec} onChange={edit} />
+      </details>
 
       <DocSection title="Inputs & outputs">
         <FieldTable title="It receives" fields={design.inputs} />
@@ -478,6 +514,284 @@ function CostEstimate({ projectId, refreshKey }: { projectId: string; refreshKey
           : "Model cost is the design's estimate until Evaluations measures the real cost per run."}{" "}
         Plan prices are approximate; check each provider before you rely on them. Changing these never requires rebuilding the agent.
       </DocMuted>
+    </div>
+  );
+}
+
+/** Any provider:model LangChain supports, plus an optional OpenAI-compatible endpoint and prices for cost numbers. */
+function CustomModel({ design, onChange }: { design: Design; onChange: (p: Partial<Design>) => void }) {
+  const isCustom = !design.model.options.some((o) => o.id === design.model.selected);
+  const [open, setOpen] = useState(isCustom);
+  const provider = isCustom ? modelProvider(design.model.selected) : "openai";
+  const name = isCustom ? design.model.selected.split(":").slice(1).join(":") : "";
+  const set = (p: string, m: string) => onChange({ model: { ...design.model, selected: `${p}:${m}` } });
+
+  if (!open) {
+    return (
+      <button className="mt-3 text-sm text-accent underline" onClick={() => setOpen(true)}>
+        Use a different model…
+      </button>
+    );
+  }
+  return (
+    <div className={`mt-3 space-y-2 rounded-lg border p-3 text-sm ${isCustom ? "border-accent/60 bg-accent/5" : "border-edge"}`}>
+      <div className="font-medium text-fg">Custom model {isCustom && <span className="text-[11px] text-accent">selected</span>}</div>
+      <div className="flex flex-wrap gap-2">
+        <select className="input h-9 w-56" value={provider} onChange={(e) => set(e.target.value, name || "model-name")}>
+          {Object.entries(MODEL_PROVIDERS).map(([id, p]) => (
+            <option key={id} value={id}>{p.label}</option>
+          ))}
+        </select>
+        <input className="input h-9 min-w-0 flex-1" placeholder="Model name, e.g. gemini-2.5-pro" value={name} onChange={(e) => set(provider, e.target.value.trim())} />
+      </div>
+      {provider === "openai" && (
+        <input
+          className="input h-9 w-full"
+          placeholder="Custom endpoint (optional), e.g. https://my-host/v1 for any OpenAI-compatible model"
+          value={design.model_endpoint ?? ""}
+          onChange={(e) => onChange({ model_endpoint: e.target.value.trim() || undefined })}
+        />
+      )}
+      <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+        Price per million tokens (optional, for cost numbers): $
+        <input
+          className="input h-8 w-20"
+          placeholder="in"
+          value={design.model_price?.input ?? ""}
+          onChange={(e) => onChange({ model_price: { input: Number(e.target.value) || 0, output: design.model_price?.output ?? 0 } })}
+        />
+        in / $
+        <input
+          className="input h-8 w-20"
+          placeholder="out"
+          value={design.model_price?.output ?? ""}
+          onChange={(e) => onChange({ model_price: { input: design.model_price?.input ?? 0, output: Number(e.target.value) || 0 } })}
+        />
+        out
+      </div>
+      <DocMuted>The key for this provider is asked for under Credentials below. Evaluations will show whether it does the job as well.</DocMuted>
+    </div>
+  );
+}
+
+type Run = (path: "skills" | "knowledge", body: any, label: string) => Promise<boolean>;
+
+const SOURCE_LABEL: Record<SkillDef["source"], string> = { recommended: "recommended", written: "written for you", imported: "imported" };
+
+function SkillsEditor({ design, run, busy }: { design: Design; run: Run; busy: boolean }) {
+  const [request, setRequest] = useState("");
+  const [url, setUrl] = useState("");
+  const [open, setOpen] = useState<string | null>(null);
+  const [draft, setDraft] = useState<{ description: string; instructions: string }>({ description: "", instructions: "" });
+  const skills = design.skills ?? [];
+
+  return (
+    <div className="mt-3 space-y-3">
+      {skills.map((s) => (
+        <div key={s.name} className={`rounded-lg border border-edge p-3 text-sm ${s.enabled ? "" : "opacity-50"}`}>
+          <div className="flex flex-wrap items-center gap-2">
+            <code className="font-semibold text-fg">{s.name}</code>
+            <span className="text-[11px] text-muted">{SOURCE_LABEL[s.source]}</span>
+            {s.review && !s.review.approved && <span className="rounded-full bg-warn/15 px-2 py-0.5 text-[11px] font-semibold text-warn">needs your review</span>}
+            <div className="ml-auto flex gap-3 text-xs">
+              <button className="text-accent underline" onClick={() => { setOpen(open === s.name ? null : s.name); setDraft({ description: s.description, instructions: s.instructions }); }}>
+                {open === s.name ? "Close" : "Open"}
+              </button>
+              <button className="text-accent underline" disabled={busy} onClick={() => run("skills", { action: "toggle", name: s.name }, "Saving…")}>{s.enabled ? "Turn off" : "Turn on"}</button>
+              <button className="text-bad underline" disabled={busy} onClick={() => run("skills", { action: "remove", name: s.name }, "Removing…")}>Remove</button>
+            </div>
+          </div>
+          <p className="mt-1 text-fg/90">{s.description}</p>
+          {s.review && !s.review.approved && (
+            <div className="mt-2 rounded-md border border-warn/40 bg-warn/5 p-2 text-xs">
+              <div className="font-medium text-fg">Security review{s.source_url ? ` · from ${s.source_url}` : ""}</div>
+              {s.review.flags.length ? (
+                <ul className="mt-1 list-disc pl-4 text-warn">{s.review.flags.map((f) => <li key={f}>{f}</li>)}</ul>
+              ) : (
+                <p className="mt-1 text-muted">Nothing suspicious found. Read it anyway before approving.</p>
+              )}
+              <p className="mt-1 text-muted">Only the SKILL.md text is imported, never scripts. Open it and read it before approving.</p>
+              <button className="btn-ghost mt-2 text-xs" disabled={busy} onClick={() => run("skills", { action: "approve-review", name: s.name }, "Saving…")}>I read it, approve</button>
+            </div>
+          )}
+          {open === s.name && (
+            <div className="mt-2 space-y-2">
+              <input className="input h-9 w-full text-xs" value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
+              <textarea className="input w-full font-mono text-xs" rows={12} value={draft.instructions} onChange={(e) => setDraft({ ...draft, instructions: e.target.value })} />
+              <button className="btn-ghost text-xs" disabled={busy} onClick={() => run("skills", { action: "edit", name: s.name, ...draft }, "Saving…").then((ok) => ok && setOpen(null))}>Save skill</button>
+            </div>
+          )}
+        </div>
+      ))}
+      {skills.length === 0 && <DocMuted>No skills yet.</DocMuted>}
+
+      <div className="rounded-lg border border-dashed border-edge p-3 text-sm">
+        <div className="font-medium text-fg">Add a skill</div>
+        <textarea
+          className="input mt-2 w-full text-sm"
+          rows={2}
+          placeholder="Describe the job, e.g. 'Write replies in our friendly tone: first name, one apology max, link the help page.'"
+          value={request}
+          onChange={(e) => setRequest(e.target.value)}
+        />
+        <button className="btn-ghost mt-2 text-sm" disabled={busy || !request.trim()} onClick={() => run("skills", { action: "write", request }, "Writing the skill…").then((ok) => ok && setRequest(""))}>
+          Write it for me →
+        </button>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <input className="input h-9 min-w-0 flex-1 text-sm" placeholder="Or import one: link to a SKILL.md on GitHub" value={url} onChange={(e) => setUrl(e.target.value)} />
+          <button className="btn-ghost text-sm" disabled={busy || !url.trim()} onClick={() => run("skills", { action: "import", url }, "Importing and reviewing…").then((ok) => ok && setUrl(""))}>
+            Import
+          </button>
+        </div>
+        <DocMuted className="mt-1">Find skills in Anthropic&apos;s skills repo, on GitHub, or in community libraries. Imported skills are security-reviewed and need your sign-off.</DocMuted>
+      </div>
+    </div>
+  );
+}
+
+const KNOWLEDGE_OPTIONS = [
+  { id: "none", label: "None", note: "The model's own knowledge is enough." },
+  { id: "skills", label: "Built into skills", note: "Small, stable facts (policies, tone, rules) written into the skills above. No extra setup." },
+  { id: "rag", label: "Document search (RAG)", note: "Optional. The agent searches your documents or pages for answers. Needs an OpenAI key, used for search embeddings only." },
+] as const;
+
+function KnowledgeEditor({ design, run, busy }: { design: Design; run: Run; busy: boolean }) {
+  const k = design.knowledge ?? { mode: design.retrieval?.enabled ? "rag" : "none", sources: [] };
+  const [url, setUrl] = useState("");
+  const [title, setTitle] = useState("");
+  const [text, setText] = useState("");
+  return (
+    <div className="space-y-3">
+      <DocMuted>Pick one way for the agent to know what it needs.</DocMuted>
+      <div className="space-y-2">
+        {KNOWLEDGE_OPTIONS.map((o) => (
+          <label key={o.id} className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm ${k.mode === o.id ? "border-accent/60 bg-accent/5" : "border-edge"}`}>
+            <input type="radio" className="mt-1" checked={k.mode === o.id} disabled={busy} onChange={() => run("knowledge", { mode: o.id }, "Saving…")} />
+            <span>
+              <span className="font-medium text-fg">{o.label}</span>
+              <span className="block text-muted">{o.note}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+      {k.mode === "rag" && (
+        <div className="rounded-lg border border-edge p-3 text-sm">
+          <div className="font-medium text-fg">Documents to search</div>
+          <ul className="mt-2 space-y-1">
+            {k.sources.map((src) => (
+              <li key={src.id} className="flex items-center justify-between gap-3">
+                <span className="truncate text-fg">{src.kind === "url" ? "🔗" : "📄"} {src.title}</span>
+                <button className="text-xs text-bad underline" disabled={busy} onClick={() => run("knowledge", { remove: src.id }, "Removing…")}>Remove</button>
+              </li>
+            ))}
+            {k.sources.length === 0 && <DocMuted>None yet.</DocMuted>}
+          </ul>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <input className="input h-9 min-w-0 flex-1" placeholder="Add a page: https://…" value={url} onChange={(e) => setUrl(e.target.value)} />
+            <button className="btn-ghost" disabled={busy || !url.trim()} onClick={() => run("knowledge", { add: { url } }, "Adding…").then((ok) => ok && setUrl(""))}>Add link</button>
+          </div>
+          <input className="input mt-2 h-9 w-full" placeholder="Or paste text — title" value={title} onChange={(e) => setTitle(e.target.value)} />
+          <textarea className="input mt-1 w-full" rows={3} placeholder="Paste a policy, FAQ, or notes" value={text} onChange={(e) => setText(e.target.value)} />
+          <button className="btn-ghost mt-1" disabled={busy || !text.trim()} onClick={() => run("knowledge", { add: { title, text } }, "Adding…").then((ok) => ok && (setText(""), setTitle("")))}>Add text</button>
+          <DocMuted className="mt-2">Documents are split, indexed and bundled with the agent when Engineering builds it.</DocMuted>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MemoryEditor({ value, sensitive, onChange }: { value: MemoryConfig; sensitive: boolean; onChange: (m: MemoryConfig) => void }) {
+  const [what, setWhat] = useState(value.user_profile.what.join(", "));
+  const row = (checked: boolean, title: string, note: string, toggle: (v: boolean) => void, extra?: React.ReactNode) => (
+    <div className={`rounded-lg border p-3 text-sm ${checked ? "border-accent/60 bg-accent/5" : "border-edge"}`}>
+      <label className="flex cursor-pointer items-start gap-3">
+        <input type="checkbox" className="mt-1" checked={checked} onChange={(e) => toggle(e.target.checked)} />
+        <span>
+          <span className="font-medium text-fg">{title}</span>
+          <span className="block text-muted">{note}</span>
+        </span>
+      </label>
+      {checked && extra && <div className="mt-2 pl-7">{extra}</div>}
+    </div>
+  );
+  return (
+    <div className="space-y-2">
+      {row(value.conversation, "This conversation", "Follow-up messages continue where the last one left off. Recommended for anything people talk to.", (v) => onChange({ ...value, conversation: v }))}
+      {row(
+        value.user_profile.enabled,
+        "Remember each user's profile",
+        "The agent saves lasting facts about a person (e.g. preferences) and sees them next time. Off unless it clearly helps.",
+        (v) => onChange({ ...value, user_profile: { ...value.user_profile, enabled: v } }),
+        <div className="space-y-1">
+          <input
+            className="input h-8 w-full text-xs"
+            placeholder="What it may remember, comma-separated (e.g. preferences, company, timezone)"
+            value={what}
+            onChange={(e) => setWhat(e.target.value)}
+            onBlur={() => onChange({ ...value, user_profile: { ...value.user_profile, what: what.split(",").map((x) => x.trim()).filter(Boolean) } })}
+          />
+          {sensitive && <p className="text-xs text-warn">This agent handles personal data: keep the list short, and never include anything sensitive.</p>}
+        </div>
+      )}
+      {row(
+        value.past_conversations.enabled,
+        "Remember past conversations",
+        "At the start of a new conversation, the agent sees its last few exchanges with the same person.",
+        (v) => onChange({ ...value, past_conversations: { ...value.past_conversations, enabled: v } }),
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+          Last
+          <input type="number" min={1} max={50} className="input h-8 w-16" value={value.past_conversations.items} onChange={(e) => onChange({ ...value, past_conversations: { ...value.past_conversations, items: Number(e.target.value) || 5 } })} />
+          conversations, from the past
+          <input type="number" min={1} max={365} className="input h-8 w-16" value={value.past_conversations.days} onChange={(e) => onChange({ ...value, past_conversations: { ...value.past_conversations, days: Number(e.target.value) || 30 } })} />
+          days
+        </div>
+      )}
+      <DocMuted>Memory is stored in your agent&apos;s own database, per user. Evaluations test that it remembers what it should and forgets what it shouldn&apos;t.</DocMuted>
+    </div>
+  );
+}
+
+function LimitsEditor({ design, spec, onChange }: { design: Design; spec?: Record<string, any> | null; onChange: (p: Partial<Design>) => void }) {
+  const limits = effectiveLimits(design);
+  const set = (tool: string, field: "max_calls" | "retries" | "timeout_s", v: number) =>
+    onChange({ tool_limits: { ...(design.tool_limits ?? {}), [tool]: { ...limits[tool], [field]: Math.max(0, v) } } });
+  return (
+    <div className="mt-3 space-y-4">
+      <DocMuted>Pre-filled for you. Read tools may retry; write tools run at most twice and never retry, because a retried write could happen twice.</DocMuted>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-[11px] uppercase tracking-wider text-muted">
+              <th className="py-1 pr-3">Tool</th>
+              <th className="py-1 pr-3">Max calls / run</th>
+              <th className="py-1 pr-3">Retries</th>
+              <th className="py-1">Timeout (s)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {design.tools.filter((t) => t.enabled).map((t) => (
+              <tr key={t.name} className="border-t border-edge">
+                <td className="py-1.5 pr-3"><code className="text-fg">{t.name}</code> <span className="text-[11px] text-muted">{t.side_effect}</span></td>
+                {(["max_calls", "retries", "timeout_s"] as const).map((f) => (
+                  <td key={f} className="py-1.5 pr-3">
+                    <input type="number" min={0} className="input h-8 w-20" value={limits[t.name][f]} onChange={(e) => set(t.name, f, Number(e.target.value))} />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <button className="text-xs text-accent underline" onClick={() => onChange({ tool_limits: Object.fromEntries(design.tools.map((t) => [t.name, defaultToolLimit(t)])) })}>
+        Reset to recommended
+      </button>
+      <div>
+        <div className="text-xs font-semibold uppercase tracking-wider text-muted">When it stops (from Define the Job)</div>
+        <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm text-fg/90">
+          {stopRules(spec, design).map((r) => <li key={r}>{r}</li>)}
+        </ul>
+        <DocMuted className="mt-1">It also stops when it repeats the same call with the same inputs, and at the step limit above.</DocMuted>
+      </div>
     </div>
   );
 }

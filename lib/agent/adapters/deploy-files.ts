@@ -128,6 +128,9 @@ const STATE_PY = `"""Agent state in Postgres (DATABASE_URL): conversation checkp
     uv run python -m deploy.state disable|enable        # kill switch for the whole agent
     uv run python -m deploy.state disable-tool NAME     # turn one tool off
     uv run python -m deploy.state enable-tool NAME
+    uv run python -m deploy.state memory-users          # who the agent remembers, with counts
+    uv run python -m deploy.state memory-show USER      # what it remembers about one user
+    uv run python -m deploy.state memory-forget USER    # erase that user's memory, conversations and run log
 
 Without DATABASE_URL (local dev) state is in memory and the run log goes to .results/runs.jsonl.
 """
@@ -178,6 +181,17 @@ create table if not exists agent_runs (
   eval_score jsonb
 );
 create index if not exists agent_runs_agent_at on agent_runs (agent, at desc);
+create table if not exists agent_memory (
+  id bigserial primary key,
+  agent text not null,
+  user_id text not null,
+  kind text not null,
+  category text,
+  text text not null,
+  at timestamptz not null default now()
+);
+create index if not exists agent_memory_user on agent_memory (agent, user_id, kind, at desc);
+alter table agent_memory enable row level security;
 create index if not exists agent_runs_user on agent_runs (agent, user_id);
 alter table agent_runs enable row level security;
 alter table agent_controls enable row level security;
@@ -271,6 +285,45 @@ def log_run(row: dict) -> int | None:
     return int(rid[0]) if rid else None
 
 
+def memory_users(search: str = "") -> list[dict]:
+    with pool().connection() as conn:
+        rows = conn.execute(
+            """select user_id, count(*) filter (where kind = 'profile'), count(*) filter (where kind = 'history'), max(at)
+               from agent_memory where agent = %s and user_id ilike %s group by user_id order by max(at) desc limit 200""",
+            (AGENT, f"%{search}%"),
+        ).fetchall()
+    return [{"user": r[0], "facts": r[1], "conversations": r[2], "last": r[3].isoformat() if r[3] else None} for r in rows]
+
+
+def memory_show(user_id: str) -> list[dict]:
+    with pool().connection() as conn:
+        rows = conn.execute(
+            "select id, kind, category, text, at from agent_memory where agent = %s and user_id = %s order by at desc limit 500",
+            (AGENT, user_id),
+        ).fetchall()
+    return [{"id": r[0], "kind": r[1], "category": r[2], "text": r[3], "at": r[4].isoformat()} for r in rows]
+
+
+def memory_forget(user_id: str) -> dict:
+    """Right to be forgotten: this user's memory, saved conversations (checkpoints) and run log, for this agent."""
+    if not user_id:
+        raise SystemExit("user id required")
+    out = {}
+    prefix = f"{user_id}:%"
+    with pool().connection() as conn:
+        out["memory"] = conn.execute("delete from agent_memory where agent = %s and user_id = %s", (AGENT, user_id)).rowcount
+        out["runs"] = conn.execute("delete from agent_runs where agent = %s and user_id = %s", (AGENT, user_id)).rowcount
+        conversations = 0
+        for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
+            exists = conn.execute("select to_regclass(%s)", (table,)).fetchone()[0]
+            if exists:
+                n = conn.execute(f"delete from {table} where thread_id like %s", (prefix,)).rowcount
+                if table == "checkpoints":
+                    conversations = n
+        out["conversation_checkpoints"] = conversations
+    return out
+
+
 def record_feedback(run_id: int, user_id: str, score: int, note: str = "") -> bool:
     if not DATABASE_URL:
         return False
@@ -291,6 +344,12 @@ if __name__ == "__main__":
         print(json.dumps(set_control(disabled=cmd == "disable")))
     elif cmd in ("disable-tool", "enable-tool"):
         print(json.dumps(set_control(tool=sys.argv[2], tool_on=cmd == "enable-tool")))
+    elif cmd == "memory-users":
+        print(json.dumps(memory_users(sys.argv[2] if len(sys.argv) > 2 else "")))
+    elif cmd == "memory-show":
+        print(json.dumps(memory_show(sys.argv[2])))
+    elif cmd == "memory-forget":
+        print(json.dumps(memory_forget(sys.argv[2])))
     else:
         print(json.dumps(controls()))
 `;
@@ -320,12 +379,15 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
+os.environ["AGENT_SERVER"] = "1"  # long-term memory lives in the database only in the deployed server
 
 from langgraph.errors import GraphRecursionError  # noqa: E402
 from langgraph.types import Command  # noqa: E402
 
 from agent.fallback import hand_off  # noqa: E402
 from agent.graph import STEP_LIMIT, build  # noqa: E402
+from agent.limits import MEMORY  # noqa: E402
+from agent.memory import context_for, record_history, set_user  # noqa: E402
 from agent.run import _callbacks, _requests, _usage  # noqa: E402
 from agent.safety import start_recording  # noqa: E402
 from deploy.auth import AuthError, authenticate  # noqa: E402
@@ -374,9 +436,12 @@ def handle(body: dict, headers: dict) -> tuple[int, dict]:
     if ev is not None and not (eval_key and hmac.compare_digest(str(ev.get("key", "")), eval_key)):
         return 403, {"error": "eval mode needs the eval key"}
 
-    conversation = str(body.get("conversation_id") or uuid.uuid4())
+    # With conversation memory off, every new message starts fresh (approvals still resume their own conversation).
+    keep = MEMORY.get("conversation", True) or body.get("decisions")
+    conversation = str((body.get("conversation_id") if keep else None) or uuid.uuid4())
     # Each user's conversations live under their own id, so nobody can read or resume someone else's.
     thread_id = f"{user.id}:{conversation}"
+    set_user(user.id)
     calls = start_recording(
         fixtures=(ev or {}).get("fixtures"),
         dry=True if ev is not None else None,  # None = follow AGENT_DRY_RUN (off in production)
@@ -393,7 +458,10 @@ def handle(body: dict, headers: dict) -> tuple[int, dict]:
         if body.get("decisions"):
             result = _graph().invoke(Command(resume={"decisions": body["decisions"]}), config)
         elif message:
-            result = _graph().invoke({"messages": [{"role": "user", "content": message}]}, config)
+            is_new = not _graph().get_state(config).values
+            memory = context_for() if is_new and ev is None else ""
+            content = f"{memory}\\n\\n{message}" if memory else message
+            result = _graph().invoke({"messages": [{"role": "user", "content": content}]}, config)
             # Evals can't click "approve": approve automatically, since writes are dry runs there.
             while ev is not None and result.get("__interrupt__"):
                 result = _graph().invoke(Command(resume={"decisions": [{"type": "approve"} for _ in _requests(result["__interrupt__"])]}), config)
@@ -404,6 +472,8 @@ def handle(body: dict, headers: dict) -> tuple[int, dict]:
         else:
             answer = result.get("structured_response")
             output = answer.model_dump() if hasattr(answer, "model_dump") else answer
+            if ev is None:
+                record_history(message or "(approval)", output)
     except GraphRecursionError:
         status, handed, output = "handed_off", True, hand_off(message, f"hit the {STEP_LIMIT}-step limit")
     except Exception as e:  # noqa: BLE001
@@ -597,7 +667,7 @@ def stats(days: int) -> dict:
                where agent = %s and at > now() - make_interval(days => %s) group by 1 order by 2 desc""",
             (AGENT, days),
         ).fetchall()
-    pin, pout = PRICES.get(_model(), (0, 0))
+    pin, pout = PRICES.get(_model()) or (float(os.getenv("MODEL_PRICE_IN", "0")), float(os.getenv("MODEL_PRICE_OUT", "0")))
     runs = row[0] or 0
     cost = (row[6] * pin + row[7] * pout) / 1_000_000
     return {

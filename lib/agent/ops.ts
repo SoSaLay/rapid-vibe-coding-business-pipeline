@@ -36,6 +36,8 @@ export interface OpsState {
   incidents: Incident[];
   last_alert?: { at: string; alerts: string[]; emailed: boolean };
   cases_added: { run_id: number; case_id: string; at: string }[];
+  /** Audit trail of "forget this user" requests: counts only, never the deleted content. */
+  forgotten?: { user: string; at: string; removed: Record<string, number> }[];
 }
 
 export async function getOps(projectId: string): Promise<OpsState> {

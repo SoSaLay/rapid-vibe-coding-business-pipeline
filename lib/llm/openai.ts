@@ -84,7 +84,7 @@ export const openaiProvider: LlmProvider = {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: model(),
+        model: args.model || model(),
         messages: [
           { role: "system", content: args.system },
           ...args.messages.map((m) => ({ role: m.role, content: m.content })),

@@ -282,6 +282,33 @@ Each stage asks for a slot, never a specific vendor:
 
 ---
 
+## Models, skills, knowledge and light changes (2026-10-15)
+
+- [x] **Custom model** in Agent Design: any `provider:model` LangChain supports (Anthropic, OpenAI or any OpenAI-compatible endpoint, Gemini, Mistral, Groq, xAI, DeepSeek, Fireworks, Together, Ollama). Optional prices feed the cost numbers.
+- [x] **Coding model** (toolbox, optional): the model that writes code in Engineering (agent tool bodies, app task graphs). Unset means the AI engine is used.
+- [x] **Pydantic** listed in the toolbox (structured output + tool-input validation, built into every agent).
+- [x] **Skills** (procedural memory): `skills/<name>/SKILL.md`. The agent sees only each skill's name and description and opens the full playbook with `load_skill` (progressive disclosure). In Agent Design you can use the recommended skills, have one written from a short description, or import one from a GitHub link. Imports are text only, never scripts, and need a security review plus owner sign-off.
+- [x] **Knowledge**, one choice: none, built into skills, or document search (RAG). RAG is optional and needs an OpenAI key for embeddings; the index is bundled with the agent (`knowledge/index.json`, small document sets). Not yet tested live (no OpenAI key here).
+- [x] **Light vs full changes** (the gate's two paths):
+  - Light: skills, knowledge, model, memory, approvals and limits. Apply re-renders from the stored code with no rewrite (about 1s), then Evaluations, then Release.
+  - Full: new or changed tools go through Build.
+- [x] **Agent console** (Operations): what's live (model, skills, knowledge, tools, release, last eval), the next step for any pending change, and quick links to change it.
+- [x] **Memory, set in Agent Design**, with three rows recommended from the job:
+  - **This conversation:** LangGraph checkpoints.
+  - **User profile:** a `remember` tool, limited to the categories you allow, and redacted.
+  - **Past conversations:** the last N exchanges within D days.
+
+  Long-term memory lives in the agent's Postgres (`agent_memory`), but only inside the deployed server. Local runs and evals use in-process memory, so tests never touch real users' data, and a memory failure never breaks a run. Evaluations add memory cases that run as separate conversations: it should remember X, and must not remember Y. Searching memory by meaning (pgvector) is a later option; it would need an embeddings key.
+- [x] **Limits & stopping (advanced, pre-filled)** in Agent Design:
+  - Per tool: max calls per run, retries and timeout. Reads get 5 calls and 2 retries; writes get 2 calls and no retry.
+  - Repeat detection is always on: the same call with the same inputs is stopped after 2 tries.
+  - "When it stops" rules come from Define the Job's success and failure criteria, plus the step limit, and are added to the agent's instructions.
+  - Evaluations add a "knows when to stop" case.
+
+  All of these are light changes.
+- [ ] Diagnosis: a link from each failed run or eval row to its Langfuse trace, plus a per-step timing breakdown.
+- [ ] Business scorecard (success criteria vs actual) and the chat page with feedback.
+
 ## Applies to every stage
 
 - [ ] The **agent toolbox** (`components/Onboarding.tsx` → `TOOLBOX.agent`) stays matched to this plan. Every tool is listed but none is wired: LangChain, LangGraph, pytest and Agent Chat UI need no key; LangSmith, Vercel and GitHub Actions need configure flows.

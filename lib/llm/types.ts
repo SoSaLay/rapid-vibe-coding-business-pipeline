@@ -16,6 +16,8 @@ export interface LlmCompleteJsonArgs {
   schema: Record<string, unknown>;
   /** Reasoning depth / cost tradeoff. */
   effort?: "low" | "medium" | "high";
+  /** Use this model instead of the provider's default (e.g. the coding model). */
+  model?: string;
 }
 
 export interface LlmProvider {

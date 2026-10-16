@@ -4,6 +4,7 @@ import type { AgentBuildState } from "@/lib/agent/build-context";
 import { credentialsAdapter, langsmithKey } from "@/lib/agent/registry";
 import { modelKeyEnv, type AgentDesign } from "@/lib/agent/design";
 import { modelKey } from "@/lib/agent/env";
+import { readConnectorConfig } from "@/lib/connectors/config";
 
 /** Every credential the design needs, and whether each is set. Never returns values. */
 async function status(projectId: string) {
@@ -27,10 +28,15 @@ async function status(projectId: string) {
   const missing = new Set(await creds.missing(projectId, needed.map((n) => n.env)));
   // The model key is shared with the orchestrator's own AI engine when it's the same provider.
   const modelEnv = modelKeyEnv(design.model.selected);
-  const modelSet = !!(await modelKey(design.model.selected)) || !(await creds.missing(projectId, [modelEnv])).length;
+  const shared = !!(await modelKey(design.model.selected, design.model_endpoint));
+  const modelSet = !modelEnv || shared || !(await creds.missing(projectId, [modelEnv])).length;
+  const rag = design.knowledge?.mode === "rag" && modelEnv !== "OPENAI_API_KEY";
+  const embedShared = rag && !!(await readConnectorConfig("ai-openai"))?.apiKey;
+  const embedSet = embedShared || (rag && !(await creds.missing(projectId, ["OPENAI_API_KEY"])).length);
   return {
     items: [
-      { env: modelEnv, label: "Model API key", tool: "(model)", set: modelSet, shared: true },
+      ...(rag ? [{ env: "OPENAI_API_KEY", label: "OpenAI key (document search only)", tool: "search_knowledge", set: embedSet, shared: embedShared }] : []),
+      ...(modelEnv ? [{ env: modelEnv, label: "Model API key", tool: "(model)", set: modelSet, shared }] : []),
       ...needed.map((n) => ({ ...n, set: !missing.has(n.env), shared: false })),
     ],
     langsmith: !!(await langsmithKey()),

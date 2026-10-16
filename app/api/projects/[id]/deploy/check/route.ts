@@ -25,7 +25,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     timeoutMs: 30 * 60_000,
   });
   if (!r.ok) return NextResponse.json({ error: "The check couldn't run.", output: r.out.slice(-3000) }, { status: 500 });
-  const summary = summarize(JSON.parse(await fs.readFile(path.join(ctx.dir, ".results", "evals.json"), "utf8")));
+  const summary = summarize(JSON.parse(await fs.readFile(path.join(ctx.dir, ".results", "evals.json"), "utf8")), ctx.design.model_price);
   const baseline = (await getEvals(params.id)).baseline;
   const p = (x: number) => `${Math.round(x * 100)}%`;
   const gate = [

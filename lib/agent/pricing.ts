@@ -7,8 +7,8 @@ const PRICES: Record<string, { input: number; output: number }> = {
   "openai:gpt-5-mini": { input: 0.25, output: 2 },
 };
 
-export function costUsd(model: string, inputTokens: number, outputTokens: number): number | null {
-  const p = PRICES[model];
+export function costUsd(model: string, inputTokens: number, outputTokens: number, custom?: { input: number; output: number }): number | null {
+  const p = PRICES[model] ?? custom;
   if (!p) return null;
   return (inputTokens * p.input + outputTokens * p.output) / 1_000_000;
 }

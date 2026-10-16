@@ -3,9 +3,9 @@ import { execFile } from "child_process";
 import os from "os";
 import path from "path";
 import { loadBuild, saveBuild } from "@/lib/agent/build-context";
-import { frameworkAdapter } from "@/lib/agent/registry";
+import { renderAgent } from "@/lib/agent/render";
 import { uvAvailable, uvSync } from "@/lib/agent/adapters/pytest-uv";
-import { envVarsUsed, exampleTasks, generateLogic, writeCodebase } from "@/lib/phases/agent-engineering";
+import { envVarsUsed, generateLogic, writeCodebase } from "@/lib/phases/agent-engineering";
 
 // Import everything except building the agent itself (that needs the model key, checked in Test).
 const CHECK =
@@ -37,10 +37,11 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   if (!check.ok) {
     // Most failures are a bad tool body or a wrong package name — regenerate those once with the error.
     const logic = await generateLogic(ctx.design, ctx.spec, ctx.title, check.output);
-    const files = (await frameworkAdapter(params.id)).render({ title: ctx.title, design: ctx.design, logic, exampleTasks: exampleTasks(ctx.spec) });
+    const { files } = await renderAgent({ projectId: params.id, title: ctx.title, design: ctx.design, spec: ctx.spec, logic });
     await writeCodebase(ctx.dir, files, "agent: automatic repair after install check");
     repaired = true;
     envVars = envVarsUsed(logic);
+    ctx.build.logic = logic;
     sync = await uvSync(ctx.dir);
     check = sync.ok ? await compile(ctx.dir) : { ok: false, output: sync.output };
   }

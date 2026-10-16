@@ -9,15 +9,31 @@ import { readConnectorConfig } from "../connectors/config";
 import { credentialsAdapter, langfuseConfig, langsmithKey } from "./registry";
 import { modelKeyEnv, type AgentDesign } from "./design";
 
-export async function modelKey(modelId: string): Promise<string | null> {
+/** The model key, reused from the orchestrator's own engine when it's Claude or OpenAI (not for custom endpoints). */
+export async function modelKey(modelId: string, endpoint?: string): Promise<string | null> {
   const env = modelKeyEnv(modelId);
-  return (await readConnectorConfig(env === "OPENAI_API_KEY" ? "ai-openai" : "ai-anthropic"))?.apiKey || process.env[env] || null;
+  if (!env) return null;
+  if (env === "ANTHROPIC_API_KEY" || (env === "OPENAI_API_KEY" && !endpoint)) {
+    return (await readConnectorConfig(env === "OPENAI_API_KEY" ? "ai-openai" : "ai-anthropic"))?.apiKey || process.env[env] || null;
+  }
+  return null;
 }
 
 export async function agentEnv(projectId: string, design: AgentDesign, slug: string): Promise<Record<string, string>> {
   const env: Record<string, string> = { ...(await (await credentialsAdapter(projectId)).envFor(projectId)) };
-  const mk = await modelKey(design.model.selected);
-  if (mk && !env[modelKeyEnv(design.model.selected)]) env[modelKeyEnv(design.model.selected)] = mk;
+  const keyEnv = modelKeyEnv(design.model.selected);
+  const mk = await modelKey(design.model.selected, design.model_endpoint);
+  if (keyEnv && mk && !env[keyEnv]) env[keyEnv] = mk;
+  if (design.model_endpoint) env.OPENAI_BASE_URL = design.model_endpoint;
+  // Document search embeds queries with OpenAI; reuse the orchestrator's OpenAI key when there's no agent-specific one.
+  if (design.knowledge?.mode === "rag" && !env.OPENAI_API_KEY) {
+    const k = (await readConnectorConfig("ai-openai"))?.apiKey || process.env.OPENAI_API_KEY;
+    if (k && !design.model_endpoint) env.OPENAI_API_KEY = k;
+  }
+  if (design.model_price) {
+    env.MODEL_PRICE_IN = String(design.model_price.input);
+    env.MODEL_PRICE_OUT = String(design.model_price.output);
+  }
   const lf = await langfuseConfig();
   if (lf) {
     env.LANGFUSE_PUBLIC_KEY = lf.publicKey;

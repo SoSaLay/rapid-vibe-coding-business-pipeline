@@ -19,7 +19,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   const tests = {
     ...run,
     examples,
-    skipped_examples: !env[modelKeyEnv(ctx.design.model.selected)],
+    skipped_examples: !!modelKeyEnv(ctx.design.model.selected) && !env[modelKeyEnv(ctx.design.model.selected)],
     at: new Date().toISOString(),
   };
   const build = { ...ctx.build, tests };

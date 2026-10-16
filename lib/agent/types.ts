@@ -62,7 +62,7 @@ export interface FrameworkAdapter extends AgentAdapter {
   /** Language of the generated agent. */
   language: "python";
   /** Render the deterministic skeleton + filled logic into files. Pure — no I/O. */
-  render(args: { title: string; design: AgentDesign; logic: FilledLogic; exampleTasks: ExampleTask[] }): GeneratedFile[];
+  render(args: { title: string; design: AgentDesign; logic: FilledLogic; exampleTasks: ExampleTask[]; spec?: Record<string, any> }): GeneratedFile[];
 }
 
 export interface ExampleTask {

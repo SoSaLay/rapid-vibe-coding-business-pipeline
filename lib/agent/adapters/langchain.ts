@@ -9,8 +9,9 @@
 
 import type { FrameworkAdapter, GeneratedFile, FilledLogic, ExampleTask } from "../types";
 import type { AgentDesign, Field, ToolContract } from "../design";
-import { modelKeyEnv } from "../design";
-import { EVAL_RUNNER_PY, RUN_PY, SAFETY_PY } from "./langchain-runtime";
+import { modelKeyEnv, modelPackage, effectiveLimits, effectiveMemory, stopRules } from "../design";
+import { EVAL_RUNNER_PY, KNOWLEDGE_PY, MEMORY_PY, RUN_PY, SAFETY_PY, SKILLS_PY } from "./langchain-runtime";
+import { renderSkillMd, skillSlug } from "../skills";
 
 export function pyIdent(name: string): string {
   const s = name
@@ -141,7 +142,49 @@ def hand_off(task: str, reason: str) -> dict:
 `;
 }
 
-function renderGraph(design: AgentDesign): string {
+function enabledSkills(design: AgentDesign) {
+  return (design.skills ?? []).filter((s) => s.enabled && (!s.review || s.review.approved));
+}
+
+function ragOn(design: AgentDesign) {
+  return design.knowledge?.mode === "rag";
+}
+
+/** Skill folders + the loader, and the document-search tool when RAG is the knowledge choice. */
+function renderSkillsAndKnowledge(design: AgentDesign): GeneratedFile[] {
+  const files: GeneratedFile[] = [];
+  const skills = enabledSkills(design);
+  for (const s of skills) {
+    files.push({ path: `skills/${skillSlug(s.name)}/SKILL.md`, content: renderSkillMd(s), explains: `Skill: ${s.description}` });
+  }
+  if (skills.length) files.push({ path: "agent/skills.py", content: SKILLS_PY, explains: "Lists the skills in the agent's instructions and opens one only when a task needs it." });
+  if (ragOn(design)) files.push({ path: "agent/knowledge.py", content: KNOWLEDGE_PY, explains: "Searches your documents and returns the closest passages with their source." });
+  return files;
+}
+
+function longTermMemory(design: AgentDesign, spec?: Record<string, any>) {
+  const m = effectiveMemory(design, spec?.agent);
+  return m.user_profile.enabled || m.past_conversations.enabled;
+}
+
+/** The approved design's limits, memory settings and stop rules, as plain Python data. */
+function renderLimits(design: AgentDesign, spec?: Record<string, any>): string {
+  // JSON is embedded and parsed, so text inside rules can never be mangled into Python literals.
+  const py = (v: unknown) => `json.loads(r"""${JSON.stringify(v, null, 4)}""")`;
+  return `"""Limits, memory and stop rules from the approved Agent Design. Change them in the design, not here."""
+
+import json
+
+# Per tool: most calls per run, retries after an error, seconds before a call is abandoned.
+TOOL_LIMITS = ${py(effectiveLimits(design))}
+
+MEMORY = ${py(effectiveMemory(design, spec?.agent))}
+
+STOP_RULES = ${py(stopRules(spec, design))}
+`;
+}
+
+function renderGraph(design: AgentDesign, spec?: Record<string, any>): string {
   return `"""The agent itself: one tool-calling loop with a step limit, structured output and approvals."""
 
 from __future__ import annotations
@@ -150,15 +193,20 @@ from dotenv import load_dotenv
 from langchain.agents import create_agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware
 
+from .limits import STOP_RULES
 from .prompt import SYSTEM_PROMPT
 from .schemas import AgentOutput
 from .tools import APPROVAL_REQUIRED, TOOLS
-
+${enabledSkills(design).length ? "from .skills import index_text, load_skill\n" : ""}${ragOn(design) ? "from .knowledge import search_knowledge\n" : ""}${longTermMemory(design, spec) ? "from .memory import remember\n" : ""}
 load_dotenv()
 
 MODEL = ${lit(design.model.selected)}
 # Most model + tool turns one run may take. Past this, the run stops and hands off.
 STEP_LIMIT = ${Math.max(1, Math.round(design.step_limit) || 8)}
+
+
+def _rules() -> str:
+    return "\\n\\nWHEN TO STOP:\\n" + "\\n".join(f"- {r}" for r in STOP_RULES)
 
 
 def build(checkpointer=None):
@@ -167,8 +215,8 @@ def build(checkpointer=None):
         middleware.append(HumanInTheLoopMiddleware(interrupt_on={name: True for name in APPROVAL_REQUIRED}))
     return create_agent(
         model=MODEL,
-        tools=TOOLS,
-        system_prompt=SYSTEM_PROMPT,
+        tools=[*TOOLS${enabledSkills(design).length ? ", load_skill" : ""}${ragOn(design) ? ", search_knowledge" : ""}${effectiveMemory(design, spec?.agent).user_profile.enabled ? ", remember" : ""}],
+        system_prompt=SYSTEM_PROMPT${enabledSkills(design).length ? " + index_text()" : ""} + _rules(),
         response_format=AgentOutput,
         middleware=middleware,
         checkpointer=checkpointer,
@@ -290,7 +338,7 @@ def test_example_task(i, monkeypatch):
 }
 
 function renderPyproject(title: string, design: AgentDesign, logic: FilledLogic, slug: string): string {
-  const provider = design.model.selected.startsWith("openai:") ? "langchain-openai>=1.0" : "langchain-anthropic>=1.0";
+  const provider = modelPackage(design.model.selected);
   const deps = [
     "langchain>=1.0",
     "langgraph>=1.0",
@@ -329,7 +377,8 @@ pythonpath = ["."]
 function renderEnvExample(design: AgentDesign): string {
   const lines = [
     "# Copy to .env (the pipeline writes .env for you from the keys you pasted in Agent Design).",
-    `${modelKeyEnv(design.model.selected)}=`,
+    ...(modelKeyEnv(design.model.selected) ? [`${modelKeyEnv(design.model.selected)}=`] : []),
+    ...(design.model_endpoint ? [`OPENAI_BASE_URL=${design.model_endpoint}`] : []),
     "",
     "# Tracing to LangSmith (free tier is enough while building).",
     "LANGSMITH_TRACING=true",
@@ -380,7 +429,7 @@ export const langchainFramework: FrameworkAdapter = {
   status: "active",
   language: "python",
   isConnected: async () => true,
-  render({ title, design, logic, exampleTasks }): GeneratedFile[] {
+  render({ title, design, logic, exampleTasks, spec }): GeneratedFile[] {
     const slug = pyIdent(title).replace(/_/g, "-") || "agent";
     const base: ExampleTask[] = exampleTasks.length ? exampleTasks : [{ input: "Hello", expected: "A sensible reply" }];
     const toolNames = new Set(design.tools.filter((t) => t.enabled).map((t) => pyIdent(t.name)));
@@ -397,7 +446,9 @@ export const langchainFramework: FrameworkAdapter = {
         : "";
     return [
       { path: "agent/__init__.py", content: "", explains: "Marks the agent folder as a Python package." },
-      { path: "agent/graph.py", content: renderGraph(design), explains: "The agent itself: which model it uses, its tools, the step limit and which actions need your approval." },
+      { path: "agent/limits.py", content: renderLimits(design, spec), explains: "Your limits per tool, memory settings and when-to-stop rules, from the approved design." },
+      { path: "agent/memory.py", content: MEMORY_PY, explains: "What the agent remembers about each user across conversations (only what you turned on)." },
+      { path: "agent/graph.py", content: renderGraph(design, spec), explains: "The agent itself: which model it uses, its tools, the step limit and which actions need your approval." },
       {
         path: "agent/prompt.py",
         content: `"""The instructions the agent follows."""\n\nSYSTEM_PROMPT = ${lit(logic.system_prompt + workflowNote)}\n`,
@@ -432,6 +483,7 @@ export const langchainFramework: FrameworkAdapter = {
       { path: ".env.example", content: renderEnvExample(design), explains: "The keys the agent needs (the real values live in .env, which is never committed)." },
       { path: ".gitignore", content: ".env\n.venv/\n__pycache__/\n.results/\nhandoffs.jsonl\n.langgraph_api/\n", explains: "Keeps secrets and local files out of git." },
       { path: "README.md", content: renderReadme(title, design), explains: "A plain-language tour of the codebase." },
+      ...renderSkillsAndKnowledge(design),
     ];
   },
 };

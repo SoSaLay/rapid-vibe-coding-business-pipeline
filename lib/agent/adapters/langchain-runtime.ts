@@ -13,10 +13,18 @@ import functools
 import json
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as CallTimeout
+
+try:  # per-tool limits from the approved design (agent/limits.py)
+    from .limits import TOOL_LIMITS
+except ImportError:  # pragma: no cover
+    TOOL_LIMITS = {}
 
 MAX_RETRIES = 2
-
 MAX_TOOL_CALLS = int(os.getenv("AGENT_MAX_TOOL_CALLS", "20"))
+# Same tool + same inputs this many times = the agent is looping; it's told to stop.
+REPEAT_LIMIT = 2
 # Optional per-tool roles, e.g. {"issue_refund": ["admin"]}: the caller must have one of them.
 TOOL_ROLES: dict = json.loads(os.getenv("TOOL_ROLES") or "{}")
 
@@ -44,12 +52,24 @@ def dry_run() -> bool:
     return per_run if per_run is not None else os.getenv("AGENT_DRY_RUN") == "1"
 
 
-def _blocked(name: str) -> str | None:
+def _limit(name: str) -> dict:
+    return TOOL_LIMITS.get(name, {})
+
+
+def _blocked(name: str, kwargs: dict) -> str | None:
     if name in _OFF.get():
         return f"ERROR {name} is switched off by the operator. Do not retry; hand off if you need it."
     calls = _CALLS.get()
     if calls is not None and len(calls) >= MAX_TOOL_CALLS:
         return f"ERROR tool-call limit ({MAX_TOOL_CALLS}) reached for this run. Stop and hand off."
+    if calls is not None:
+        mine = [c for c in calls if c["tool"] == name]
+        cap = _limit(name).get("max_calls")
+        if cap and len(mine) >= cap:
+            return f"ERROR {name} may be called at most {cap} times per run. Use what you have or hand off."
+        key = json.dumps(kwargs, sort_keys=True, default=str)
+        if sum(1 for c in mine if json.dumps(c["args"], sort_keys=True, default=str) == key) >= REPEAT_LIMIT:
+            return f"ERROR you already called {name} with these exact inputs {REPEAT_LIMIT} times. Stop repeating: use the earlier result or hand off."
     roles = _ROLES.get()
     needed = TOOL_ROLES.get(name)
     if needed and roles is not None and not (roles & set(needed)):
@@ -79,19 +99,30 @@ def safe_tool(name: str, side_effect: str):
     def deco(fn):
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
-            blocked = _blocked(name)
+            blocked = _blocked(name, kwargs)
             if blocked:
                 return _record(name, side_effect, kwargs, blocked)
             if dry_run() and name in fixtures():
                 return _record(name, side_effect, kwargs, str(fixtures()[name]))
             if side_effect == "write" and dry_run():
                 return _record(name, side_effect, kwargs, f"[dry run] {name} would run with {json.dumps(kwargs, default=str)[:500]}")
-            # Reads are retried; writes are not (a retried write could happen twice).
-            tries = MAX_RETRIES + 1 if side_effect == "read" else 1
+            # Reads are retried; writes are not unless the design says so (a retried write could happen twice).
+            lim = _limit(name)
+            retries = int(lim.get("retries", MAX_RETRIES if side_effect != "write" else 0))
+            timeout = float(lim.get("timeout_s", 60))
+            tries = retries + 1
             last: Exception | None = None
             for attempt in range(tries):
                 try:
-                    out = fn(*args, **kwargs)
+                    ctx = contextvars.copy_context()
+                    pool = ThreadPoolExecutor(max_workers=1)
+                    future = pool.submit(ctx.run, fn, *args, **kwargs)
+                    try:
+                        out = future.result(timeout=timeout)
+                    except CallTimeout:
+                        raise TimeoutError(f"no answer after {timeout:.0f}s") from None
+                    finally:
+                        pool.shutdown(wait=False)
                     return _record(name, side_effect, kwargs, out if isinstance(out, str) else json.dumps(out, default=str))
                 except PermissionError as e:
                     return _record(name, side_effect, kwargs, f"ERROR permission denied in {name}: {e}")
@@ -179,32 +210,47 @@ def _usage(messages) -> dict:
     return total
 
 
-def run_task(task, approve=None, fixtures: dict | None = None, tags: list[str] | None = None) -> dict:
+def run_task(task, approve=None, fixtures: dict | None = None, tags: list[str] | None = None, user_id: str = "local", separate: bool = False) -> dict:
     """Run one task (a string, or a list of user turns for multi-turn).
 
     approve(request) -> bool decides each approval; default approves only in dry run.
+    separate=True starts a NEW conversation for every turn (same user): that's how long-term memory is tested.
     Returns the answer plus what happened: tool calls, tokens, latency and steps.
     """
+    from .memory import context_for, record_history, set_user
+
     turns = task if isinstance(task, list) else [task]
+    set_user(user_id)
     calls = start_recording(fixtures)
     agent = build(InMemorySaver())
-    config = {
-        "configurable": {"thread_id": str(uuid.uuid4())},
-        "recursion_limit": STEP_LIMIT * 2 + 1,
-        "callbacks": _callbacks(),
-        "metadata": {"langfuse_tags": tags or []},
-    }
+
+    def new_config() -> dict:
+        return {
+            "configurable": {"thread_id": str(uuid.uuid4())},
+            "recursion_limit": STEP_LIMIT * 2 + 1,
+            "callbacks": _callbacks(),
+            "metadata": {"langfuse_tags": tags or [], "langfuse_user_id": user_id},
+        }
+
+    config = new_config()
     started = time.perf_counter()
     result: dict = {}
     try:
-        for turn in turns:
-            result = agent.invoke({"messages": [{"role": "user", "content": turn}]}, config)
+        for i, turn in enumerate(turns):
+            if separate and i:
+                config = new_config()
+            # A new conversation starts with what the agent remembers about this user.
+            memory = context_for() if (separate or i == 0) else ""
+            content = f"{memory}\\n\\n{turn}" if memory else turn
+            result = agent.invoke({"messages": [{"role": "user", "content": content}]}, config)
             while result.get("__interrupt__"):
                 decisions = []
                 for req in _requests(result["__interrupt__"]):
                     ok = approve(req) if approve else dry_run()
                     decisions.append({"type": "approve"} if ok else {"type": "reject", "message": "A human declined this action."})
                 result = agent.invoke(Command(resume={"decisions": decisions}), config)
+            answer = result.get("structured_response")
+            record_history(turn, answer.model_dump() if hasattr(answer, "model_dump") else answer)
     except GraphRecursionError:
         out = hand_off(str(turns[-1]), f"hit the {STEP_LIMIT}-step limit")
     except Exception as e:  # noqa: BLE001
@@ -328,7 +374,13 @@ def score(case: dict, trial: int) -> dict:
     if os.getenv("EVAL_REMOTE") == "1":
         run = _remote(case)
     else:
-        run = run_task(case["turns"], fixtures=case.get("fixtures") or {}, tags=["eval", f"dataset-v{DATASET.get('version')}", case["id"]])
+        run = run_task(
+            case["turns"],
+            fixtures=case.get("fixtures") or {},
+            tags=["eval", f"dataset-v{DATASET.get('version')}", case["id"]],
+            user_id=f"eval-{case['id']}-{trial}",
+            separate=bool(case.get("separate_conversations")),
+        )
     called = [c["tool"] for c in run.get("calls", [])]
     missing = [t for t in case.get("must_call", []) if t not in called]
     forbidden = [t for t in case.get("must_not_call", []) if t in called]
@@ -382,4 +434,239 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+`;
+
+export const SKILLS_PY = `"""Skills: playbooks in skills/<name>/SKILL.md. The agent sees only each skill's name and description
+(the index in its instructions) and opens the full playbook with load_skill when a task needs it."""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+from langchain_core.tools import tool
+from pydantic import BaseModel, Field
+
+from .safety import safe_tool
+
+SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills"
+_FRONT = re.compile(r"^---\\s*\\n(.*?)\\n---\\s*\\n?(.*)$", re.S)
+
+
+def catalog() -> dict[str, dict]:
+    out: dict[str, dict] = {}
+    for f in sorted(SKILLS_DIR.glob("*/SKILL.md")):
+        m = _FRONT.match(f.read_text(encoding="utf-8").strip())
+        if not m:
+            continue
+        meta = dict(re.findall(r"^(\\w+):\\s*(.+)$", m.group(1), re.M))
+        name = meta.get("name", f.parent.name).strip().strip('"')
+        out[name] = {"description": meta.get("description", "").strip().strip('"'), "body": m.group(2).strip()}
+    return out
+
+
+def index_text() -> str:
+    skills = catalog()
+    if not skills:
+        return ""
+    lines = "\\n".join(f"- {n}: {s['description']}" for n, s in skills.items())
+    return (
+        "\\n\\nSKILLS. Before doing a task one of these covers, call load_skill with its name and follow it:\\n" + lines
+    )
+
+
+class LoadSkillArgs(BaseModel):
+    """Inputs for load_skill."""
+    name: str = Field(description="The skill's name, exactly as listed under SKILLS.")
+
+
+@tool("load_skill", args_schema=LoadSkillArgs, description="Open a skill's full instructions. Use it before doing a task a skill covers.")
+@safe_tool(name="load_skill", side_effect="read")
+def load_skill(name: str) -> str:
+    skills = catalog()
+    if name not in skills:
+        return f"ERROR no skill named {name!r}. Available: {', '.join(skills) or 'none'}."
+    return skills[name]["body"]
+`;
+
+export const KNOWLEDGE_PY = `"""Document search (RAG): knowledge/index.json holds chunks of the owner's documents with their embeddings.
+The query is embedded with OpenAI (OPENAI_API_KEY), and the closest chunks come back with their source."""
+
+from __future__ import annotations
+
+import json
+import math
+import os
+import urllib.request
+from functools import lru_cache
+from pathlib import Path
+
+from langchain_core.tools import tool
+from pydantic import BaseModel, Field
+
+from .safety import safe_tool
+
+INDEX = Path(__file__).resolve().parent.parent / "knowledge" / "index.json"
+
+
+@lru_cache(maxsize=1)
+def _index() -> dict:
+    return json.loads(INDEX.read_text(encoding="utf-8")) if INDEX.exists() else {"model": "", "chunks": []}
+
+
+def _embed(text: str, model: str) -> list[float]:
+    req = urllib.request.Request(
+        os.getenv("EMBEDDINGS_BASE_URL", "https://api.openai.com/v1").rstrip("/") + "/embeddings",
+        data=json.dumps({"model": model, "input": text[:8000]}).encode(),
+        headers={"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}", "Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=30) as r:  # noqa: S310 — fixed OpenAI endpoint
+        return json.loads(r.read())["data"][0]["embedding"]
+
+
+def _cos(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    na = math.sqrt(sum(x * x for x in a)) or 1.0
+    nb = math.sqrt(sum(y * y for y in b)) or 1.0
+    return dot / (na * nb)
+
+
+class SearchKnowledgeArgs(BaseModel):
+    """Inputs for search_knowledge."""
+    query: str = Field(description="What to look up, in plain words.")
+
+
+@tool(
+    "search_knowledge",
+    args_schema=SearchKnowledgeArgs,
+    description="Search the owner's documents. Use it for facts about the business; answer only from what it returns, and say so when nothing relevant comes back.",
+)
+@safe_tool(name="search_knowledge", side_effect="read")
+def search_knowledge(query: str) -> str:
+    idx = _index()
+    if not idx["chunks"]:
+        return "No documents are indexed."
+    q = _embed(query, idx["model"])
+    top = sorted(idx["chunks"], key=lambda c: _cos(q, c["embedding"]), reverse=True)[:4]
+    return "\\n\\n---\\n\\n".join(f"[Source: {c['source']}]\\n{c['text']}" for c in top)
+`;
+
+export const MEMORY_PY = `"""Long-term memory across conversations (the design's Memory settings, in agent/limits.py):
+- user profile: durable facts the agent saves with remember(); shown at the start of each conversation
+- past conversations: the last few exchanges with this user, newest first
+Stored in the agent's Postgres (agent_memory) only inside the deployed server (AGENT_SERVER=1); local runs and evals
+keep memory in-process, so tests never read or write real users' memory. A memory failure never breaks a run."""
+
+from __future__ import annotations
+
+import contextvars
+import os
+import time
+
+from langchain_core.tools import tool
+from pydantic import BaseModel, Field
+
+from .limits import MEMORY
+from .safety import safe_tool
+
+_USER: contextvars.ContextVar[str] = contextvars.ContextVar("agent_user", default="local")
+_LOCAL: dict[str, list[dict]] = {}
+
+
+def set_user(user_id: str) -> None:
+    _USER.set(user_id or "local")
+
+
+def _pool():
+    if os.getenv("AGENT_SERVER") != "1" or not os.getenv("DATABASE_URL"):
+        return None
+    try:
+        from deploy.state import pool
+
+        return pool()
+    except ImportError:
+        return None
+
+
+def _rows(user: str, kind: str, limit: int, days: int | None = None) -> list[dict]:
+    p = _pool()
+    if p is None:
+        rows = [r for r in _LOCAL.get(user, []) if r["kind"] == kind and (days is None or time.time() - r["at"] < days * 86400)]
+        return sorted(rows, key=lambda r: r["at"], reverse=True)[:limit]
+    agent = os.getenv("AGENT_NAME", "agent")
+    since = f"and at > now() - make_interval(days => {int(days)})" if days else ""
+    with p.connection() as conn:
+        got = conn.execute(
+            f"select category, text, extract(epoch from at) from agent_memory where agent = %s and user_id = %s and kind = %s {since} order by at desc limit %s",
+            (agent, user, kind, limit),
+        ).fetchall()
+    return [{"category": g[0], "text": g[1], "at": float(g[2])} for g in got]
+
+
+def _save(user: str, kind: str, category: str, text: str) -> None:
+    p = _pool()
+    if p is None:
+        _LOCAL.setdefault(user, []).append({"kind": kind, "category": category, "text": text, "at": time.time()})
+        return
+    with p.connection() as conn:
+        conn.execute(
+            "insert into agent_memory (agent, user_id, kind, category, text) values (%s, %s, %s, %s, %s)",
+            (os.getenv("AGENT_NAME", "agent"), user, kind, category, text[:1000]),
+        )
+
+
+def context_for(user: str | None = None) -> str:
+    """What to show the agent before a new conversation."""
+    try:
+        return _context(user or _USER.get())
+    except Exception as e:  # noqa: BLE001
+        print(f"memory unavailable: {type(e).__name__}: {e}")
+        return ""
+
+
+def _context(user: str) -> str:
+    parts = []
+    if MEMORY["user_profile"]["enabled"]:
+        facts = _rows(user, "profile", 30)
+        if facts:
+            parts.append("WHAT YOU KNOW ABOUT THIS USER (from earlier conversations):\\n" + "\\n".join(f"- [{f['category']}] {f['text']}" for f in facts))
+    if MEMORY["past_conversations"]["enabled"]:
+        past = _rows(user, "history", MEMORY["past_conversations"]["items"], MEMORY["past_conversations"]["days"])
+        if past:
+            parts.append("RECENT CONVERSATIONS WITH THIS USER (newest first):\\n" + "\\n".join(f"- {time.strftime('%Y-%m-%d', time.localtime(r['at']))}: {r['text']}" for r in past))
+    return "\\n\\n".join(parts)
+
+
+def record_history(message: str, output) -> None:
+    if MEMORY["past_conversations"]["enabled"] and message:
+        try:
+            _save(_USER.get(), "history", "conversation", f"User: {str(message)[:200]} -> You: {str(output)[:300]}")
+        except Exception as e:  # noqa: BLE001
+            print(f"memory unavailable: {type(e).__name__}: {e}")
+
+
+class RememberArgs(BaseModel):
+    """Inputs for remember."""
+    fact: str = Field(description="One short durable fact about this user, in plain words.")
+    category: str = Field(description="One of the categories you're allowed to remember.")
+
+
+@tool(
+    "remember",
+    args_schema=RememberArgs,
+    description="Save a durable fact about the current user for future conversations. Only for the allowed categories; never passwords, card numbers or other secrets.",
+)
+@safe_tool(name="remember", side_effect="memory")
+def remember(fact: str, category: str) -> str:
+    allowed = MEMORY["user_profile"]["what"]
+    if allowed and category not in allowed:
+        return f"ERROR not an allowed category. Allowed: {', '.join(allowed)}."
+    try:
+        from deploy.redact import redact
+
+        fact = redact(fact)
+    except ImportError:
+        pass
+    _save(_USER.get(), "profile", category, fact)
+    return "Saved."
 `;

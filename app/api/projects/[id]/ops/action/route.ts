@@ -90,6 +90,24 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     await saveOps(params.id, next);
     return NextResponse.json({ ops: next, result: r.json });
   }
+  if (b.action === "memory-users") {
+    const r = await runOps(ctx.dir, env, ["deploy.state", "memory-users", String(b.search ?? "")]);
+    return NextResponse.json({ users: r.json ?? [], forgotten: ops.forgotten ?? [] }, { status: r.ok ? 200 : 500 });
+  }
+  if (b.action === "memory-show") {
+    if (!b.user) return NextResponse.json({ error: "Which user?" }, { status: 400 });
+    const r = await runOps(ctx.dir, env, ["deploy.state", "memory-show", String(b.user)]);
+    return NextResponse.json({ items: r.json ?? [] }, { status: r.ok ? 200 : 500 });
+  }
+  if (b.action === "memory-forget") {
+    const user = String(b.user ?? "").trim();
+    if (!user || b.confirm !== user) return NextResponse.json({ error: "Type the user id exactly to confirm." }, { status: 400 });
+    const r = await runOps(ctx.dir, env, ["deploy.state", "memory-forget", user]);
+    if (!r.ok) return NextResponse.json({ error: r.out.slice(-1000) }, { status: 500 });
+    const next = { ...ops, forgotten: [{ user, at: new Date().toISOString(), removed: r.json ?? {} }, ...(ops.forgotten ?? [])].slice(0, 200) };
+    await saveOps(params.id, next);
+    return NextResponse.json({ removed: r.json, ops: next });
+  }
   if (b.action === "add-case") {
     const expected = String(b.expected ?? "").trim();
     if (!expected) return NextResponse.json({ error: "Write what the agent should have done." }, { status: 400 });

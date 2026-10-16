@@ -171,7 +171,8 @@ const AGENT_ORDER: PhaseId[] = [
   "qa",
   "deployment",
   "operations",
-  "iteration",
+  // No Iteration stage for agents: improvements go through the Agent console in Operations
+  // (light changes → Evaluations → release), and a bigger rethink starts back at Agent Design.
 ];
 
 /** What the agent pipeline changes about a shared stage (ids stay the same so the phase modules are reused). */
@@ -180,9 +181,6 @@ const AGENT_OVERRIDES: Partial<Record<PhaseId, Partial<PhaseDef>>> = {
     name: "Define the Job",
     description:
       "The problem the agent is solving. An AI product owner pries at the idea through an agent lens — which repetitive task it takes over, how often it happens, what the agent needs access to, and where a human must stay in the loop — then structures it into the spec that steers every downstream stage.",
-  },
-  iteration: {
-    description: "Learnings loop back to Define the Job to restart the cycle.",
   },
   qa: {
     name: "Evaluations",

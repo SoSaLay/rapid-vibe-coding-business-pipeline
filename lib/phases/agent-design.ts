@@ -10,6 +10,7 @@
 import { activeProvider } from "../llm/registry";
 import { SKIMMABLE_STYLE } from "./brevity";
 import { AGENT_MODELS, AgentDesign, Choice, recommendLogin } from "../agent/design";
+import { recommendSkills } from "../agent/skills";
 
 const MODEL_IDS = AGENT_MODELS.map((m) => m.id);
 
@@ -191,6 +192,7 @@ export async function generateAgentDesign(spec: Record<string, any>, title: stri
   const content = `AGENT: ${title}\n\nSPEC:\n${specToAgentText(spec)}\n\n`;
   const provider = activeProvider();
   // Two smaller calls in parallel: one schema this size exceeds strict structured-output limits.
+  const skillsP = recommendSkills({ jobText: specToAgentText(spec), tools: [] }).catch(() => []);
   const [decisions, contracts] = await Promise.all([
     provider.completeJson<any>({
       system: SYSTEM + extraContext,
@@ -206,6 +208,7 @@ export async function generateAgentDesign(spec: Record<string, any>, title: stri
     }),
   ]);
   const raw = { ...decisions, ...contracts };
+  const skills = await skillsP;
   return {
     summary: raw.summary ?? "",
     approach: toChoice(raw.approach, ["agent", "workflow"]),
@@ -223,5 +226,8 @@ export async function generateAgentDesign(spec: Record<string, any>, title: stri
     est_latency: raw.est_latency ?? "",
     login: recommendLogin(spec.agent),
     runs_per_month: Number(decisions.runs_per_month) || 300,
+    skills,
+    // One knowledge approach: document search only when the job needs outside knowledge; else facts live in skills.
+    knowledge: { mode: raw.retrieval?.enabled ? "rag" : skills.length ? "skills" : "none", sources: [] },
   };
 }

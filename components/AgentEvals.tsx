@@ -14,6 +14,8 @@ const CATEGORY_LABEL: Record<string, string> = {
   timeout: "A tool times out",
   adversarial: "Attacks (prompt injection)",
   "multi-turn": "Multi-turn conversations",
+  memory: "Remembers (and forgets) correctly",
+  stopping: "Knows when to stop",
   production: "Real production failures",
 };
 

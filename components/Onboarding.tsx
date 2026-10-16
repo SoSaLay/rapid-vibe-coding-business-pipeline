@@ -18,6 +18,7 @@ export interface OnboardingStatus {
   langsmith: boolean;
   aws: boolean;
   railway: boolean;
+  "coding-model": boolean;
   /** An LLM engine (Claude OR OpenAI) connected — gates pipeline progression. */
   requiredComplete: boolean;
   /** Every slot connected — drives the "complete" (green) button state. */
@@ -93,7 +94,7 @@ const LLM_OPTIONS: LlmOption[] = [
 ];
 
 interface Service {
-  id: "exa" | "google" | "supabase" | "resend" | "posthog" | "langfuse" | "langsmith" | "aws" | "railway";
+  id: "exa" | "google" | "supabase" | "resend" | "posthog" | "langfuse" | "langsmith" | "aws" | "railway" | "coding-model";
   label: string;
   /** Why it matters / what connecting it unlocks. */
   unlocks: string;
@@ -221,6 +222,20 @@ const SERVICES: Service[] = [
     fields: [{ name: "apiKey", label: "LangSmith API key (lsv2_…)", type: "password" }],
   },
   {
+    id: "coding-model",
+    label: "Coding model",
+    unlocks: "Picks the model that writes code in Engineering & Development. Leave it unset to use your AI engine.",
+    help: "Any Claude or OpenAI model id your connected engine can use.",
+    docsUrl: "https://docs.claude.com/en/docs/about-claude/models/overview",
+    docs: [
+      "Connect Claude or OpenAI under AI engine first. The coding model runs on that key.",
+      "Type a model id: e.g. claude-fable-5-1 (most capable), claude-opus-5-5, claude-sonnet-5-5, or an OpenAI id like gpt-5.5.",
+      "Ids starting with 'claude' run on Claude; anything else runs on OpenAI.",
+      "Clear the box and save to go back to the AI engine's default.",
+    ],
+    fields: [{ name: "model", label: "Model id (e.g. claude-fable-5-1)", defaultValue: "claude-opus-5-5" }],
+  },
+  {
     id: "aws",
     label: "Amazon Bedrock AgentCore (AWS)",
     unlocks: "Hosts your agents on AgentCore: pay only while they run, each session isolated.",
@@ -301,6 +316,9 @@ async function connectService(id: Service["id"], values: Record<string, string>)
       host: values.host,
       personalApiKey: values.personalApiKey,
     };
+  } else if (id === "coding-model") {
+    endpoint = "/api/ai/coding-model";
+    payload = { model: values.model };
   } else if (id === "langfuse" || id === "langsmith" || id === "aws" || id === "railway") {
     endpoint = "/api/agent-tools/configure";
     payload = { id, values };
@@ -373,6 +391,9 @@ const AI_ENGINES: Slot[] = [
   { id: "ai-openai", label: "AI engine", section: "Every stage", options: [llm("ai-openai")] },
 ];
 
+/** Optional: a separate model for the code-writing work in Engineering & Development. */
+const CODING_MODEL: Slot = { id: "coding-model", label: "Coding model (optional)", section: "Engineering & Development", options: [service("coding-model")] };
+
 /**
  * One toolbox per pipeline. Keys are global (stored once, reused by every
  * project); the toolbox only decides which jobs a pipeline shows.
@@ -384,6 +405,7 @@ const AI_ENGINES: Slot[] = [
 const TOOLBOX: Record<PipelineKindKey, Slot[]> = {
   project: [
     ...AI_ENGINES,
+    CODING_MODEL,
     { id: "market-search", label: "Market search", section: "Market Researcher", options: [service("exa")] },
     { id: "images", label: "Images & design", section: "Pre-Marketing · Product Design", options: [service("google")] },
     { id: "waitlist", label: "Waitlist database", section: "Pre-Marketing", options: [service("supabase")] },
@@ -392,6 +414,7 @@ const TOOLBOX: Record<PipelineKindKey, Slot[]> = {
   ],
   agent: [
     ...AI_ENGINES,
+    CODING_MODEL,
     {
       id: "framework",
       label: "Agent framework",
@@ -399,6 +422,19 @@ const TOOLBOX: Record<PipelineKindKey, Slot[]> = {
       options: [
         placeholder({ id: "langchain", label: "LangChain", blurb: "Model and tool integrations, plus create_agent — the loop with structured responses.", statusText: "No key needed" }),
         placeholder({ id: "crewai", label: "CrewAI", blurb: "Teams of role-based agents that hand work to each other (Python). Not wired yet." }),
+      ],
+    },
+    {
+      id: "validation",
+      label: "Structured output & validation",
+      section: "Agent Design · Engineering & Development",
+      options: [
+        placeholder({
+          id: "pydantic",
+          label: "Pydantic",
+          blurb: "Defines the exact shape of every answer and checks every tool's inputs before it runs, so the agent can't hand back malformed data. Built into every agent.",
+          statusText: "Built in",
+        }),
       ],
     },
     {
