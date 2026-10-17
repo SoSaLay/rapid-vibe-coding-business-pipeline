@@ -614,7 +614,7 @@ const OPS_PY = `"""Operations from the run log (needs DATABASE_URL).
     uv run python -m deploy.ops stats --days 7          # success, errors, latency, tokens, cost, tool behavior
     uv run python -m deploy.ops failures --limit 50     # recent failed / handed-off / thumbs-down runs
     uv run python -m deploy.ops online-eval --sample 20 # judge a sample of unscored production runs
-    uv run python -m deploy.ops alert                   # check thresholds; email via Resend if any are crossed
+    uv run python -m deploy.ops alert                   # check thresholds; exits 1 if any are crossed (GitHub then emails you)
 """
 
 from __future__ import annotations
@@ -622,7 +622,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import urllib.request
 
 from dotenv import load_dotenv
 
@@ -744,19 +743,7 @@ def alert() -> dict:
             checks.append(f"{s['policy_violations']} run(s) broke policy in online evals (abnormal actions).")
         if s["thumbs_down"] >= int(os.getenv("ALERT_MAX_THUMBS_DOWN", "3")):
             checks.append(f"{s['thumbs_down']} thumbs-down in the last day.")
-    sent = False
-    if checks and os.getenv("RESEND_API_KEY") and os.getenv("ALERT_EMAIL_TO"):
-        req = urllib.request.Request(
-            "https://api.resend.com/emails",
-            data=json.dumps({
-                "from": os.getenv("ALERT_EMAIL_FROM", "onboarding@resend.dev"), "to": [os.getenv("ALERT_EMAIL_TO")],
-                "subject": f"[{AGENT}] {len(checks)} alert(s)", "text": "\\n".join(checks),
-            }).encode(),
-            headers={"Authorization": f"Bearer {os.getenv('RESEND_API_KEY')}", "Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=30):  # noqa: S310
-            sent = True
-    return {"alerts": checks, "emailed": sent, "stats": {k: v for k, v in s.items() if k not in ("daily", "tools")}}
+    return {"alerts": checks, "stats": {k: v for k, v in s.items() if k not in ("daily", "tools")}}
 
 
 if __name__ == "__main__":
@@ -765,9 +752,13 @@ if __name__ == "__main__":
     p.add_argument("--days", type=int, default=7)
     p.add_argument("--limit", type=int, default=50)
     p.add_argument("--sample", type=int, default=20)
+    p.add_argument("--fail-on-alert", action="store_true")
     a = p.parse_args()
     out = {"stats": lambda: stats(a.days), "failures": lambda: failures(a.limit), "online-eval": lambda: online_eval(a.sample), "alert": alert}[a.cmd]()
     print(json.dumps(out, default=str))
+    # A failing scheduled run is the alert: GitHub notifies you about failed workflow runs.
+    if a.cmd == "alert" and a.fail_on_alert and out["alerts"]:
+        raise SystemExit(1)
 `;
 
 const AGENTCORE_OPS_PY = `"""AgentCore versions and the production endpoint (staging = DEFAULT, which always runs the newest version).
@@ -956,11 +947,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --no-dev
-      - run: uv run python -m deploy.ops alert
+      # Fails when a threshold is crossed, so GitHub emails you (Settings → Notifications → Actions).
+      - run: uv run python -m deploy.ops alert --fail-on-alert
         env:
           DATABASE_URL: \${{ secrets.DATABASE_URL }}
-          RESEND_API_KEY: \${{ secrets.RESEND_API_KEY }}
-          ALERT_EMAIL_TO: \${{ vars.ALERT_EMAIL_TO }}
       - if: github.event.schedule == '7 6 * * *' || github.event_name == 'workflow_dispatch'
         run: uv run python -m deploy.ops online-eval --sample 20
         env:

@@ -26,7 +26,7 @@ export function AgentOperations({ projectId, live, completed, onUpdated }: { pro
   const [error, setError] = useState<string | null>(null);
   const [expected, setExpected] = useState<Record<number, string>>({});
   const [inc, setInc] = useState({ title: "", severity: "medium", whatHappened: "", approvals: "", correctiveAction: "" });
-  const [settings, setSettings] = useState({ owner: "", oncall: "", alertEmail: "", min_success: "", max_p95_s: "", max_cost_per_run: "", max_thumbs_down: "" });
+  const [settings, setSettings] = useState({ owner: "", oncall: "", min_success: "", max_p95_s: "", max_cost_per_run: "", max_thumbs_down: "" });
   const [note, setNote] = useState<string | null>(null);
 
   async function load(n = days) {
@@ -38,7 +38,6 @@ export function AgentOperations({ projectId, live, completed, onUpdated }: { pro
       setSettings({
         owner: o.owner ?? "",
         oncall: o.oncall ?? "",
-        alertEmail: o.alert_email ?? "",
         min_success: t.min_success ?? "",
         max_p95_s: t.max_p95_s ?? "",
         max_cost_per_run: t.max_cost_per_run ?? "",
@@ -120,7 +119,7 @@ export function AgentOperations({ projectId, live, completed, onUpdated }: { pro
           <button className="btn-ghost text-sm" disabled={!!busy} onClick={() => act({ action: "online-eval", sample: 20 }, "Scoring recent runs…", (r) => `Scored ${r.scored} run(s).`)}>
             Score recent runs (online eval)
           </button>
-          <button className="btn-ghost text-sm" disabled={!!busy} onClick={() => act({ action: "alert" }, "Checking alerts…", (r) => (r.result?.alerts?.length ? `${r.result.alerts.length} alert(s)${r.result.emailed ? ", emailed" : ""}.` : "No alerts."))}>
+          <button className="btn-ghost text-sm" disabled={!!busy} onClick={() => act({ action: "alert" }, "Checking alerts…", (r) => (r.result?.alerts?.length ? `${r.result.alerts.length} alert(s).` : "No alerts."))}>
             Check alerts now
           </button>
         </div>
@@ -240,7 +239,6 @@ export function AgentOperations({ projectId, live, completed, onUpdated }: { pro
         <div className="grid gap-2 sm:grid-cols-2">
           <input className="input h-9" placeholder="Owner" value={settings.owner} onChange={(e) => setSettings({ ...settings, owner: e.target.value })} />
           <input className="input h-9" placeholder="On call (who and how to reach them)" value={settings.oncall} onChange={(e) => setSettings({ ...settings, oncall: e.target.value })} />
-          <input className="input h-9 sm:col-span-2" placeholder="Send alerts to (email, via Resend)" value={settings.alertEmail} onChange={(e) => setSettings({ ...settings, alertEmail: e.target.value })} />
           <input className="input h-9" placeholder="Alert below success rate (default 0.85)" value={settings.min_success} onChange={(e) => setSettings({ ...settings, min_success: e.target.value })} />
           <input className="input h-9" placeholder="Alert above p95 seconds (default 60)" value={settings.max_p95_s} onChange={(e) => setSettings({ ...settings, max_p95_s: e.target.value })} />
           <input className="input h-9" placeholder="Alert above cost per run $ (default 1)" value={settings.max_cost_per_run} onChange={(e) => setSettings({ ...settings, max_cost_per_run: e.target.value })} />
@@ -255,7 +253,6 @@ export function AgentOperations({ projectId, live, completed, onUpdated }: { pro
                 action: "settings",
                 owner: settings.owner,
                 oncall: settings.oncall,
-                alertEmail: settings.alertEmail,
                 thresholds: { min_success: settings.min_success, max_p95_s: settings.max_p95_s, max_cost_per_run: settings.max_cost_per_run, max_thumbs_down: settings.max_thumbs_down },
               },
               "Saving…",
@@ -266,7 +263,8 @@ export function AgentOperations({ projectId, live, completed, onUpdated }: { pro
           Save
         </button>
         <DocMuted className="mt-2">
-          Alerts also run hourly from GitHub (the agent-ops workflow) once the repo is on GitHub, so they fire even when this app is closed.
+          Once the repo is on GitHub, the agent-ops workflow checks these every hour. When a threshold is crossed the run fails, and GitHub
+          emails you about failed runs. No extra service, and it works even when this app is closed.
         </DocMuted>
       </DocSection>
 

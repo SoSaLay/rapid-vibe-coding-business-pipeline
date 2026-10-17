@@ -7,7 +7,6 @@
 import { promises as fs } from "fs";
 import path from "path";
 import { getPhaseState, savePhaseState } from "../store";
-import { readConnectorConfig } from "../connectors/config";
 import { credentialsAdapter } from "./registry";
 import { agentEnv } from "./env";
 import type { AgentDesign } from "./design";
@@ -31,10 +30,9 @@ export interface Incident {
 export interface OpsState {
   owner?: string;
   oncall?: string;
-  alert_email?: string;
   thresholds?: { min_success?: number; max_p95_s?: number; max_cost_per_run?: number; max_thumbs_down?: number };
   incidents: Incident[];
-  last_alert?: { at: string; alerts: string[]; emailed: boolean };
+  last_alert?: { at: string; alerts: string[] };
   cases_added: { run_id: number; case_id: string; at: string }[];
   /** Audit trail of "forget this user" requests: counts only, never the deleted content. */
   forgotten?: { user: string; at: string; removed: Record<string, number> }[];
@@ -53,12 +51,9 @@ export async function opsEnv(projectId: string, design: AgentDesign, slug: strin
   if (!env.DATABASE_URL) return null;
   const ops = await getOps(projectId);
   const t = ops.thresholds ?? {};
-  const resend = await readConnectorConfig("resend");
   return {
     ...env,
     AGENT_NAME: slug,
-    ...(resend?.apiKey ? { RESEND_API_KEY: resend.apiKey } : {}),
-    ...(ops.alert_email ? { ALERT_EMAIL_TO: ops.alert_email } : {}),
     ...(t.min_success !== undefined ? { ALERT_MIN_SUCCESS: String(t.min_success) } : {}),
     ...(t.max_p95_s !== undefined ? { ALERT_MAX_P95_S: String(t.max_p95_s) } : {}),
     ...(t.max_cost_per_run !== undefined ? { ALERT_MAX_COST_PER_RUN: String(t.max_cost_per_run) } : {}),

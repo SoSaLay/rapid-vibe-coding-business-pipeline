@@ -236,7 +236,7 @@ export function AgentDeployment({ projectId, hasEvals, completed, onUpdated }: {
           releases <code>main</code> to staging. <code>agent-ops</code> checks for alerts every hour and scores production runs daily.
         </DocP>
         <DocMuted>
-          To turn them on, push the repo to GitHub and add these secrets: ANTHROPIC_API_KEY, DATABASE_URL, RESEND_API_KEY,{" "}
+          To turn them on, push the repo to GitHub and add these secrets: ANTHROPIC_API_KEY, DATABASE_URL,{" "}
           {railway ? "RAILWAY_TOKEN_STAGING" : "AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY (and the AWS_REGION variable)"}. Then add a
           &quot;production&quot; environment with yourself as the required reviewer. Repo folder: <code className="break-all">{st.workspace}</code>
         </DocMuted>

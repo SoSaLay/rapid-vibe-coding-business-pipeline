@@ -8,7 +8,7 @@ import { completePhase, getProject, saveArtifact } from "@/lib/store";
 /**
  * One endpoint for the Operations page's actions. Body: { action, ... }
  *   kill { disabled }              · tool { name, on }          · online-eval { sample }      · alert
- *   settings { owner, oncall, alertEmail, thresholds }         · add-case { runId, expected }
+ *   settings { owner, oncall, thresholds }         · add-case { runId, expected }
  *   incident { title, severity, whatHappened, approvals, correctiveAction, runIds } · resolve { id }
  *   review                          — records the ops-report and completes the stage
  */
@@ -24,7 +24,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       ...ops,
       owner: typeof b.owner === "string" ? b.owner.trim().slice(0, 120) : ops.owner,
       oncall: typeof b.oncall === "string" ? b.oncall.trim().slice(0, 200) : ops.oncall,
-      alert_email: typeof b.alertEmail === "string" ? b.alertEmail.trim().slice(0, 200) : ops.alert_email,
       thresholds: b.thresholds
         ? {
             min_success: num(b.thresholds.min_success),
@@ -86,7 +85,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (b.action === "alert") {
     const r = await runOps(ctx.dir, env, ["deploy.ops", "alert"]);
     if (!r.ok) return NextResponse.json({ error: r.out.slice(-1500) }, { status: 500 });
-    const next = { ...ops, last_alert: { at: new Date().toISOString(), alerts: r.json?.alerts ?? [], emailed: !!r.json?.emailed } };
+    const next = { ...ops, last_alert: { at: new Date().toISOString(), alerts: r.json?.alerts ?? [] } };
     await saveOps(params.id, next);
     return NextResponse.json({ ops: next, result: r.json });
   }
