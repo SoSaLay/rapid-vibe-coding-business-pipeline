@@ -670,3 +670,85 @@ def remember(fact: str, category: str) -> str:
     _save(_USER.get(), "profile", category, fact)
     return "Saved."
 `;
+
+export const MCP_PY = `"""Tools from MCP servers (Agent Design → MCP servers), loaded when the agent starts.
+
+Each MCP tool goes through the same guardrails as the agent's own tools (limits, kill switch, dry run, call log).
+Tools the server marks read-only count as reads; anything else counts as a write, and a server set to
+"ask me first" pauses every one of its tools for approval. If a server can't be reached, the agent still runs
+without its tools."""
+
+from __future__ import annotations
+
+import asyncio
+import os
+
+from langchain_core.tools import StructuredTool
+
+from .limits import MCP_SERVERS
+from .safety import safe_tool
+
+
+def _config(server: dict) -> dict:
+    if server["transport"] == "stdio":
+        return {"transport": "stdio", "command": server["command"], "args": server.get("args", []), "env": dict(os.environ)}
+    cfg = {"transport": "streamable_http", "url": server["url"]}
+    token = os.getenv(server.get("token_env") or "", "")
+    if token:
+        cfg["headers"] = {"Authorization": f"Bearer {token}"}
+    return cfg
+
+
+def _text(result) -> str:
+    if isinstance(result, str):
+        return result
+    if isinstance(result, (list, tuple)):
+        parts = []
+        for item in result:
+            if isinstance(item, dict):
+                parts.append(str(item.get("text", item)))
+            else:
+                parts.append(str(getattr(item, "text", item)))
+        return "\\n".join(parts)
+    return str(result)
+
+
+def _read_only(tool) -> bool:
+    meta = getattr(tool, "metadata", None) or {}
+    hints = meta.get("annotations") if isinstance(meta.get("annotations"), dict) else meta
+    return bool(hints.get("readOnlyHint")) if isinstance(hints, dict) else False
+
+
+def _wrap(tool, side_effect: str) -> StructuredTool:
+    @safe_tool(name=tool.name, side_effect=side_effect)
+    def call(**kwargs) -> str:
+        # MCP tools are async; each call runs to completion in its own event loop.
+        return _text(asyncio.run(tool.ainvoke(kwargs)))
+
+    return StructuredTool.from_function(func=call, name=tool.name, description=tool.description or tool.name, args_schema=tool.args_schema)
+
+
+def load() -> tuple[list, list[str]]:
+    if not MCP_SERVERS:
+        return [], []
+    from langchain_mcp_adapters.client import MultiServerMCPClient
+
+    tools, approval = [], []
+    for server in MCP_SERVERS:
+        try:
+            found = asyncio.run(MultiServerMCPClient({server["name"]: _config(server)}).get_tools())
+        except Exception as e:  # noqa: BLE001 — an unreachable server must not stop the agent
+            print(f"MCP server {server['name']} unavailable: {type(e).__name__}: {e}")
+            continue
+        allow = set(server.get("allow") or [])
+        for t in found:
+            if allow and t.name not in allow:
+                continue
+            tools.append(_wrap(t, "read" if _read_only(t) else "write"))
+            if server.get("approval", True):
+                approval.append(t.name)
+    return tools, approval
+
+
+MCP_TOOLS, MCP_APPROVAL = load()
+`;

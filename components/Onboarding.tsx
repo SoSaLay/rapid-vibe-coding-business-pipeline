@@ -93,7 +93,7 @@ const LLM_OPTIONS: LlmOption[] = [
 ];
 
 interface Service {
-  id: "exa" | "google" | "supabase" | "resend" | "posthog" | "langfuse" | "langsmith" | "aws" | "railway";
+  id: "exa" | "google" | "supabase" | "resend" | "posthog" | "langfuse" | "aws" | "railway";
   label: string;
   /** Why it matters / what connecting it unlocks. */
   unlocks: string;
@@ -192,51 +192,38 @@ const SERVICES: Service[] = [
     id: "langfuse",
     label: "Langfuse (tracing & evals)",
     unlocks: "See every agent run step by step, and every evaluation run, in one dashboard.",
-    help: "Free cloud tier at cloud.langfuse.com, or self-host it free (open source).",
-    docsUrl: "https://cloud.langfuse.com",
+    help: "Free cloud tier at us.cloud.langfuse.com, or self-host it free (open source).",
+    docsUrl: "https://us.cloud.langfuse.com",
     docs: [
-      "Sign up free at cloud.langfuse.com (the Hobby tier needs no card), or self-host Langfuse with Docker.",
+      "Sign up free at us.cloud.langfuse.com (the Hobby tier needs no card), or self-host Langfuse with Docker.",
       "Create an organization and a project.",
       "In the project, open Settings → API Keys → 'Create new API keys'.",
-      "Copy the Public key (pk-lf-…) and Secret key (sk-lf-…) and paste them below.",
-      "Host: https://cloud.langfuse.com for EU, https://us.cloud.langfuse.com for US, or your own server's URL.",
+      "Copy the Secret key (sk-lf-…) and Public key (pk-lf-…) and paste them below.",
+      "Host is set to the US cloud (https://us.cloud.langfuse.com). Use https://cloud.langfuse.com for EU, or your own server's URL.",
     ],
     fields: [
-      { name: "publicKey", label: "Public key (pk-lf-…)" },
       { name: "secretKey", label: "Secret key (sk-lf-…)", type: "password" },
-      { name: "host", label: "Host", defaultValue: "https://cloud.langfuse.com" },
+      { name: "publicKey", label: "Public key (pk-lf-…)" },
+      { name: "host", label: "Host", defaultValue: "https://us.cloud.langfuse.com" },
     ],
-  },
-  {
-    id: "langsmith",
-    label: "LangSmith (tracing)",
-    unlocks: "Traces every agent run and lets LangSmith Studio inspect them locally.",
-    help: "Free Developer tier at smith.langchain.com (5k traces/month).",
-    docsUrl: "https://smith.langchain.com/settings",
-    docs: [
-      "Sign up free at smith.langchain.com.",
-      "Open Settings → API Keys → 'Create API Key' (a Personal Access Token is fine).",
-      "Copy the key (starts with lsv2_) and paste it below.",
-    ],
-    fields: [{ name: "apiKey", label: "LangSmith API key (lsv2_…)", type: "password" }],
   },
   {
     id: "aws",
     label: "Amazon Bedrock AgentCore (AWS)",
-    unlocks: "Hosts your agents on AgentCore: pay only while they run, each session isolated.",
-    help: "An AWS access key for a user that can deploy to AgentCore. New accounts get up to $200 in credits.",
-    docsUrl: "https://console.aws.amazon.com/iam/home#/users",
+    unlocks: "Uses this computer's AWS sign-in to deploy your agents. No keys to copy.",
+    help: "If the AWS CLI on this computer is signed in, just press Save.",
+    docsUrl: "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html",
     docs: [
-      "Sign in to the AWS console (create an account at aws.amazon.com if you don't have one).",
-      "Open IAM → Users → 'Create user' (e.g. agent-deployer).",
-      "Attach the AWS managed policy 'BedrockAgentCoreFullAccess', plus permissions for CodeBuild, ECR, IAM role creation and S3 (or AdministratorAccess on a personal account).",
-      "Open the user → Security credentials → 'Create access key' → 'Command Line Interface'.",
-      "Copy the Access key ID (AKIA…) and Secret access key, and pick a region where AgentCore runs (e.g. us-east-1).",
+      "If you've already signed in to the AWS CLI on this computer, leave the fields as they are and press Save.",
+      "Not signed in yet? Install the AWS CLI (docs.aws.amazon.com/cli), then run \"aws configure sso\" (or \"aws configure\") in a terminal and sign in.",
+      "Using a named profile? Type its name in Profile.",
+      "No CLI? Paste an access key and secret instead (IAM → Users → Security credentials → Create access key).",
     ],
     fields: [
-      { name: "accessKeyId", label: "Access key ID (AKIA…)" },
-      { name: "secretAccessKey", label: "Secret access key", type: "password" },
+      { name: "profile", label: "AWS CLI profile", defaultValue: "default" },
       { name: "region", label: "Region", defaultValue: "us-east-1" },
+      { name: "accessKeyId", label: "Access key ID (only if not using the CLI)", optional: true },
+      { name: "secretAccessKey", label: "Secret access key (only if not using the CLI)", type: "password", optional: true },
     ],
   },
   {
@@ -301,7 +288,7 @@ async function connectService(id: Service["id"], values: Record<string, string>)
       host: values.host,
       personalApiKey: values.personalApiKey,
     };
-  } else if (id === "langfuse" || id === "langsmith" || id === "aws" || id === "railway") {
+  } else if (id === "langfuse" || id === "aws" || id === "railway") {
     endpoint = "/api/agent-tools/configure";
     payload = { id, values };
   } else {
@@ -419,31 +406,13 @@ const TOOLBOX: Record<PipelineKindKey, Slot[]> = {
       id: "tracing",
       label: "Agent monitoring",
       section: "Agent monitoring",
-      options: [service("langfuse"), service("langsmith")],
+      options: [service("langfuse")],
     },
     {
       id: "approval",
       label: "Human approval",
       section: "Security",
       options: [placeholder({ id: "langgraph", label: "LangGraph", blurb: "Interrupts pause consequential actions until a human approves.", statusText: "No key needed" })],
-    },
-    {
-      id: "auth",
-      label: "User login & authorization",
-      section: "Security",
-      options: [
-        placeholder({ id: "supabase-auth", label: "Supabase Auth", blurb: "Default for agents people use for free. Chosen per agent in Agent Design → Who can use it, and wired automatically from that agent's Supabase database.", statusText: "Set per agent" }),
-        placeholder({ id: "clerk", label: "Clerk", blurb: "For agents you charge users for (login and payments in one account). Chosen per agent in Agent Design → Who can use it; its key address is pasted in Deployment.", statusText: "Set per agent" }),
-      ],
-    },
-    {
-      id: "state-db",
-      label: "Agent state database",
-      section: "Database",
-      options: [
-        placeholder({ id: "supabase-postgres", label: "Supabase Postgres", blurb: "Holds each agent's conversations, memory and pending approvals. Each agent gets its own: paste its connection string in Deployment → State database. Free tier.", statusText: "Set per agent" }),
-        placeholder({ id: "neon", label: "Neon Postgres", blurb: "Serverless Postgres alternative. Paste its connection string in Deployment → State database. Free tier.", statusText: "Set per agent" }),
-      ],
     },
     {
       id: "runtime",
@@ -564,13 +533,12 @@ const TOOL_INFO: Record<string, string> = {
   crewai: "A framework for teams of agents that hand work to each other. Not wired yet.",
   pydantic: "Checks the agent's answers and tool inputs have the right shape. Built into every agent.",
   langfuse: "Records every agent run step by step (model calls, tools, time, cost) so you can see what happened.",
-  langsmith: "Records every agent run, like Langfuse. Pick one.",
   langgraph: "Pauses risky actions until you approve them. Built in.",
   "supabase-auth": "Login for agents people use for free, from the same Supabase account as the database.",
   clerk: "Login plus payments, for agents you charge people for.",
   "supabase-postgres": "Stores each agent's conversations, memory and actions waiting for approval.",
   neon: "Same job as Supabase Postgres, from a different provider.",
-  aws: "Hosts your agent on Amazon Bedrock AgentCore. You pay only while it runs.",
+  aws: "Hosts your agent on Amazon Bedrock AgentCore using this computer's AWS sign-in. You pay only while it runs.",
   railway: "Hosts your agent on Railway. Simple setup, about $5/month.",
   vercel: "Hosts the chat page, for agents people talk to.",
   "github-actions": "Runs tests and evaluations automatically on every change, and checks for alerts hourly.",
@@ -637,8 +605,6 @@ function mergeJobs(group: Slot[]): Slot[] {
 const JOB_INTRO: Record<string, string> = {
   "ai-anthropic": "The AI that does the work at every stage. Required: connect one.",
   tracing: "Optional. Records each run step by step so you can see what happened; everything works without it.",
-  auth: "Optional. Only for agents people log in to use. You choose it per agent in Agent Design.",
-  "state-db": "Stores each agent's conversations, memory and pending approvals. Required to deploy; you add it per agent in Deployment.",
   runtime: "Where your agent runs once it's live. Required to deploy.",
   "market-search": "Finds real demand and competitors for your idea.",
   images: "Makes your logo, brand images and screen designs.",
@@ -707,15 +673,11 @@ export function OnboardingPanel({
               <button className="flex w-full items-center gap-2 text-left" onClick={() => toggleJob(slot.label)} aria-expanded={isOpen}>
                 <span className={`text-[10px] text-muted transition-transform ${isOpen ? "rotate-90" : ""}`} aria-hidden>▶</span>
                 <span className="text-[14px] font-semibold text-accent2">{slot.label}</span>
-                {OPTIONAL_JOBS.has(slot.id) ? (
-                  <span className="text-xs text-muted">· optional</span>
-                ) : (
-                  slot.options.length > 1 && <span className="text-xs text-muted">· pick one</span>
-                )}
-                <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-muted">
-                  {perAgentJob ? "Set per agent" : ""}
-                  <span className={`h-2 w-2 rounded-full ${TONE_DOT[dot]}`} />
-                </span>
+                {(() => {
+                  const tags = [OPTIONAL_JOBS.has(slot.id) ? "optional" : slot.options.length > 1 ? "pick one" : "", perAgentJob ? "set per agent" : ""].filter(Boolean);
+                  return tags.length ? <span className="text-xs text-muted">· {tags.join(", ")}</span> : null;
+                })()}
+                <span className={`ml-auto h-2 w-2 shrink-0 rounded-full ${TONE_DOT[dot]}`} />
               </button>
               {isOpen && JOB_INTRO[slot.id] && <p className="mt-1.5 pl-5 text-xs text-muted">{JOB_INTRO[slot.id]}</p>}
               {isOpen && (
@@ -723,13 +685,11 @@ export function OnboardingPanel({
                 {slot.options.map((o) => {
                   const on = o === chosen;
                   const perAgent = isPerAgent(o);
-                  const st = optionStatus(o, status);
                   return (
-                    <li key={o.def.id} className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-lg border px-3 py-2 ${on ? "border-accent/60 bg-accent/5" : "border-edge"}`}>
+                    <li key={o.def.id} className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 ${on ? "border-accent/60 bg-accent/5" : "border-edge"}`}>
                       <label className="flex min-w-0 cursor-pointer items-center gap-2.5">
                         <input type="radio" name={slot.label} checked={on} onChange={() => select(slot, o)} />
                         <span className="truncate font-medium text-fg">{shortName(o)}</span>
-                        <InfoTip text={toolInfo(o)} />
                         {on && !perAgent && (
                           <button
                             className="btn-ghost ml-1 px-2 py-0.5 text-[11px]"
@@ -742,14 +702,7 @@ export function OnboardingPanel({
                           </button>
                         )}
                       </label>
-                      {perAgent ? (
-                        <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-muted">
-                          Set per agent
-                          <span className={`h-2 w-2 shrink-0 rounded-full ${TONE_DOT.yellow}`} />
-                        </span>
-                      ) : (
-                        <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${TONE_DOT[rowDot(st.text)]}`} title={st.text} aria-label={st.text} />
-                      )}
+                      {/* Status lives on the toggle heading only. */}
                     </li>
                   );
                 })}
@@ -801,6 +754,27 @@ function shortName(tool: ToolDef): string {
   return tool.def.label.replace(/\s*\(.*\)\s*$/, "");
 }
 
+/** Turns any web address in help text (e.g. us.cloud.langfuse.com) into a link that opens in a new tab. */
+function Linkified({ text }: { text: string }) {
+  const re = /(https?:\/\/[^\s),]+|\b(?:[a-z0-9-]+\.)+(?:com|ai|app|io|dev|net|org|co)(?:\/[^\s),]*)?)/gi;
+  const parts: React.ReactNode[] = [];
+  let last = 0;
+  for (const m of text.matchAll(re)) {
+    const raw = m[0].replace(/[.)]+$/, "");
+    const at = m.index ?? 0;
+    if (at > last) parts.push(text.slice(last, at));
+    const href = raw.startsWith("http") ? raw : `https://${raw}`;
+    parts.push(
+      <a key={at} href={href} target="_blank" rel="noopener noreferrer" className="text-accent2 underline hover:text-fg">
+        {raw}
+      </a>
+    );
+    last = at + raw.length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return <>{parts}</>;
+}
+
 /* ---------------- the Update pop-up ---------------- */
 
 /**
@@ -820,7 +794,7 @@ function UpdateDialog({
   onClose: () => void;
   onChanged: () => void;
 }) {
-  const [tool, setTool] = useState<ToolDef>(initial);
+  const tool = initial;
   const fields: Field[] =
     tool.type === "service"
       ? tool.def.fields
@@ -838,12 +812,6 @@ function UpdateDialog({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  function choose(o: ToolDef) {
-    setTool(o);
-    setValues(o.type === "service" ? initialValues(o.def) : {});
-    setError(null);
-    setShowHelp(false);
-  }
 
   const connected = isConnected(tool, status);
   const isActiveEngine = tool.type === "llm" && (status?.activeLlm || "ai-anthropic") === tool.def.id;
@@ -887,7 +855,7 @@ function UpdateDialog({
       >
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h3 className="text-base font-semibold text-fg">{slot.label}</h3>
+            <h3 className="text-base font-semibold text-fg">{shortName(tool)}</h3>
             <p className="mt-0.5 text-[11px] text-muted">{slot.section}</p>
           </div>
           <button className="text-sm text-muted hover:text-fg" onClick={onClose} aria-label="Close">
@@ -895,33 +863,7 @@ function UpdateDialog({
           </button>
         </div>
 
-        {slot.options.length > 1 && (
-          <div className="mt-4">
-            <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-muted">Choose one</div>
-            <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label={`${slot.label}: choose one`}>
-              {slot.options.map((o) => {
-                const on = o === tool;
-                return (
-                  <button
-                    key={o.def.id}
-                    role="radio"
-                    aria-checked={on}
-                    onClick={() => choose(o)}
-                    className={`rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
-                      on ? "border-accent bg-accent/10 text-fg" : "border-edge text-muted hover:border-accent/50 hover:text-fg"
-                    }`}
-                  >
-                    <span className="block font-medium">{shortName(o)}</span>
-                    <span className={`block text-[11px] ${isConnected(o, status) ? "text-ok" : "text-muted"}`}>
-                      {isConnected(o, status) ? "Connected" : "Not set"}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
+        {/* The tool was already picked on the page, so the pop-up is only about that one tool. */}
         {tool.type === "placeholder" ? (
           <p className="mt-4 text-sm text-muted">
             <span className="font-medium text-fg">{tool.def.label}.</span> {tool.def.blurb}
@@ -970,7 +912,9 @@ function UpdateDialog({
                 <div className="mt-2">
                   <ol className="list-decimal space-y-1 pl-4 text-xs text-fg/85">
                     {docs.map((step, i) => (
-                      <li key={i}>{step}</li>
+                      <li key={i}>
+                        <Linkified text={step} />
+                      </li>
                     ))}
                   </ol>
                   <a

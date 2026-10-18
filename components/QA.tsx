@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Interject } from "./Interject";
 import { StopButton, useStopper } from "./StopButton";
 import { ClampedText } from "./doc/Doc";
 
@@ -113,7 +112,6 @@ export function QA({
           agent, an OWASP-mapped security checklist, and a short manual checklist only you can judge. You run one
           command and tap through the manual items — the pipeline tracks the rest.
         </p>
-        <Interject projectId={projectId} phase="qa" />
         <div className="flex items-center justify-center gap-2">
           <button className="btn-primary" disabled={busy} onClick={() => post("plan")}>
             {busy ? "Writing the QA plan…" : "Generate QA plan"}

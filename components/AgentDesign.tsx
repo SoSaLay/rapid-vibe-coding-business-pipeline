@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AgentDesign as Design, Choice, ToolContract, SkillDef } from "@/lib/agent/design";
-import { designBlockers, needsNoTool, MODEL_PROVIDERS, modelProvider, effectiveMemory, effectiveLimits, defaultToolLimit, stopRules } from "@/lib/agent/design";
-import type { MemoryConfig } from "@/lib/agent/design";
+import { designBlockers, MODEL_PROVIDERS, modelProvider, effectiveMemory, effectiveLimits, defaultToolLimit, stopRules } from "@/lib/agent/design";
+import type { MemoryConfig, McpServer } from "@/lib/agent/design";
 import { Doc, DocSection, DocP, DocMuted, DocFacts } from "./doc/Doc";
-import { Interject } from "./Interject";
 import { StopButton, useStopper } from "./StopButton";
+import { StageStart } from "./StageStart";
 
 interface CredItem {
   env: string;
@@ -25,8 +25,10 @@ export function AgentDesign({
   hasSpec,
   state,
   spec,
+  autostart = false,
   onUpdated,
 }: {
+  autostart?: boolean;
   projectId: string;
   hasSpec: boolean;
   state: { design?: Design; approved?: boolean } | null;
@@ -45,6 +47,15 @@ export function AgentDesign({
     setDesign(state?.design ?? null);
     setDirty(false);
   }, [state?.design]);
+
+  // Arriving from "Start Agent Design": recommend the design right away.
+  const auto = useRef(false);
+  useEffect(() => {
+    if (autostart && hasSpec && !state?.design && !auto.current) {
+      auto.current = true;
+      propose();
+    }
+  }, [autostart, hasSpec, state?.design]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function call(path: string, body?: any): Promise<any | null> {
     setError(null);
@@ -110,24 +121,17 @@ export function AgentDesign({
     setDirty(true);
   }
 
-  if (!hasSpec) return <div className="card p-6 text-sm text-muted">Locked until Define the Job is complete.</div>;
+  if (!hasSpec) return <StageStart label="Start Agent Design" locked="Finish Define the Job first." onStart={() => {}} />;
 
   if (!design) {
     return (
-      <div className="card space-y-4 p-6">
-        <p className="text-center text-sm text-muted">
-          The architect reads your job definition and recommends a design: the model, the tools and their permissions, the data it
-          needs, memory, and where you must approve its actions. You can change any of it before anything is built.
-        </p>
-        <Interject projectId={projectId} phase="agent-design" />
-        <div className="flex items-center justify-center gap-2">
-          <button className="btn-primary" disabled={!!busy} onClick={propose}>
-            {busy ?? "Recommend a design →"}
-          </button>
-          {busy && <StopButton onStop={() => { stopper.stop(); setBusy(null); }} />}
-        </div>
-        {error && <p className="text-center text-sm text-bad">{error}</p>}
-      </div>
+      <StageStart
+        label="Start Agent Design"
+        busy={busy}
+        error={error}
+        onStart={propose}
+        onStop={() => { stopper.stop(); setBusy(null); }}
+      />
     );
   }
 
@@ -161,7 +165,6 @@ export function AgentDesign({
         )}
       </div>
 
-      <DocMuted className="mb-4">Set up only what your agent needs today. You can add skills, knowledge, tools or a different model any time later.</DocMuted>
 
       <DocSection title="Overview">
         <DocP>{design.summary}</DocP>
@@ -183,8 +186,7 @@ export function AgentDesign({
       </DocSection>
 
       <DocSection title="Tools">
-        <DocMuted>Each tool gets the narrowest permission it needs. Turn off any you don't want; flag writes that need your approval.</DocMuted>
-        <div className="mt-3 space-y-3">
+        <div className="space-y-2">
           {design.tools.map((t, i) => (
             <ToolCard
               key={t.name + i}
@@ -193,6 +195,15 @@ export function AgentDesign({
             />
           ))}
         </div>
+        <AddTool onAdd={(t) => edit({ tools: [...design.tools, t] })} existing={design.tools.map((t) => t.name)} />
+      </DocSection>
+
+      <DocSection title="MCP servers">
+        <DocMuted>
+          Plug in ready-made tools from any MCP server (e.g. Notion, GitHub, a database). The agent loads its tools when it starts, with
+          the same limits as its own tools. Leave &quot;Ask me first&quot; on unless you trust every tool the server offers.
+        </DocMuted>
+        <McpEditor servers={design.mcp_servers ?? []} onChange={(mcp_servers) => edit({ mcp_servers })} />
       </DocSection>
 
       <DocSection title="Data sources">
@@ -241,7 +252,7 @@ export function AgentDesign({
 
       <DocSection title="Safety">
         <div className="flex flex-wrap items-center gap-3 text-sm">
-          <label htmlFor="step-limit" className="font-medium text-fg">Step limit</label>
+          <label htmlFor="step-limit" className="text-fg">Stop after</label>
           <input
             id="step-limit"
             type="number"
@@ -251,40 +262,15 @@ export function AgentDesign({
             value={design.step_limit}
             onChange={(e) => edit({ step_limit: Number(e.target.value) })}
           />
-          <span className="text-xs text-muted">Most model + tool turns per run before it stops and hands off.</span>
+          <span className="text-fg">steps, then hand off to a person.</span>
         </div>
-        <DocFacts
-          items={[
-            { label: "Hands off to", value: design.fallback },
-            { label: "Needs your approval", value: enabledTools.filter((t) => t.requires_approval).map((t) => t.name).join(" · ") || "Nothing" },
-          ]}
-        />
-        <details className="mt-4">
-          <summary className="cursor-pointer text-sm font-medium text-fg">Every allowed action → the tool that does it</summary>
-          <ul className="mt-2 space-y-1 text-sm">
-            {design.coverage.map((c) => {
-              const none = needsNoTool(design, c.tool);
-              const ok = none || enabledTools.some((t) => t.name === c.tool);
-              return (
-                <li key={c.action}>
-                  <span className={ok ? "text-ok" : "text-bad"}>{ok ? "✓" : "✗"}</span> {c.action} →{" "}
-                  {none ? <span className="text-muted">no tool needed</span> : <code>{c.tool}</code>}
-                </li>
-              );
-            })}
-          </ul>
-        </details>
+        {design.fallback && <p className="mt-2 text-sm text-muted">Hands off to: {design.fallback}</p>}
       </DocSection>
 
       <details className="doc-section">
         <summary className="cursor-pointer text-sm font-semibold text-fg">Limits &amp; stopping (advanced)</summary>
         <LimitsEditor design={design} spec={spec} onChange={edit} />
       </details>
-
-      <DocSection title="Inputs & outputs">
-        <FieldTable title="It receives" fields={design.inputs} />
-        <FieldTable title="It hands back" fields={design.outputs} />
-      </DocSection>
 
       <DocSection title="Hosting & monthly cost">
         <CostEstimate projectId={projectId} refreshKey={design.model.selected + (design.login?.selected ?? "") + String(approved)} />
@@ -297,75 +283,142 @@ export function AgentDesign({
   );
 }
 
+/** Plain one-line notes per model (no $ signs). */
+const MODEL_BULLETS: Record<string, string[]> = {
+  "anthropic:claude-opus-5-5": ["Smartest, for hard multi-step work", "Costs the most and is slower"],
+  "anthropic:claude-sonnet-5-5": ["Best fit for most agents", "Mid-priced and fast"],
+  "anthropic:claude-haiku-5-5": ["Cheapest and fastest", "Best for simple, repetitive tasks"],
+  "openai:gpt-5": ["OpenAI's general model", "Mid-priced and fast"],
+  "openai:gpt-5-mini": ["Cheap and fast", "For simple tasks"],
+};
+
 function ChoicePicker({ choice, onPick }: { choice: Choice; onPick: (id: string) => void }) {
   return (
     <div className="space-y-2">
-      {choice.options.map((o) => (
-        <label
-          key={o.id}
-          className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm transition-colors ${
-            choice.selected === o.id ? "border-accent/60 bg-accent/5" : "border-edge hover:border-accent/30"
-          }`}
-        >
-          <input type="radio" className="mt-1" checked={choice.selected === o.id} onChange={() => onPick(o.id)} />
-          <span className="min-w-0">
-            <span className="font-medium text-fg">{o.label}</span>
-            {o.id === choice.recommended && (
-              <span className="ml-2 rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-semibold text-accent">Recommended</span>
-            )}
-            {o.tradeoff && <span className="block text-muted">{o.tradeoff}</span>}
-            {o.id === choice.recommended && choice.rationale && <span className="mt-1 block text-xs text-fg/80">{choice.rationale}</span>}
-          </span>
-        </label>
-      ))}
+      {choice.options.map((o) => {
+        const on = choice.selected === o.id;
+        const bullets = MODEL_BULLETS[o.id] ?? (o.tradeoff ? [o.tradeoff] : []);
+        return (
+          <label
+            key={o.id}
+            className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm transition-colors ${
+              on ? "border-accent/60 bg-accent/5" : "border-edge hover:border-accent/30"
+            }`}
+          >
+            <input type="radio" className="mt-1" checked={on} onChange={() => onPick(o.id)} />
+            <span className="min-w-0">
+              <span className="font-medium text-fg">{o.label.split(" · ")[0]}</span>
+              {o.id === choice.recommended && (
+                <span className="ml-2 rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-semibold text-accent">Recommended</span>
+              )}
+              {bullets.length > 0 && (
+                <ul className="mt-1 list-disc space-y-0.5 pl-4 text-muted">
+                  {bullets.slice(0, 2).map((b) => <li key={b}>{b}</li>)}
+                </ul>
+              )}
+            </span>
+          </label>
+        );
+      })}
     </div>
   );
 }
 
+/** "read_email" → "Read email". */
+function toolTitle(name: string) {
+  const t = name.replace(/[_-]+/g, " ").trim();
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
 function ToolCard({ tool, onChange }: { tool: ToolContract; onChange: (t: ToolContract) => void }) {
+  const bullets = [
+    tool.side_effect === "write" ? "Changes things (sends, labels, posts…)" : "Only reads, never changes anything",
+    tool.credential_label ? `Needs: ${tool.credential_label}` : "No login needed",
+  ];
   return (
     <div className={`rounded-lg border border-edge p-3 text-sm ${tool.enabled ? "" : "opacity-50"}`}>
-      <div className="flex flex-wrap items-center gap-2">
-        <code className="font-semibold text-fg">{tool.name}</code>
-        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${tool.side_effect === "write" ? "bg-warn/15 text-warn" : "bg-edge text-muted"}`}>
-          {tool.side_effect === "write" ? "changes things" : "read only"}
-        </span>
-        <span className="text-[11px] text-muted">{tool.kind === "integration" ? tool.integration || "integration" : "custom code"}</span>
-        <label className="ml-auto flex items-center gap-1.5 text-xs">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="font-medium text-fg">{toolTitle(tool.name)}</span>
+        <label className="ml-auto flex items-center gap-1.5 text-xs text-fg">
+          <input type="checkbox" checked={tool.requires_approval} onChange={(e) => onChange({ ...tool, requires_approval: e.target.checked })} />
+          Ask me first
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-fg">
           <input type="checkbox" checked={tool.enabled} onChange={(e) => onChange({ ...tool, enabled: e.target.checked })} />
           On
         </label>
       </div>
-      <p className="mt-1 text-fg/90">{tool.description}</p>
-      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted">
-        <label className="flex items-center gap-1.5">
-          Permission
-          <input className="input h-7 w-48 text-xs" value={tool.permission} onChange={(e) => onChange({ ...tool, permission: e.target.value })} />
-        </label>
-        <label className="flex items-center gap-1.5">
-          <input type="checkbox" checked={tool.requires_approval} onChange={(e) => onChange({ ...tool, requires_approval: e.target.checked })} />
-          Ask me before it runs
-        </label>
-        {tool.credential_label && <span>Needs: {tool.credential_label}</span>}
-      </div>
-    </div>
-  );
-}
-
-function FieldTable({ title, fields }: { title: string; fields: Design["inputs"] }) {
-  return (
-    <div className="mt-3">
-      <div className="text-xs font-semibold uppercase tracking-wider text-muted">{title}</div>
-      <ul className="mt-1 space-y-1 text-sm">
-        {fields.map((f) => (
-          <li key={f.name}>
-            <code className="text-fg">{f.name}</code> <span className="text-xs text-muted">{f.type}{f.required ? "" : " · optional"}</span> — {f.description}
-          </li>
-        ))}
+      <p className="mt-1 text-muted">{tool.description}</p>
+      <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-muted">
+        {bullets.map((b) => <li key={b}>{b}</li>)}
       </ul>
     </div>
   );
 }
+
+/** Add a tool the recommendation missed. Its code is written in Engineering (a new tool means a full build). */
+function AddTool({ onAdd, existing }: { onAdd: (t: ToolContract) => void; existing: string[] }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [what, setWhat] = useState("");
+  const [needs, setNeeds] = useState("");
+  const [changes, setChanges] = useState(false);
+  const [login, setLogin] = useState("");
+  if (!open) {
+    return (
+      <button className="btn-ghost mt-3 text-sm" onClick={() => setOpen(true)}>
+        + Add a tool
+      </button>
+    );
+  }
+  const id = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+  const ok = id && what.trim() && !existing.includes(id);
+  return (
+    <div className="mt-3 space-y-2 rounded-lg border border-dashed border-edge p-3 text-sm">
+      <input className="input h-9 w-full" placeholder="Name (e.g. Look up order)" value={name} onChange={(e) => setName(e.target.value)} />
+      <input className="input h-9 w-full" placeholder="What it does (e.g. Finds an order by its number in Shopify)" value={what} onChange={(e) => setWhat(e.target.value)} />
+      <input className="input h-9 w-full" placeholder="What it needs, comma-separated (e.g. order number)" value={needs} onChange={(e) => setNeeds(e.target.value)} />
+      <input className="input h-9 w-full" placeholder="Login it needs, if any (e.g. Shopify API key)" value={login} onChange={(e) => setLogin(e.target.value)} />
+      <label className="flex items-center gap-2 text-fg">
+        <input type="checkbox" checked={changes} onChange={(e) => setChanges(e.target.checked)} />
+        It changes things (sends, writes, deletes, pays)
+      </label>
+      <div className="flex gap-2">
+        <button
+          className="btn-primary text-sm"
+          disabled={!ok}
+          onClick={() => {
+            onAdd({
+              name: id,
+              description: what.trim(),
+              kind: "custom",
+              integration: "",
+              side_effect: changes ? "write" : "read",
+              permission: changes ? "write access needed for this job" : "read-only",
+              requires_approval: changes,
+              credential_env: login.trim() ? login.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_|_$/g, "") : "",
+              credential_label: login.trim(),
+              inputs: needs
+                .split(",")
+                .map((n) => n.trim())
+                .filter(Boolean)
+                .map((n) => ({ name: n.toLowerCase().replace(/[^a-z0-9]+/g, "_"), type: "string" as const, description: n, required: true })),
+              output: "",
+              enabled: true,
+            });
+            setOpen(false);
+            setName(""); setWhat(""); setNeeds(""); setLogin(""); setChanges(false);
+          }}
+        >
+          Add tool
+        </button>
+        <button className="btn-ghost text-sm" onClick={() => setOpen(false)}>Cancel</button>
+      </div>
+      {id && existing.includes(id) && <p className="text-xs text-bad">A tool with that name already exists.</p>}
+    </div>
+  );
+}
+
 
 /** Paste the keys the design's tools need. Values go to the server and are never shown again. */
 function Credentials({ projectId, refreshKey }: { projectId: string; refreshKey: string }) {
@@ -791,6 +844,70 @@ function LimitsEditor({ design, spec, onChange }: { design: Design; spec?: Recor
           {stopRules(spec, design).map((r) => <li key={r}>{r}</li>)}
         </ul>
         <DocMuted className="mt-1">It also stops when it repeats the same call with the same inputs, and at the step limit above.</DocMuted>
+      </div>
+    </div>
+  );
+}
+
+function McpEditor({ servers, onChange }: { servers: McpServer[]; onChange: (s: McpServer[]) => void }) {
+  const blank: McpServer = { name: "", transport: "http", url: "", command: "", args: [], token_env: "", approval: true, allow: [] };
+  const [draft, setDraft] = useState<McpServer>(blank);
+  const [allow, setAllow] = useState("");
+  const [args, setArgs] = useState("");
+  const add = () => {
+    const name = draft.name.trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-");
+    if (!name) return;
+    onChange([
+      ...servers.filter((s) => s.name !== name),
+      {
+        ...draft,
+        name,
+        token_env: draft.token_env.trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_"),
+        args: args.split(" ").map((a) => a.trim()).filter(Boolean),
+        allow: allow.split(",").map((a) => a.trim()).filter(Boolean),
+      },
+    ]);
+    setDraft(blank);
+    setAllow("");
+    setArgs("");
+  };
+  return (
+    <div className="mt-3 space-y-3 text-sm">
+      {servers.map((s) => (
+        <div key={s.name} className="flex flex-wrap items-center gap-2 rounded-lg border border-edge p-3">
+          <code className="font-semibold text-fg">{s.name}</code>
+          <span className="truncate text-xs text-muted">{s.transport === "http" ? s.url : `${s.command} ${(s.args ?? []).join(" ")}`}</span>
+          {s.allow.length > 0 && <span className="text-xs text-muted">· only {s.allow.join(", ")}</span>}
+          <label className="ml-auto flex items-center gap-1.5 text-xs">
+            <input type="checkbox" checked={s.approval} onChange={(e) => onChange(servers.map((x) => (x.name === s.name ? { ...x, approval: e.target.checked } : x)))} />
+            Ask me first
+          </label>
+          <button className="text-xs text-bad underline" onClick={() => onChange(servers.filter((x) => x.name !== s.name))}>Remove</button>
+        </div>
+      ))}
+      <div className="space-y-2 rounded-lg border border-dashed border-edge p-3">
+        <div className="font-medium text-fg">Add an MCP server</div>
+        <div className="flex flex-wrap gap-2">
+          <input className="input h-9 w-36" placeholder="Name (e.g. notion)" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+          <select className="input h-9 w-40" value={draft.transport} onChange={(e) => setDraft({ ...draft, transport: e.target.value as McpServer["transport"] })}>
+            <option value="http">Remote (URL)</option>
+            <option value="stdio">Local (command)</option>
+          </select>
+          {draft.transport === "http" ? (
+            <input className="input h-9 min-w-0 flex-1" placeholder="https://…/mcp" value={draft.url} onChange={(e) => setDraft({ ...draft, url: e.target.value })} />
+          ) : (
+            <>
+              <input className="input h-9 w-32" placeholder="Command (e.g. npx)" value={draft.command} onChange={(e) => setDraft({ ...draft, command: e.target.value })} />
+              <input className="input h-9 min-w-0 flex-1" placeholder="Arguments (e.g. -y @notionhq/notion-mcp-server)" value={args} onChange={(e) => setArgs(e.target.value)} />
+            </>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <input className="input h-9 w-56" placeholder="Token env name (optional, e.g. NOTION_TOKEN)" value={draft.token_env} onChange={(e) => setDraft({ ...draft, token_env: e.target.value })} />
+          <input className="input h-9 min-w-0 flex-1" placeholder="Only these tools (optional, comma-separated)" value={allow} onChange={(e) => setAllow(e.target.value)} />
+          <button className="btn-ghost" disabled={!draft.name.trim() || (draft.transport === "http" ? !draft.url : !draft.command)} onClick={add}>Add</button>
+        </div>
+        <DocMuted>The token itself goes under Credentials below. Changing MCP servers is a light change: no code rewrite.</DocMuted>
       </div>
     </div>
   );

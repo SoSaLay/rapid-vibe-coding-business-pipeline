@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { saveConnectorConfig } from "@/lib/connectors/config";
+import { verifyNeonKey } from "@/lib/agent/db-provision";
+import { awsDefaultRegion, awsIdentity } from "@/lib/agent/aws";
 
 /**
  * Connect an agent-pipeline observability tool. Body: { id: "langfuse" | "langsmith", values }.
@@ -12,7 +14,7 @@ export async function POST(req: NextRequest) {
   if (body.id === "langfuse") {
     const publicKey = (v.publicKey || "").trim();
     const secretKey = (v.secretKey || "").trim();
-    const host = (v.host || "https://cloud.langfuse.com").trim().replace(/\/+$/, "");
+    const host = (v.host || "https://us.cloud.langfuse.com").trim().replace(/\/+$/, "");
     if (!publicKey || !secretKey) return NextResponse.json({ ok: false, error: "Both keys are required." }, { status: 400 });
     try {
       const res = await fetch(`${host}/api/public/projects`, {
@@ -33,9 +35,33 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  if (body.id === "neon") {
+    const apiKey = (v.apiKey || "").trim();
+    if (!apiKey) return NextResponse.json({ ok: false, error: "Paste your Neon API key." }, { status: 400 });
+    const check = await verifyNeonKey(apiKey);
+    if (!check.ok) return NextResponse.json(check, { status: 400 });
+    await saveConnectorConfig("neon", { apiKey, orgId: (v.orgId || "").trim() });
+    return NextResponse.json({ ok: true });
+  }
+
   if (body.id === "aws") {
     const accessKeyId = (v.accessKeyId || "").trim();
     const secretAccessKey = (v.secretAccessKey || "").trim();
+    // Default: this computer's AWS CLI sign-in (no keys copied). Pasted keys are the fallback.
+    if (!accessKeyId) {
+      const profile = (v.profile || "default").trim();
+      if (!/^[\w.-]{1,64}$/.test(profile)) return NextResponse.json({ ok: false, error: "That profile name looks wrong." }, { status: 400 });
+      const who = await awsIdentity(profile);
+      if (!who.ok) {
+        return NextResponse.json(
+          { ok: false, error: `This computer isn't signed in to AWS (profile "${profile}"). Run "aws configure" or "aws sso login" in a terminal, or paste keys instead.` },
+          { status: 400 }
+        );
+      }
+      const region = (v.region || "").trim() || (await awsDefaultRegion(profile));
+      await saveConnectorConfig("aws", { profile, region, account: who.account ?? "", arn: who.arn ?? "" });
+      return NextResponse.json({ ok: true, account: who.account, arn: who.arn });
+    }
     const region = (v.region || "us-east-1").trim();
     if (!/^(AKIA|ASIA)[A-Z0-9]{12,}$/.test(accessKeyId) || !secretAccessKey) {
       return NextResponse.json({ ok: false, error: "Paste an access key id (AKIA…) and its secret." }, { status: 400 });

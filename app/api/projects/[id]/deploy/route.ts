@@ -3,6 +3,7 @@ import { chosenHost, getDeploy, hostCredentials } from "@/lib/agent/deploy";
 import { credentialsAdapter } from "@/lib/agent/registry";
 import { loadBuild } from "@/lib/agent/build-context";
 import { promises as fs } from "fs";
+import { neonKey } from "@/lib/agent/db-provision";
 import path from "path";
 
 /** Deployment status for the page. Never returns secret values. */
@@ -17,6 +18,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     login: ctx.design?.login?.selected ?? "machine-key",
     hostConnected: !!(await hostCredentials(host)),
     hasDatabaseUrl: !!env.DATABASE_URL,
+    neonConnected: !!(await neonKey()),
     hasJwks: !!env.AUTH_JWKS_URL,
     prepared,
     workspace: ctx.dir,

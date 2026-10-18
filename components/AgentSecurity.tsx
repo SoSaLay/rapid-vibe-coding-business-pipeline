@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { SecurityReport, CheckStatus } from "@/lib/phases/agent-security";
 import { Doc, DocSection, DocP, DocMuted } from "./doc/Doc";
 import { StopButton, useStopper } from "./StopButton";
+import { StageStart } from "./StageStart";
 
 const BADGE: Record<CheckStatus, { text: string; cls: string }> = {
   pass: { text: "Pass", cls: "bg-ok text-onbright" },
@@ -18,8 +19,10 @@ export function AgentSecurity({
   hasBuild,
   report,
   completed,
+  autostart = false,
   onUpdated,
 }: {
+  autostart?: boolean;
   projectId: string;
   hasBuild: boolean;
   report: SecurityReport | null;
@@ -30,6 +33,13 @@ export function AgentSecurity({
   const [error, setError] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const stopper = useStopper();
+  const autoRan = useRef(false);
+  useEffect(() => {
+    if (autostart && hasBuild && !report && !autoRan.current) {
+      autoRan.current = true;
+      run();
+    }
+  }, [autostart, hasBuild, report]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function post(path: string, body?: any) {
     setError(null);
@@ -54,22 +64,10 @@ export function AgentSecurity({
     setBusy(null);
   }
 
-  if (!hasBuild) return <div className="card p-6 text-sm text-muted">Locked until Engineering & Development is finished.</div>;
+  if (!hasBuild) return <StageStart label="Start Security" locked="Finish Engineering & Development first." onStart={() => {}} />;
 
   if (!report) {
-    return (
-      <div className="card space-y-4 p-6 text-center">
-        <p className="text-sm text-muted">
-          Checks your agent for prompt injection and tool misuse, then scores a security checklist against the actual code. Anything
-          that fails needs a fix or your written sign-off before Evaluations.
-        </p>
-        <div className="flex items-center justify-center gap-2">
-          <button className="btn-primary" disabled={!!busy} onClick={run}>{busy ?? "Run security review →"}</button>
-          {busy && <StopButton onStop={() => { stopper.stop(); setBusy(null); }} />}
-        </div>
-        {error && <p className="text-sm text-bad">{error}</p>}
-      </div>
-    );
+    return <StageStart label="Start Security" busy={busy} error={error} onStart={run} onStop={() => { stopper.stop(); setBusy(null); }} />;
   }
 
   const failing = report.checks.filter((c) => c.status === "fail").length;

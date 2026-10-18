@@ -22,8 +22,8 @@ interface Project {
 /** The two things you can start here; each tab lists its own and runs its own pipeline. */
 type Tab = "project" | "agent";
 const TAB_COPY: Record<Tab, { heading: string; create: string; noun: string }> = {
-  project: { heading: "Start a project", create: "New project", noun: "project" },
-  agent: { heading: "Create an agent", create: "New agent", noun: "agent" },
+  project: { heading: "Create An Application", create: "New Application", noun: "application" },
+  agent: { heading: "Create An Agent", create: "New Agent", noun: "agent" },
 };
 
 export default function Home() {
@@ -81,7 +81,7 @@ export default function Home() {
       </header>
 
       {/* Tabs */}
-      <div className="mb-6 flex items-center gap-2 border-b border-edge">
+      <div className="mb-6 flex items-center gap-6 border-b border-edge">
         {(Object.keys(TAB_COPY) as Tab[]).map((t) => {
           const n = ofTab(t).filter((p) => !p.archived).length;
           return (
@@ -187,7 +187,7 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
   return (
     <button
       onClick={onClick}
-      className={`-mb-px border-b-2 px-1 py-2 text-sm font-medium transition-colors ${
+      className={`-mb-px border-b-2 px-1 py-2.5 text-lg font-semibold transition-colors sm:text-xl ${
         active ? "border-accent text-fg" : "border-transparent text-muted hover:text-fg"
       }`}
     >

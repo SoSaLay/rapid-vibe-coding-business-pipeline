@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Doc, DocSection, DocP, DocMuted, DocFacts } from "./doc/Doc";
 import { StopButton, useStopper } from "./StopButton";
+import { StageStart } from "./StageStart";
 
 interface ExampleResult {
   index: number;
@@ -35,8 +36,10 @@ export function AgentEngineering({
   designVersion,
   build,
   manifest,
+  autostart = false,
   onUpdated,
 }: {
+  autostart?: boolean;
   projectId: string;
   hasDesign: boolean;
   designVersion: number;
@@ -48,6 +51,7 @@ export function AgentEngineering({
   const [error, setError] = useState<string | null>(null);
   const [log, setLog] = useState<string | null>(null);
   const stopper = useStopper();
+  const autoRan = useRef(false);
 
   async function step(id: string, body?: any): Promise<Build | null> {
     const res = await fetch(`/api/projects/${projectId}/agent-build/${id}`, {
@@ -115,7 +119,15 @@ export function AgentEngineering({
     else onUpdated();
   }
 
-  if (!hasDesign) return <div className="card p-6 text-sm text-muted">Locked until the Agent Design is approved.</div>;
+  if (!hasDesign) return <StageStart label="Start Engineering & Development" locked="Approve the Agent Design first." onStart={() => {}} />;
+  if (autostart && !build && !busy && !autoRan.current) {
+    autoRan.current = true;
+    setTimeout(() => runFrom(0), 0);
+  }
+
+  if (!build) {
+    return <StageStart label="Start Engineering & Development" busy={busy} error={error} onStart={() => runFrom(0)} onStop={() => { stopper.stop(); setBusy(null); }} />;
+  }
 
   const stale = !!build && build.design_version !== designVersion;
   const done = { write: !!build && !stale, install: !!build?.install?.ok && !stale, test: !!build?.tests && !stale };

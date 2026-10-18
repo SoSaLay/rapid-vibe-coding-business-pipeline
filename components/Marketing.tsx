@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ImageZoom } from "./ImageZoom";
-import { Interject } from "./Interject";
 import { StopButton, useStopper } from "./StopButton";
 import { Doc, DocSection, DocP, DocSub, DocMuted, DocProse } from "./doc/Doc";
 
@@ -225,7 +224,6 @@ export function Marketing({
           ready-to-post content, and an in-depth launch checklist that takes you from "nobody knows this exists" to
           first sales. You post for ~10 minutes a day; it does the rest.
         </p>
-        <Interject projectId={projectId} phase="marketing-sales" />
         <div className="flex items-center justify-center gap-3">
           <button className="btn-primary" disabled={busy} onClick={() => post("plan")}>
             {busy ? "Building the campaign…" : "Generate campaign plan"}

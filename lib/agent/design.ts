@@ -61,6 +61,23 @@ export interface SkillDef {
 
 export type KnowledgeMode = "none" | "skills" | "rag";
 
+/** An MCP server whose tools the agent can use (loaded when the agent starts). */
+export interface McpServer {
+  /** Short id, e.g. "notion". */
+  name: string;
+  /** "http" = a remote server URL (streamable HTTP); "stdio" = a local command. */
+  transport: "http" | "stdio";
+  url?: string;
+  command?: string;
+  args?: string[];
+  /** Env var holding a bearer token for the server ("" = none). */
+  token_env: string;
+  /** Pause for your approval before any of its tools run (recommended: unknown tools can change things). */
+  approval: boolean;
+  /** Only these tools (empty = all the server offers). */
+  allow: string[];
+}
+
 export interface MemoryConfig {
   /** Follow-up messages continue the same conversation (LangGraph checkpoints). */
   conversation: boolean;
@@ -107,6 +124,8 @@ export interface AgentDesign {
   memory_config?: MemoryConfig;
   /** Per-tool limits. Missing tools fall back to defaultToolLimit(). */
   tool_limits?: Record<string, ToolLimit>;
+  /** MCP servers the agent can use tools from. */
+  mcp_servers?: McpServer[];
   /** Skills the agent can open on demand. Missing on designs made before skills existed. */
   skills?: SkillDef[];
   /** ONE knowledge approach: none, facts written into skills, or document search (RAG, needs an OpenAI key for embeddings). */
@@ -216,6 +235,10 @@ export function designBlockers(d: AgentDesign): string[] {
     if (s.enabled && s.review && !s.review.approved) out.push(`Review the imported skill "${s.name}" before approving.`);
   }
   if (d.knowledge?.mode === "rag" && !d.knowledge.sources.length) out.push("Document search is on but has no documents. Add some, or pick another knowledge option.");
+  for (const m of d.mcp_servers ?? []) {
+    if (m.transport === "http" && !/^https?:\/\//.test(m.url ?? "")) out.push(`MCP server "${m.name}" needs an http(s) URL.`);
+    if (m.transport === "stdio" && !(m.command ?? "").trim()) out.push(`MCP server "${m.name}" needs a command.`);
+  }
   if (!isValidModelId(d.model.selected)) out.push("The custom model must be provider:model with a supported provider.");
   if (d.model_endpoint && !/^https?:\/\//.test(d.model_endpoint)) out.push("The custom endpoint must be an http(s) URL.");
   return out;

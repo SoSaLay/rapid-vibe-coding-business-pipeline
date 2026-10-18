@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { DeployState } from "@/lib/agent/deploy";
 import { Doc, DocSection, DocP, DocMuted, DocFacts } from "./doc/Doc";
+import { StageStart } from "./StageStart";
 
 interface Status {
   state: DeployState;
@@ -10,6 +11,7 @@ interface Status {
   login: string;
   hostConnected: boolean;
   hasDatabaseUrl: boolean;
+  neonConnected: boolean;
   hasJwks: boolean;
   prepared: boolean;
   workspace: string;
@@ -38,7 +40,20 @@ function Step({ n, done, title, children }: { n: number; done: boolean; title: s
 }
 
 /** Agent pipeline — stage 6. Package → database → login → staging → live check → approve → production (+ rollback). */
-export function AgentDeployment({ projectId, hasEvals, completed, onUpdated }: { projectId: string; hasEvals: boolean; completed: boolean; onUpdated: () => void }) {
+export function AgentDeployment({
+  projectId,
+  hasEvals,
+  completed,
+  autostart = false,
+  onUpdated,
+}: {
+  projectId: string;
+  hasEvals: boolean;
+  completed: boolean;
+  autostart?: boolean;
+  onUpdated: () => void;
+}) {
+  const autoRan = useRef(false);
   const [st, setSt] = useState<Status | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -79,10 +94,17 @@ export function AgentDeployment({ projectId, hasEvals, completed, onUpdated }: {
     setBusy(null);
   }
 
-  if (!hasEvals) return <div className="card p-6 text-sm text-muted">Locked until Evaluations is finished.</div>;
+  if (autostart && hasEvals && st && !st.prepared && !st.state.prepared_at && !busy && !autoRan.current) {
+    autoRan.current = true;
+    setTimeout(() => post("prepare", {}, "Packaging (first time installs a few packages)…"), 0);
+  }
+  if (!hasEvals) return <StageStart label="Start Deployment" locked="Finish Evaluations first." onStart={() => {}} />;
   if (!st) return <div className="card p-6 text-sm text-muted">Loading…</div>;
 
   const s = st.state;
+  if (!s.prepared_at) {
+    return <StageStart label="Start Deployment" busy={busy} error={error} onStart={() => post("prepare", {}, "Packaging your agent (first time installs a few packages)…")} />;
+  }
   const railway = st.host === "railway";
   const jwt = st.login !== "machine-key";
   const needsJwks = jwt && st.login !== "supabase-auth";
@@ -118,9 +140,19 @@ export function AgentDeployment({ projectId, hasEvals, completed, onUpdated }: {
 
           <Step n={2} done={!!s.db?.ok} title="State database">
             <DocMuted>
-              Paste the Postgres connection string (Supabase → Connect → Session pooler, or Neon → Connection string). It holds
-              conversations, pending approvals, the kill switch and the run log.
+              It holds conversations, memory, pending approvals, the kill switch and the run log.
             </DocMuted>
+            {!s.db?.ok && (
+              <div className="flex flex-wrap items-center gap-2">
+                <button className="btn-primary" disabled={!!busy || !st.neonConnected} onClick={() => post("database", { create: "neon" }, "Creating a free Neon database…")}>
+                  Create a database for me
+                </button>
+                <span className="text-xs text-muted">
+                  {st.neonConnected ? "Free Neon database, set up automatically." : "Add a Neon API key in onboarding to do this in one click."}
+                </span>
+              </div>
+            )}
+            <DocMuted>Or paste a connection string you already have (Supabase → Connect → Session pooler, or Neon → Connection string):</DocMuted>
             <div className="flex flex-wrap gap-2">
               <input
                 type="password"

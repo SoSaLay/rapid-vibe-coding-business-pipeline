@@ -23,6 +23,7 @@ import { agentEnv } from "./env";
 import { credentialsAdapter } from "./registry";
 import type { AgentDesign } from "./design";
 import { sh, uvBin } from "./proc";
+import { awsEnv } from "./aws";
 
 export type HostId = "agentcore" | "railway";
 export type DeployEnv = "staging" | "production";
@@ -160,11 +161,7 @@ export async function deployEnv(args: { projectId: string; design: AgentDesign; 
 }
 
 export async function hostCredentials(host: HostId): Promise<Record<string, string> | null> {
-  if (host === "agentcore") {
-    const c = await readConnectorConfig("aws");
-    if (!c?.accessKeyId || !c?.secretAccessKey) return null;
-    return { AWS_ACCESS_KEY_ID: c.accessKeyId, AWS_SECRET_ACCESS_KEY: c.secretAccessKey, AWS_REGION: c.region || "us-east-1", AWS_DEFAULT_REGION: c.region || "us-east-1" };
-  }
+  if (host === "agentcore") return awsEnv();
   const c = await readConnectorConfig("railway");
   if (!c?.productionToken) return null;
   return { RAILWAY_TOKEN_PRODUCTION: c.productionToken, RAILWAY_TOKEN_STAGING: c.stagingToken || "" };

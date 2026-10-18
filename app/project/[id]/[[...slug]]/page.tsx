@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { DocSidebar } from "@/components/DocSidebar";
 import { PhaseContents } from "@/components/PhaseContents";
 import { ArtifactTiles } from "@/components/ArtifactTiles";
@@ -56,6 +56,8 @@ export default function ProjectWorkspace() {
   const id = params.id as string;
   // Optional catch-all: undefined slug = Onboarding home; else [phaseId, ...].
   const slug = params.slug as string[] | undefined;
+  // ?autostart=1: start this stage's first step on arrival (new agent, or the previous stage's Start button).
+  const autostart = useSearchParams().get("autostart") === "1";
   const activeSlug = slug?.[0];
   // Each phase has two faces in the same reading column: the informational
   // document and the artifact screen. The second URL segment selects it
@@ -131,6 +133,7 @@ export default function ProjectWorkspace() {
             mode={mode}
             artifact={artifact}
             stageName={phaseDef?.name}
+            autostart={autostart}
             onUpdated={refresh}
           />
         ) : (
@@ -177,13 +180,14 @@ export default function ProjectWorkspace() {
               designVersion={agentDesignArt?.version ?? 0}
               build={engineering?.agentBuild ?? null}
               manifest={buildManifest?.payload ?? null}
+              autostart={autostart}
               onUpdated={refresh}
             />
           );
         }
         return <Engineering projectId={project.id} hasSpec={!!productSpec} state={engineering} manifest={buildManifest?.payload ?? null} mode={mode} onUpdated={refresh} />;
       case "agent-design":
-        return <AgentDesign projectId={project.id} hasSpec={!!productSpec} state={(phaseState as any)?.["agent-design"] ?? null} spec={productSpec?.payload ?? null} onUpdated={refresh} />;
+        return <AgentDesign projectId={project.id} hasSpec={!!productSpec} state={(phaseState as any)?.["agent-design"] ?? null} spec={productSpec?.payload ?? null} autostart={autostart} onUpdated={refresh} />;
       case "security":
         return (
           <AgentSecurity
@@ -191,6 +195,7 @@ export default function ProjectWorkspace() {
             hasBuild={!!buildManifest}
             report={(phaseState as any)?.security?.report ?? null}
             completed={project.phase_status.security === "complete"}
+            autostart={autostart}
             onUpdated={refresh}
           />
         );
@@ -202,6 +207,7 @@ export default function ProjectWorkspace() {
               hasSecurity={project.phase_status.security === "complete"}
               state={qa}
               completed={project.phase_status.qa === "complete"}
+              autostart={autostart}
               onUpdated={refresh}
             />
           );
@@ -214,6 +220,7 @@ export default function ProjectWorkspace() {
               projectId={project.id}
               hasEvals={project.phase_status.qa === "complete"}
               completed={project.phase_status.deployment === "complete"}
+              autostart={autostart}
               onUpdated={refresh}
             />
           );
@@ -332,9 +339,25 @@ export default function ProjectWorkspace() {
                   )
                 ) : (
                   <>
-                    <ArtifactTiles projectId={id} phaseId={activeSlug as PhaseId} />
-                    {selectedDisplay?.blockedReason && <GateBanner reason={selectedDisplay.blockedReason} />}
+                    {/* Agents: each stage is one page with a single Start button, so no tiles or "locked" banner. */}
+                    {project.kind !== "agent" && <ArtifactTiles projectId={id} phaseId={activeSlug as PhaseId} />}
+                    {project.kind !== "agent" && selectedDisplay?.blockedReason && <GateBanner reason={selectedDisplay.blockedReason} />}
                     {renderPhase("doc")}
+                    {(() => {
+                      // One big button to the next stage once this one is done; the next page starts itself.
+                      const next = phaseIndex >= 0 ? phases[phaseIndex + 1] : undefined;
+                      if (!next || next.id === "iteration" || project.phase_status[activeSlug as string] !== "complete") return null;
+                      return (
+                        <div className="mt-12 border-t border-edge pt-8">
+                          <button
+                            className="w-full rounded-xl bg-bad px-6 py-4 text-lg font-semibold text-white shadow-lg transition-transform hover:scale-[1.01] active:scale-100"
+                            onClick={() => router.push(`/project/${id}/${next.id}?autostart=1`)}
+                          >
+                            Start {next.name} →
+                          </button>
+                        </div>
+                      );
+                    })()}
                   </>
                 )}
               </div>

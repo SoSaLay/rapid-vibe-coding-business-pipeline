@@ -257,7 +257,6 @@ export interface ArtifactItem {
   icon: string;
 }
 export const PHASE_ARTIFACTS: Partial<Record<PhaseId, ArtifactItem[]>> = {
-  "product-owner": [{ id: "spec", label: "Spec document", icon: "📄" }],
   "pre-marketing": [
     { id: "brand-visuals", label: "Brand visuals", icon: "🎨" },
     { id: "landing", label: "Landing page", icon: "🌐" },
@@ -283,7 +282,6 @@ export const PHASE_ARTIFACTS: Partial<Record<PhaseId, ArtifactItem[]>> = {
  * Operations and Iteration are read-only and intentionally have no button.
  */
 export const PHASES_WITH_ARTIFACTS = new Set<PhaseId>([
-  "product-owner",
   "pre-marketing",
   "product-design",
   "engineering",

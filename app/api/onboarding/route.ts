@@ -21,7 +21,7 @@ export async function GET() {
   const [langfuse, langsmith, aws, railway] = await Promise.all([
     langfuseConfig().then(Boolean),
     langsmithKey().then(Boolean),
-    readConnectorConfig("aws").then((c) => !!c?.accessKeyId),
+    readConnectorConfig("aws").then((c) => !!(c?.profile || c?.accessKeyId)),
     readConnectorConfig("railway").then((c) => !!c?.productionToken),
   ]);
   const [exa, google, supabase, resend, posthog] = await Promise.all([

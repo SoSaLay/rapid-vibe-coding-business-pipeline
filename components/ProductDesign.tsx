@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { EngineSelector } from "./EngineSelector";
 import { ImageZoom } from "./ImageZoom";
-import { Interject } from "./Interject";
 import { StopButton, useStopper } from "./StopButton";
 import { Doc, DocSection, DocP, DocSub, DocMuted, DocList, DocProse } from "./doc/Doc";
 
@@ -181,7 +180,6 @@ export function ProductDesign({
         {artifact === "approve" &&
           (!approved ? (
             <>
-              <Interject projectId={projectId} phase="product-design" />
               <div className="card p-5 text-center space-y-2">
                 <p className="text-xs text-muted">
                   Happy with the logo and mockups? Approving saves the design-spec artifact and unlocks Engineering.
@@ -214,7 +212,6 @@ export function ProductDesign({
           Picks 1–2 reference design systems that fit your product, then generates the full design spec constrained by
           proven UI/UX rules.
         </p>
-        <Interject projectId={projectId} phase="product-design" />
         <div className="flex items-center justify-center gap-3">
           <button className="btn-ghost" disabled={busy} onClick={() => post("skip", { phase: "product-design" })}>
             Skip

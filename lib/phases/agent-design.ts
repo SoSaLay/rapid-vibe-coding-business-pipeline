@@ -155,7 +155,7 @@ const LABELS: Record<string, string> = {
   none: "None (every run starts fresh)",
   conversation: "Per conversation",
   "long-term": "Long-term memory",
-  ...Object.fromEntries(AGENT_MODELS.map((m) => [m.id, `${m.label} · ${m.tier}`])),
+  ...Object.fromEntries(AGENT_MODELS.map((m) => [m.id, m.label])),
 };
 
 function toChoice<T extends string>(raw: any, ids: T[]): Choice<T> {

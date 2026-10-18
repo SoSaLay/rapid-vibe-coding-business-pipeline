@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { STACK_SLOTS, StackChoice } from "@/lib/stack";
-import { Interject } from "./Interject";
 import { StopButton, useStopper } from "./StopButton";
 import { ClampedText } from "./doc/Doc";
 
@@ -116,7 +115,6 @@ export function Engineering({
             (Next.js · Supabase · shadcn/ui), and draws the system architecture. You can change any slot before the
             build starts.
           </p>
-          <Interject projectId={projectId} phase="engineering" />
           <div className="flex items-center justify-center gap-2">
             <button className="btn-primary" disabled={busy} onClick={() => post("propose")}>
               {busy ? "Designing the system…" : "Run the architect"}

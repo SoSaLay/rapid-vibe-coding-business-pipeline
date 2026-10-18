@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Interject } from "./Interject";
+import { useEffect, useRef, useState } from "react";
 import { StopButton, useStopper } from "./StopButton";
+import { StageStart } from "./StageStart";
 import { Doc, DocSection, DocP, DocMuted, DocFacts, DocChips, firstSentence } from "./doc/Doc";
 
 interface POQuestion {
@@ -41,8 +41,11 @@ export function ProductOwner({
   mode = "doc",
   artifact,
   stageName = "Define the Problem",
+  autostart = false,
   onUpdated,
 }: {
+  /** Start the questions on arrival (new agent / "Start" button from the previous page). */
+  autostart?: boolean;
   projectId: string;
   /** This stage's display name — "Define the Problem" (project) or "Define the Job" (agent). */
   stageName?: string;
@@ -58,10 +61,9 @@ export function ProductOwner({
   const [dialogue, setDialogue] = useState<PODialogue | null>(initialDialogue);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [catalog, setCatalog] = useState<FrameworkSummary[]>([]);
-  const [editingFw, setEditingFw] = useState(false);
-  const [draftIds, setDraftIds] = useState<string[]>([]);
   const stopper = useStopper();
+  const started = useRef(false);
+  const isAgent = stageName === "Define the Job";
 
   useEffect(() => {
     fetch("/api/ai")
@@ -71,28 +73,15 @@ export function ProductOwner({
         setAiReady(!!claude?.configured);
       })
       .catch(() => setAiReady(false));
-    fetch("/api/frameworks")
-      .then((r) => r.json())
-      .then((d) => setCatalog(d.frameworks || []))
-      .catch(() => {});
   }, []);
 
-  async function saveFrameworks() {
-    setBusy(true);
-    const res = await fetch(`/api/projects/${projectId}/product-owner/frameworks`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids: draftIds }),
-    });
-    const d = await res.json();
-    setBusy(false);
-    setEditingFw(false);
-    if (res.ok && dialogue) setDialogue({ ...dialogue, frameworks: d.frameworks });
-  }
-
-  function nameFor(id: string) {
-    return catalog.find((f) => f.id === id)?.name || id;
-  }
+  // Arriving from "New agent" (or the previous stage's Start button): begin the questions right away.
+  useEffect(() => {
+    if (autostart && aiReady && !dialogue && !spec && !started.current) {
+      started.current = true;
+      startReview();
+    }
+  }, [autostart, aiReady, dialogue, spec]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function connectAi() {
     setBusy(true);
@@ -142,6 +131,8 @@ export function ProductOwner({
         return;
       }
       setDialogue(d.dialogue);
+      // Questions done: write it up straight away, no extra click.
+      if (d.dialogue?.ready) await synthesize();
     } catch (e: any) {
       setBusy(false);
       if (!stopper.isAbort(e)) setError(e?.message || "Failed to send answer.");
@@ -163,11 +154,8 @@ export function ProductOwner({
     }
   }
 
-  // Artifact face — the exportable spec document.
-  if (mode === "artifacts") return <SpecExport spec={spec} stageName={stageName} />;
-
-  // Spec already produced — show it.
-  if (spec) return <SpecView spec={spec} />;
+  // Spec already produced — show it (editable).
+  if (spec) return <SpecView spec={spec} projectId={projectId} onUpdated={onUpdated} />;
 
   if (aiReady === false) {
     return (
@@ -192,138 +180,34 @@ export function ProductOwner({
     );
   }
 
+  const lastPo = dialogue ? dialogue.turns.map((t) => t.role).lastIndexOf("po") : -1;
+  const openQuestions = dialogue && !dialogue.ready ? dialogue.turns[lastPo]?.questions ?? [] : [];
+  const followUp = lastPo > 0;
+
   return (
-    <div className="space-y-4">
-      <Interject projectId={projectId} phase="product-owner" />
+    <div className="space-y-6">
+      {!dialogue && !busy && <StageStart label={isAgent ? "Start agent building" : "Start"} locked={aiReady === null ? "Checking your AI engine…" : null} onStart={startReview} />}
 
-      {!dialogue && (
-        <div className="card p-5 text-center">
-          <div className="flex items-center justify-center gap-2">
-            <button className="btn-primary" disabled={busy || aiReady === null} onClick={startReview}>
-              {busy ? "Reviewing…" : "Start the interrogation"}
-            </button>
-            {busy && <StopButton onStop={stopper.stop} />}
-          </div>
+      {busy && (
+        <div className="flex items-center gap-3 py-6 text-sm text-muted">
+          <span className="h-2 w-2 animate-pulse rounded-full bg-accent" />
+          {dialogue?.ready || (dialogue && openQuestions.length === 0) ? "Writing it up…" : dialogue ? "Reading your answers…" : "Reading your idea…"}
+          <StopButton onStop={stopper.stop} />
         </div>
       )}
 
-      {dialogue?.frameworks && (
-        <div className="card p-4">
-          <div className="flex items-center justify-between">
-            <div className="text-[11px] uppercase tracking-wider text-muted">Playbooks the PO is applying</div>
-            <button
-              className="text-xs text-accent2 hover:text-fg"
-              onClick={() => {
-                setDraftIds(dialogue.frameworks?.ids ?? []);
-                setEditingFw((v) => !v);
-              }}
-            >
-              {editingFw ? "Cancel" : "Adjust"}
-            </button>
-          </div>
-
-          {!editingFw && (
-            <>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {(dialogue.frameworks.ids.length ? dialogue.frameworks.ids : ["(none)"]).map((id) => (
-                  <span key={id} className="rounded-full bg-edge px-3 py-1 text-xs text-fg/90">
-                    {id === "(none)" ? "None" : nameFor(id)}
-                  </span>
-                ))}
-              </div>
-              {dialogue.frameworks.rationale && (
-                <p className="mt-2 text-xs text-muted">{dialogue.frameworks.rationale}</p>
-              )}
-            </>
-          )}
-
-          {editingFw && (
-            <div className="mt-3 space-y-3">
-              <p className="text-xs text-muted">Changes apply to the remaining questions and the final spec.</p>
-              <div className="max-h-56 overflow-auto rounded-lg border border-edge divide-y divide-edge">
-                {catalog.map((f) => (
-                  <label key={f.id} className="flex cursor-pointer items-start gap-2 px-3 py-2 hover:bg-edge/40">
-                    <input
-                      type="checkbox"
-                      className="mt-1"
-                      checked={draftIds.includes(f.id)}
-                      onChange={(e) =>
-                        setDraftIds((ids) => (e.target.checked ? [...ids, f.id] : ids.filter((x) => x !== f.id)))
-                      }
-                    />
-                    <span>
-                      <span className="text-sm text-fg">{f.name}</span>
-                      <span className="block text-xs text-muted">{f.description}</span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-              <button className="btn-primary" disabled={busy} onClick={saveFrameworks}>
-                {busy ? "Saving…" : "Save playbooks"}
-              </button>
-            </div>
-          )}
-        </div>
+      {!busy && openQuestions.length > 0 && (
+        <>
+          {followUp && <p className="text-sm text-muted">A couple of quick follow-ups.</p>}
+          <Questionnaire questions={openQuestions} busy={busy} onSubmit={submitAnswer} onSkip={synthesize} />
+        </>
       )}
 
-      {dialogue && (() => {
-        // The most recent PO turn holds the currently-open questions. When the
-        // dialogue isn't ready yet, those are answered interactively below — so
-        // skip them in the transcript to avoid showing each question twice.
-        const lastPoIndex = dialogue.turns.map((t) => t.role).lastIndexOf("po");
-        const openQuestions = !dialogue.ready ? dialogue.turns[lastPoIndex]?.questions ?? [] : [];
-        return (
-        <div className="space-y-3">
-          {dialogue.turns.map((turn, i) => (
-            <div key={i}>
-              {turn.role === "po" ? (
-                <div className="card p-4 border-l-2 border-l-accent">
-                  <div className="text-[11px] uppercase tracking-wider text-accent2 mb-2">{stageName}</div>
-                  {turn.assessment && <p className="text-sm text-fg/90 mb-3">{turn.assessment}</p>}
-                  {(turn.questions ?? []).length > 0 && !(i === lastPoIndex && !dialogue.ready) && (
-                    <ul className="space-y-2">
-                      {turn.questions!.map((q) => (
-                        <li key={q.id} className="text-sm">
-                          <span className="text-fg">• {q.question}</span>
-                          <span className="block text-xs text-muted ml-3">{q.rationale}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              ) : (
-                <div className="rounded-lg bg-edge/40 p-3 ml-6">
-                  <div className="text-[11px] uppercase tracking-wider text-muted mb-1">You</div>
-                  <p className="text-sm text-fg/90 whitespace-pre-wrap">{turn.text}</p>
-                </div>
-              )}
-            </div>
-          ))}
-
-          {dialogue.ready ? (
-            <div className="card p-5 text-center space-y-3 border border-ok/40">
-              <p className="text-sm text-fg">
-                Enough has been pinned down to write the spec.
-              </p>
-              <div className="flex items-center justify-center gap-3">
-                <button className="btn-primary" disabled={busy} onClick={synthesize}>
-                  {busy ? "Synthesizing…" : "Generate product spec →"}
-                </button>
-                {busy && <StopButton onStop={stopper.stop} />}
-              </div>
-            </div>
-          ) : (
-            <Questionnaire
-              questions={openQuestions}
-              busy={busy}
-              onSubmit={submitAnswer}
-              onSkip={synthesize}
-              onStop={stopper.stop}
-            />
-          )}
+      {!busy && dialogue?.ready && (
+        <div className="py-4 text-center">
+          <button className="btn-primary" onClick={synthesize}>Write it up →</button>
         </div>
-        );
-      })()}
+      )}
 
       {error && <p className="text-sm text-bad">{error}</p>}
     </div>
@@ -347,13 +231,11 @@ function Questionnaire({
   busy,
   onSubmit,
   onSkip,
-  onStop,
 }: {
   questions: POQuestion[];
   busy: boolean;
   onSubmit: (text: string) => void;
   onSkip: () => void;
-  onStop?: () => void;
 }) {
   // choice[id] = a selected option string, or the OTHER sentinel; other[id] = the free text.
   const [choice, setChoice] = useState<Record<string, string>>({});
@@ -377,51 +259,41 @@ function Questionnaire({
   }
 
   if (questions.length === 0) return null;
+  const letter = (i: number) => String.fromCharCode(65 + i);
 
   return (
-    <div className="card p-4 space-y-4">
-      {questions.map((q) => {
-        const isOther = choice[q.id] === OTHER || !q.options?.length;
+    <div className="space-y-8">
+      {questions.map((q, qi) => {
+        const opts = q.options ?? [];
+        const isOther = choice[q.id] === OTHER || !opts.length;
+        const row = (key: string, label: React.ReactNode, i: number, on: boolean, pick: () => void) => (
+          <button
+            key={key}
+            type="button"
+            disabled={busy}
+            onClick={pick}
+            className={`flex w-full items-start gap-3 rounded-lg border px-4 py-3 text-left text-[15px] transition-colors ${
+              on ? "border-accent bg-accent/10 text-fg" : "border-edge text-fg/90 hover:border-accent/50"
+            }`}
+          >
+            <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${on ? "bg-accent text-white" : "bg-edge text-muted"}`}>
+              {letter(i)}
+            </span>
+            <span className="pt-0.5">{label}</span>
+          </button>
+        );
         return (
-          <div key={q.id} className="space-y-2">
-            <div className="text-sm text-fg">{q.question}</div>
-            <div className="flex flex-wrap gap-2">
-              {(q.options ?? []).map((opt) => {
-                const selected = choice[q.id] === opt;
-                return (
-                  <button
-                    key={opt}
-                    type="button"
-                    disabled={busy}
-                    onClick={() => setChoice((c) => ({ ...c, [q.id]: opt }))}
-                    className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${
-                      selected
-                        ? "border-accent bg-accent/15 text-fg"
-                        : "border-edge text-muted hover:border-accent/60 hover:text-fg"
-                    }`}
-                  >
-                    {opt}
-                  </button>
-                );
-              })}
-              {q.options?.length ? (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => setChoice((c) => ({ ...c, [q.id]: OTHER }))}
-                  className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${
-                    choice[q.id] === OTHER
-                      ? "border-accent bg-accent/15 text-fg"
-                      : "border-edge text-muted hover:border-accent/60 hover:text-fg"
-                  }`}
-                >
-                  Other…
-                </button>
-              ) : null}
+          <div key={q.id}>
+            <div className="mb-3 text-[17px] font-semibold leading-snug text-fg">
+              {qi + 1}. {q.question}
+            </div>
+            <div className="space-y-2">
+              {opts.map((opt, i) => row(opt, opt, i, choice[q.id] === opt, () => setChoice((c) => ({ ...c, [q.id]: opt }))))}
+              {opts.length > 0 && row(OTHER, "Something else…", opts.length, choice[q.id] === OTHER, () => setChoice((c) => ({ ...c, [q.id]: OTHER })))}
             </div>
             {isOther && (
               <input
-                className="input text-sm"
+                className="input mt-2 text-sm"
                 placeholder="Type your answer…"
                 value={other[q.id] || ""}
                 disabled={busy}
@@ -432,35 +304,36 @@ function Questionnaire({
         );
       })}
 
-      <div className="flex items-center justify-between gap-3 pt-1">
-        <button className="btn-ghost" disabled={busy} onClick={onSkip} title="Skip ahead and write the spec now">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-edge pt-5">
+        <button className="btn-ghost" disabled={busy} onClick={onSkip}>
           Skip &amp; generate spec
         </button>
-        <div className="flex items-center gap-2">
-          <span className="hidden text-[11px] text-muted sm:inline">Skip any you're unsure of — the PO decides those.</span>
-          {busy && onStop && <StopButton onStop={onStop} />}
-          <button className="btn-primary" disabled={busy || answeredCount === 0} onClick={submit}>
-            {busy ? "Thinking…" : `Send answers →`}
-          </button>
-        </div>
+        <button className="btn-primary px-5" disabled={busy || answeredCount === 0} onClick={submit}>
+          Continue →
+        </button>
       </div>
     </div>
   );
 }
 
-function SpecView({ spec }: { spec: Record<string, any> }) {
-  // The one-sentence elevator answer to "what does your business do?". Newer
-  // specs carry a purpose-built `problem_solved`; fall back to the value prop so
-  // specs generated before this field existed still show something.
+function SpecView({ spec, projectId, onUpdated }: { spec: Record<string, any>; projectId: string; onUpdated: () => void }) {
+  const [editing, setEditing] = useState(false);
+  if (editing) return <SpecEditor spec={spec} projectId={projectId} onDone={() => { setEditing(false); onUpdated(); }} onCancel={() => setEditing(false)} />;
+
+  // The one-sentence elevator answer. Older specs fall back to the value prop.
   const problemSolved = firstSentence(spec.problem_solved || spec.value_proposition || "");
   const whatChanges = firstSentence(spec.value_proposition);
   const list = (v: any): string[] => (Array.isArray(v) ? v : []);
   const mustHaves: any[] = Array.isArray(spec.must_have_features) ? spec.must_have_features : [];
+  const editButton = (
+    <button className="rounded-lg bg-accent px-4 py-1.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-accent/85" onClick={() => setEditing(true)}>
+      ✎ Edit
+    </button>
+  );
 
-  // The read is two headings — what hurts, and what gets built. Everything else
-  // the spec carries still steers the later phases; it just isn't shown here.
   return (
     <Doc>
+      <div className="mb-2 flex justify-end">{editButton}</div>
       <DocSection title="The problem">
         {problemSolved && <DocP className="text-[1.35rem] font-medium leading-relaxed text-fg">{problemSolved}</DocP>}
         <DocFacts
@@ -472,81 +345,63 @@ function SpecView({ spec }: { spec: Record<string, any> }) {
         />
       </DocSection>
 
-      {spec.agent && <AgentJobSections agent={spec.agent} />}
-
-      {!spec.agent && <DocSection title="What we're building">
-        <ul className="doc-p space-y-2">
-          {mustHaves.map((f, i) => (
-            <li key={i}>
-              {/* Name only; the description is one tap away. */}
-              <details>
-                <summary className="cursor-pointer font-medium text-fg">{f.name}</summary>
-                <DocMuted className="mt-1">{f.description}</DocMuted>
-              </details>
-            </li>
-          ))}
-        </ul>
-        <DocFacts items={[{ label: "Not building", value: list(spec.non_goals).slice(0, 3).join(" · ") }]} />
-        <div className="mt-4">
-          <DocChips items={list(spec.success_metrics).slice(0, 2)} />
-        </div>
-      </DocSection>}
-
+      {spec.agent ? (
+        <AgentJobSections agent={spec.agent} />
+      ) : (
+        <DocSection title="What we're building">
+          <ul className="doc-p space-y-2">
+            {mustHaves.map((f, i) => (
+              <li key={i}>
+                <details>
+                  <summary className="cursor-pointer font-medium text-fg">{f.name}</summary>
+                  <DocMuted className="mt-1">{f.description}</DocMuted>
+                </details>
+              </li>
+            ))}
+          </ul>
+          <DocFacts items={[{ label: "Not building", value: list(spec.non_goals).slice(0, 3).join(" · ") }]} />
+          <div className="mt-4">
+            <DocChips items={list(spec.success_metrics).slice(0, 2)} />
+          </div>
+        </DocSection>
+      )}
     </Doc>
   );
 }
 
 const SENSITIVITY: Record<string, string> = { public: "Public", internal: "Internal", pii: "Personal data (PII)", regulated: "Regulated" };
 
-/** Agent pipeline: the spec's `agent` block, in the same two short sections as the project read. */
+/** Agent pipeline: the job, who does what, and the boundaries. Short and scannable. */
 function AgentJobSections({ agent }: { agent: Record<string, any> }) {
   const list = (v: any): string[] => (Array.isArray(v) ? v : []);
-  const examples: { input: string; expected: string }[] = Array.isArray(agent.example_tasks) ? agent.example_tasks : [];
+  const bullets = (items: string[]) => (
+    <ul className="doc-p list-disc space-y-1 pl-5">
+      {items.map((x) => <li key={x}>{x}</li>)}
+    </ul>
+  );
   return (
     <>
-      <DocSection title="The job">
-        {agent.task && <DocP className="text-[1.15rem] font-medium text-fg">{agent.task}</DocP>}
-        <DocFacts
-          items={[
-            { label: "Who uses it", value: list(agent.users).join(" · ") },
-            { label: "Starts when", value: agent.trigger },
-            { label: "Done right", value: list(agent.success_criteria).join(" · ") },
-            { label: "Done wrong", value: list(agent.failure_criteria).join(" · ") },
-          ]}
-        />
-        {examples.length > 0 && (
-          <details className="mt-4">
-            <summary className="cursor-pointer text-sm font-medium text-fg">{examples.length} example tasks (these become the tests)</summary>
-            <ol className="mt-2 list-decimal space-y-2 pl-5 text-sm">
-              {examples.map((ex, i) => (
-                <li key={i}>
-                  <div className="text-fg">{ex.input}</div>
-                  <DocMuted>→ {ex.expected}</DocMuted>
-                </li>
-              ))}
-            </ol>
-          </details>
+      <DocSection title="What the AI does">
+        {bullets(list(agent.allowed_actions))}
+        {list(agent.forbidden_actions).length > 0 && (
+          <>
+            <div className="mt-3 text-xs font-semibold uppercase tracking-wider text-muted">Never does</div>
+            {bullets(list(agent.forbidden_actions))}
+          </>
         )}
       </DocSection>
 
-      <DocSection title="Boundaries & budgets">
+      <DocSection title="What you do">
+        <DocP>{agent.human_fallback || "Review its work when it hands something off."}</DocP>
+      </DocSection>
+
+      <DocSection title="Boundaries">
         <DocFacts
           items={[
-            { label: "May do", value: list(agent.allowed_actions).join(" · ") },
-            { label: "Never does", value: list(agent.forbidden_actions).join(" · ") },
+            { label: "How often it runs", value: agent.trigger },
             { label: "Speed", value: agent.latency_budget },
             { label: "Cost", value: agent.cost_budget },
             { label: "Data", value: SENSITIVITY[agent.data_sensitivity] ?? agent.data_sensitivity },
-            { label: "Human fallback", value: agent.human_fallback },
-            {
-              label: "Who uses it",
-              value:
-                agent.people_use_it === undefined
-                  ? ""
-                  : agent.people_use_it
-                    ? agent.charges_users ? "People, and you'll charge them" : "People, free"
-                    : "Nobody directly; it runs on its own",
-            },
           ]}
         />
       </DocSection>
@@ -554,96 +409,115 @@ function AgentJobSections({ agent }: { agent: Record<string, any> }) {
   );
 }
 
-/** Artifact: the product spec packaged as an exportable Markdown document. */
-function SpecExport({ spec, stageName }: { spec: Record<string, any> | null; stageName: string }) {
-  const [copied, setCopied] = useState(false);
-
-  if (!spec) {
-    return (
-      <div className="card p-6 text-sm text-muted">
-        Finish the {stageName} review first — the spec document is generated from the completed spec.
-      </div>
-    );
-  }
-
-  const md = specToMarkdown(spec);
-
-  async function copy() {
-    await navigator.clipboard.writeText(md);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  }
-  function download() {
-    const blob = new Blob([md], { type: "text/markdown" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "product-spec.md";
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  return (
-    <div className="doc">
-      <h2 className="doc-h">Spec document</h2>
-      <p className="doc-p">The completed product spec, packaged as a portable Markdown doc to hand to engineering, design, or a collaborator.</p>
-      <div className="mt-5 flex flex-wrap gap-3">
-        <button className="btn-primary" onClick={copy}>{copied ? "Copied ✓" : "Copy Markdown"}</button>
-        <button className="btn-ghost" onClick={download}>Download .md</button>
-      </div>
-      <pre className="mt-6 max-h-[28rem] overflow-auto rounded-lg border border-edge bg-ink p-4 text-[12px] leading-relaxed text-fg/80 whitespace-pre-wrap">
-        {md}
-      </pre>
-    </div>
-  );
+/** A text box that always shows all of its text: it grows with the content instead of scrolling. */
+function AutoTextarea({ value, onChange, minRows = 1 }: { value: string; onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void; minRows?: number }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight + 2}px`;
+  }, [value]);
+  return <textarea ref={ref} className="input mt-1 w-full resize-none overflow-hidden text-sm leading-relaxed" rows={minRows} value={value} onChange={onChange} />;
 }
 
-/** Flatten the product-spec payload into a clean Markdown document. */
-function specToMarkdown(s: Record<string, any>): string {
-  const out: string[] = [];
-  const h = (t: string) => out.push(`## ${t}`, "");
-  const p = (t?: string) => (t ? out.push(t, "") : null);
-  const bullets = (items?: any[]) => {
-    (items ?? []).forEach((x) => out.push(typeof x === "string" ? `- ${x}` : `- **${x.name}** — ${x.description}`));
-    out.push("");
-  };
+/** Edit what the PO wrote before moving on. Saving makes a new spec version that the next stage reads. */
+function SpecEditor({ spec, projectId, onDone, onCancel }: { spec: Record<string, any>; projectId: string; onDone: () => void; onCancel: () => void }) {
+  const a = spec.agent ?? {};
+  const lines = (v: any) => (Array.isArray(v) ? v.join("\n") : "");
+  const [f, setF] = useState<Record<string, string>>({
+    problem_solved: spec.problem_solved ?? "",
+    who: (spec.target_users ?? [])[0] ?? "",
+    value_proposition: spec.value_proposition ?? "",
+    task: a.task ?? "",
+    trigger: a.trigger ?? "",
+    success_criteria: lines(a.success_criteria),
+    failure_criteria: lines(a.failure_criteria),
+    allowed_actions: lines(a.allowed_actions),
+    forbidden_actions: lines(a.forbidden_actions),
+    human_fallback: a.human_fallback ?? "",
+    latency_budget: a.latency_budget ?? "",
+    cost_budget: a.cost_budget ?? "",
+    data_sensitivity: a.data_sensitivity ?? "internal",
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
+  const split = (v: string) => v.split("\n").map((x) => x.trim()).filter(Boolean);
 
-  out.push("# Product Spec", "");
-  if (s.problem_solved) p(`**Problem solved:** ${s.problem_solved}`);
-  p(s.summary);
-  if (s.idea_type) p(`**Idea type:** ${s.idea_type}`);
-  h("Problem"); p(s.problem_statement);
-  h("Value proposition"); p(s.value_proposition);
-  if (s.target_users?.length) { h("Target users"); bullets(s.target_users); }
-  if (s.goals?.length) { h("Goals"); bullets(s.goals); }
-  if (s.non_goals?.length) { h("Non-goals"); bullets(s.non_goals); }
-  if (s.must_have_features?.length) { h("Must-have features"); bullets(s.must_have_features); }
-  if (s.nice_to_have_features?.length) { h("Nice-to-have features"); bullets(s.nice_to_have_features); }
-  if (s.success_metrics?.length) { h("Success metrics"); bullets(s.success_metrics); }
-  if (s.key_risks?.length) { h("Key risks"); bullets(s.key_risks); }
-  if (s.open_questions?.length) { h("Open questions"); bullets(s.open_questions); }
-  if (s.agent) {
-    const a = s.agent;
-    h("The job"); p(a.task);
-    if (a.trigger) p(`**Starts when:** ${a.trigger}`);
-    if (a.users?.length) { out.push("**Users**", ""); bullets(a.users); }
-    if (a.success_criteria?.length) { out.push("**Success criteria**", ""); bullets(a.success_criteria); }
-    if (a.failure_criteria?.length) { out.push("**Failure criteria**", ""); bullets(a.failure_criteria); }
-    h("Boundaries & budgets");
-    if (a.allowed_actions?.length) { out.push("**Allowed actions**", ""); bullets(a.allowed_actions); }
-    if (a.forbidden_actions?.length) { out.push("**Forbidden actions**", ""); bullets(a.forbidden_actions); }
-    p(`**Latency:** ${a.latency_budget || "—"} · **Cost:** ${a.cost_budget || "—"} · **Data:** ${a.data_sensitivity || "—"}`);
-    if (a.human_fallback) p(`**Human fallback:** ${a.human_fallback}`);
-    if (a.example_tasks?.length) {
-      h("Example tasks");
-      a.example_tasks.forEach((ex: any, i: number) => out.push(`${i + 1}. ${ex.input}`, `   - Expected: ${ex.expected}`));
-      out.push("");
+  async function save() {
+    setBusy(true);
+    setError(null);
+    const next: Record<string, any> = {
+      ...spec,
+      problem_solved: f.problem_solved,
+      value_proposition: f.value_proposition,
+      target_users: [f.who, ...(spec.target_users ?? []).slice(1)].filter(Boolean),
+    };
+    if (spec.agent) {
+      next.agent = {
+        ...a,
+        task: f.task,
+        trigger: f.trigger,
+        success_criteria: split(f.success_criteria),
+        failure_criteria: split(f.failure_criteria),
+        allowed_actions: split(f.allowed_actions),
+        forbidden_actions: split(f.forbidden_actions),
+        human_fallback: f.human_fallback,
+        latency_budget: f.latency_budget,
+        cost_budget: f.cost_budget,
+        data_sensitivity: f.data_sensitivity,
+      };
     }
+    const res = await fetch(`/api/projects/${projectId}/product-owner/edit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ spec: next }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) return setError(d.error || "Couldn't save.");
+    onDone();
   }
-  h("Monetization"); p(s.monetization);
-  h("PO recommendation"); p(s.recommendation);
-  if (Array.isArray(s.frameworks_applied) && s.frameworks_applied.length) {
-    p(`_Playbooks applied: ${s.frameworks_applied.join(", ")} · via pm-skills_`);
-  }
-  return out.join("\n").trim() + "\n";
+
+  const field = (label: string, k: string, rows = 1, hint?: string) => (
+    <label className="block">
+      <span className="text-xs font-semibold uppercase tracking-wider text-muted">{label}</span>
+      {hint && <span className="ml-2 text-xs text-muted">{hint}</span>}
+      <AutoTextarea value={f[k]} onChange={set(k)} minRows={rows} />
+    </label>
+  );
+
+  return (
+    <div className="space-y-4">
+      {field("The problem, in one line", "problem_solved")}
+      {field("Who it's for", "who")}
+      {field("What changes", "value_proposition", 2)}
+      {spec.agent && (
+        <>
+          {field("What the AI does", "allowed_actions", 4, "one per line")}
+          {field("Never does", "forbidden_actions", 3, "one per line")}
+          {field("What you do", "human_fallback", 2)}
+          {field("How often it runs", "trigger", 1, "e.g. every Monday, or about 40 times a day")}
+          <div className="grid gap-3 sm:grid-cols-3">
+            {field("Speed", "latency_budget")}
+            {field("Cost", "cost_budget")}
+            <label className="block">
+              <span className="text-xs font-semibold uppercase tracking-wider text-muted">Data</span>
+              <select className="input mt-1 w-full text-sm" value={f.data_sensitivity} onChange={set("data_sensitivity")}>
+                {Object.entries(SENSITIVITY).map(([k, v]) => (
+                  <option key={k} value={k}>{v}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </>
+      )}
+      {error && <p className="text-sm text-bad">{error}</p>}
+      <div className="flex gap-2">
+        <button className="btn-primary" disabled={busy} onClick={save}>{busy ? "Saving…" : "Save"}</button>
+        <button className="btn-ghost" disabled={busy} onClick={onCancel}>Cancel</button>
+      </div>
+    </div>
+  );
 }

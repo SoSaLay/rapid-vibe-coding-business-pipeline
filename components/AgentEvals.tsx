@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { EvalsState, EvalRun } from "@/lib/agent/evals-state";
 import type { EvalSummary, EvalCase } from "@/lib/phases/agent-evals";
 import { Doc, DocSection, DocP, DocMuted, DocFacts } from "./doc/Doc";
 import { StopButton, useStopper } from "./StopButton";
+import { StageStart } from "./StageStart";
 
 const CATEGORY_LABEL: Record<string, string> = {
   routine: "Routine (your examples)",
@@ -27,8 +28,10 @@ export function AgentEvals({
   hasSecurity,
   state,
   completed,
+  autostart = false,
   onUpdated,
 }: {
+  autostart?: boolean;
   projectId: string;
   hasSecurity: boolean;
   state: EvalsState | null;
@@ -42,12 +45,23 @@ export function AgentEvals({
   const [override, setOverride] = useState("");
   const [cases, setCases] = useState<EvalCase[] | null>(null);
   const stopper = useStopper();
+  const autoRan = useRef(false);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    if (!autostart || !hasSecurity || !loaded || autoRan.current || (state?.runs?.length ?? 0) > 0) return;
+    autoRan.current = true;
+    (async () => {
+      if (!cases) await post("dataset", {}, "Writing test cases…");
+      await post("run", { trials: 3 }, "Running the evaluations (a few minutes)…");
+    })();
+  }, [autostart, hasSecurity, loaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetch(`/api/projects/${projectId}/evals/dataset`)
       .then((r) => r.json())
       .then((d) => setCases(d.dataset?.cases ?? null))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setLoaded(true));
   }, [projectId, state?.dataset_version]);
 
   async function post(path: string, body: any, label: string) {
@@ -72,12 +86,20 @@ export function AgentEvals({
     setBusy(null);
   }
 
-  if (!hasSecurity) return <div className="card p-6 text-sm text-muted">Locked until Security is finished.</div>;
+  if (!hasSecurity) return <StageStart label="Start Evaluations" locked="Finish Security first." onStart={() => {}} />;
 
   const runs = state?.runs ?? [];
   const last: EvalRun | undefined = runs[runs.length - 1];
   const baseline = state?.baseline ?? null;
   const caseCount = cases?.length ?? 0;
+
+  async function startAll() {
+    if (!cases) await post("dataset", {}, "Writing test cases…");
+    await post("run", { trials: 3 }, "Running the evaluations (a few minutes)…");
+  }
+  if (loaded && !cases && runs.length === 0) {
+    return <StageStart label="Start Evaluations" busy={busy} error={error} onStart={startAll} onStop={() => { stopper.stop(); setBusy(null); }} />;
+  }
 
   return (
     <Doc>

@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import { Cadence, CADENCE_LABEL, isDue, resetsIn } from "@/lib/ops-cadence";
-import { Interject } from "./Interject";
 import { StopButton, useStopper } from "./StopButton";
 import { ClampedText } from "./doc/Doc";
 
@@ -214,7 +213,6 @@ export function Operations({
             deployed with (what to check in each console, daily / weekly / monthly, with timers),
             plus a release process and incident response runbook.
           </p>
-          <Interject projectId={projectId} phase="operations" />
           <div className="flex gap-3">
             <button onClick={generatePlan} disabled={busy} className="btn-primary text-sm">
               {busy ? "Generating…" : "Generate Ops Report"}

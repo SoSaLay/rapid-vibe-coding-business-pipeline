@@ -10,7 +10,7 @@
 import type { FrameworkAdapter, GeneratedFile, FilledLogic, ExampleTask } from "../types";
 import type { AgentDesign, Field, ToolContract } from "../design";
 import { modelKeyEnv, modelPackage, effectiveLimits, effectiveMemory, stopRules } from "../design";
-import { EVAL_RUNNER_PY, KNOWLEDGE_PY, MEMORY_PY, RUN_PY, SAFETY_PY, SKILLS_PY } from "./langchain-runtime";
+import { EVAL_RUNNER_PY, KNOWLEDGE_PY, MCP_PY, MEMORY_PY, RUN_PY, SAFETY_PY, SKILLS_PY } from "./langchain-runtime";
 import { renderSkillMd, skillSlug } from "../skills";
 
 export function pyIdent(name: string): string {
@@ -159,6 +159,7 @@ function renderSkillsAndKnowledge(design: AgentDesign): GeneratedFile[] {
   }
   if (skills.length) files.push({ path: "agent/skills.py", content: SKILLS_PY, explains: "Lists the skills in the agent's instructions and opens one only when a task needs it." });
   if (ragOn(design)) files.push({ path: "agent/knowledge.py", content: KNOWLEDGE_PY, explains: "Searches your documents and returns the closest passages with their source." });
+  if ((design.mcp_servers ?? []).length) files.push({ path: "agent/mcp_tools.py", content: MCP_PY, explains: "Loads tools from your MCP servers, with the same limits and approvals as the agent's own tools." });
   return files;
 }
 
@@ -181,6 +182,9 @@ TOOL_LIMITS = ${py(effectiveLimits(design))}
 MEMORY = ${py(effectiveMemory(design, spec?.agent))}
 
 STOP_RULES = ${py(stopRules(spec, design))}
+
+# MCP servers whose tools the agent loads at start (tokens come from env, never from here).
+MCP_SERVERS = ${py(design.mcp_servers ?? [])}
 `;
 }
 
@@ -197,7 +201,7 @@ from .limits import STOP_RULES
 from .prompt import SYSTEM_PROMPT
 from .schemas import AgentOutput
 from .tools import APPROVAL_REQUIRED, TOOLS
-${enabledSkills(design).length ? "from .skills import index_text, load_skill\n" : ""}${ragOn(design) ? "from .knowledge import search_knowledge\n" : ""}${longTermMemory(design, spec) ? "from .memory import remember\n" : ""}
+${enabledSkills(design).length ? "from .skills import index_text, load_skill\n" : ""}${ragOn(design) ? "from .knowledge import search_knowledge\n" : ""}${longTermMemory(design, spec) ? "from .memory import remember\n" : ""}${(design.mcp_servers ?? []).length ? "from .mcp_tools import MCP_APPROVAL, MCP_TOOLS\n" : ""}
 load_dotenv()
 
 MODEL = ${lit(design.model.selected)}
@@ -211,11 +215,12 @@ def _rules() -> str:
 
 def build(checkpointer=None):
     middleware = []
-    if APPROVAL_REQUIRED:
-        middleware.append(HumanInTheLoopMiddleware(interrupt_on={name: True for name in APPROVAL_REQUIRED}))
+    approve = [*APPROVAL_REQUIRED${(design.mcp_servers ?? []).length ? ", *MCP_APPROVAL" : ""}]
+    if approve:
+        middleware.append(HumanInTheLoopMiddleware(interrupt_on={name: True for name in approve}))
     return create_agent(
         model=MODEL,
-        tools=[*TOOLS${enabledSkills(design).length ? ", load_skill" : ""}${ragOn(design) ? ", search_knowledge" : ""}${effectiveMemory(design, spec?.agent).user_profile.enabled ? ", remember" : ""}],
+        tools=[*TOOLS${(design.mcp_servers ?? []).length ? ", *MCP_TOOLS" : ""}${enabledSkills(design).length ? ", load_skill" : ""}${ragOn(design) ? ", search_knowledge" : ""}${effectiveMemory(design, spec?.agent).user_profile.enabled ? ", remember" : ""}],
         system_prompt=SYSTEM_PROMPT${enabledSkills(design).length ? " + index_text()" : ""} + _rules(),
         response_format=AgentOutput,
         middleware=middleware,
@@ -354,6 +359,7 @@ function renderPyproject(title: string, design: AgentDesign, logic: FilledLogic,
     "langgraph-checkpoint-postgres>=2.0",
     "pyjwt[crypto]>=2.9",
     "bedrock-agentcore>=0.1",
+    ...((design.mcp_servers ?? []).length ? ["langchain-mcp-adapters>=0.1"] : []),
     ...logic.extra_dependencies.filter((d) => /^[A-Za-z0-9_.\-\[\]]+([<>=!~]=?[A-Za-z0-9_.*]+)?$/.test(d)),
   ];
   return `[project]

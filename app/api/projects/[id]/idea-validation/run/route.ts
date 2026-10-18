@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { latestArtifact, saveArtifact, savePhaseState, completePhase, getProject, writeMeta } from "@/lib/store";
 import { planSearches, gatherEvidence, synthesizeValidation } from "@/lib/phases/idea-validation";
-import { interjectionContext } from "@/lib/interjections";
 
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   const specArtifact = await latestArtifact(params.id, "product-spec");
@@ -17,7 +16,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         { status: 422 }
       );
     }
-    const report = await synthesizeValidation(spec, evidence, await interjectionContext(params.id, "idea-validation"));
+    const report = await synthesizeValidation(spec, evidence);
 
     // Persist the working evidence + the verdict artifact.
     await savePhaseState(params.id, "idea-validation", { plan, evidence });

@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { VoiceInput } from "./VoiceInput";
-import { Interject } from "./Interject";
 import { StopButton, useStopper } from "./StopButton";
 import { ClampedText } from "./doc/Doc";
 
@@ -196,7 +195,6 @@ export function Iteration({
             owner needs answered (plus a few specific to your app), answered by voice or typing — then
             get an honest traction read and ranked next moves.
           </p>
-          <Interject projectId={projectId} phase="iteration" />
           <div className="flex items-center gap-2">
             <button onClick={startCheckin} disabled={busy} className="btn-primary text-sm">
               {busy ? "Preparing questions…" : "Start check-in"}

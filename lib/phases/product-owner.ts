@@ -27,7 +27,9 @@ import { SKIMMABLE_STYLE } from "./brevity";
  * in the spec's `open_questions` with the PO's own recommendation beside it.
  */
 export const PO_MAX_ROUNDS = 2;
-export const PO_MAX_QUESTIONS_PER_ROUND = 4;
+/** Round 1 is the one real question set; round 2 is only for contradictions or a critical gap. */
+export const PO_QUESTIONS_BY_ROUND = [5, 2];
+export const PO_MAX_QUESTIONS_PER_ROUND = PO_QUESTIONS_BY_ROUND[0];
 
 export interface POQuestion {
   id: string;
@@ -386,13 +388,13 @@ export async function generatePOTurn(
     };
   }
 
-  const isFinalRound = round === PO_MAX_ROUNDS;
+  const cap = PO_QUESTIONS_BY_ROUND[round - 1] ?? 2;
   const budget =
-    `\n\nROUND ${round} OF ${PO_MAX_ROUNDS}. Ask AT MOST ${PO_MAX_QUESTIONS_PER_ROUND} questions this round.` +
-    (isFinalRound
-      ? " This is your LAST round — there is no round after this one, you write the spec next. Ask only what you cannot" +
-        " responsibly decide yourself, then let the rest go: infer it, state it as your recommendation, and record it as an open question."
-      : " Spend this round on the assumptions that would most change what gets built. You get one more round after the owner replies.");
+    round === 1
+      ? `\n\nThis is your ONE question set: at most ${cap} questions. Use it to pin down the whole idea at once: who it's for, ` +
+        "the exact job, and what done looks like, plus whatever else would most change what gets built. Decide everything else yourself."
+      : `\n\nFOLLOW-UP: only if the owner's answers contradict each other or leave a critical gap, ask at most ${cap} short questions. ` +
+        "Otherwise set ready=true with no questions. Pushing back is not a reason to ask again.";
 
   const provider = activeProvider();
   const result = await provider.completeJson<{ assessment: string; ready: boolean; questions: POQuestion[] }>({
@@ -416,7 +418,7 @@ export async function generatePOTurn(
   // Enforce the caps rather than trusting the prompt: a model that ignores the
   // budget must not be able to spend the owner's time anyway.
   result.questions = (result.questions ?? [])
-    .slice(0, PO_MAX_QUESTIONS_PER_ROUND)
+    .slice(0, cap)
     .map((q, i) => ({ ...q, id: q.id || `q${turns.length}_${i}` }));
   if (result.questions.length === 0) result.ready = true;
   return result;

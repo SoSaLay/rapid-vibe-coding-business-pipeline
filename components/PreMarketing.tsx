@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { EngineSelector } from "./EngineSelector";
 import { ImageZoom } from "./ImageZoom";
-import { Interject } from "./Interject";
 import { StopButton, useStopper } from "./StopButton";
 import { Doc, DocSection, DocMuted, DocList, DocChips } from "./doc/Doc";
 
@@ -112,7 +111,6 @@ export function PreMarketing({
     // One artifact per page (selected from the artifact tiles).
     return (
       <div className="space-y-4">
-        <Interject projectId={projectId} phase="pre-marketing" />
         {artifact === "brand-visuals" && <BrandVisuals projectId={projectId} />}
         {artifact === "landing" && <LaunchPanel projectId={projectId} kit={kit} only="landing" />}
         {artifact === "waitlist" && <LaunchPanel projectId={projectId} kit={kit} only="waitlist" />}
@@ -136,7 +134,6 @@ export function PreMarketing({
         Prove real intent before you build — a validation kit: landing-page copy, a pre-sell offer, and a distribution
         plan grounded in your spec.
       </p>
-      <Interject projectId={projectId} phase="pre-marketing" />
       <div className="flex items-center justify-center gap-3">
         <button className="btn-ghost" disabled={busy} onClick={skip}>
           Skip

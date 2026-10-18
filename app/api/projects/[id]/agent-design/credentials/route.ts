@@ -19,6 +19,9 @@ async function status(projectId: string) {
     if (row) row.tool += `, ${t.name}`;
     else needed.push({ env: t.credential_env, label: t.credential_label || t.credential_env, tool: t.name });
   }
+  for (const m of design.mcp_servers ?? []) {
+    if (m.token_env && !needed.some((n) => n.env === m.token_env)) needed.push({ env: m.token_env, label: `${m.name} MCP token`, tool: `mcp:${m.name}` });
+  }
   // The built code can read more env vars than the design names (e.g. a database id).
   const built = (await getPhaseState<{ agentBuild?: AgentBuildState }>(projectId, "engineering"))?.agentBuild;
   const modelEnvName = modelKeyEnv(design.model.selected);

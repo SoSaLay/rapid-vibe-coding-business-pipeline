@@ -23,7 +23,7 @@ export async function langfuseConfig(): Promise<{ publicKey: string; secretKey: 
   const publicKey = c?.publicKey || process.env.LANGFUSE_PUBLIC_KEY || "";
   const secretKey = c?.secretKey || process.env.LANGFUSE_SECRET_KEY || "";
   if (!publicKey || !secretKey) return null;
-  return { publicKey, secretKey, host: c?.host || process.env.LANGFUSE_HOST || "https://cloud.langfuse.com" };
+  return { publicKey, secretKey, host: c?.host || process.env.LANGFUSE_HOST || "https://us.cloud.langfuse.com" };
 }
 
 const langfuseTracing: AgentAdapter = {
@@ -71,7 +71,7 @@ export const REGISTRY: Record<AgentSlot, AgentAdapter[]> = {
     planned("framework", "cloudflare-agents", "Cloudflare Agents", "TypeScript framework that is also its own host (Workers + Durable Objects). Would pair with a Cloudflare runtime."),
   ],
   credentials: [inAppCredentials, planned("credentials", "composio", "Composio", "Managed logins for hundreds of apps; each end user connects their own account.")],
-  tracing: [langfuseTracing, langsmithTracing],
+  tracing: [langfuseTracing],
   // LangGraph interrupts ship inside the LangChain template (HumanInTheLoopMiddleware), so no key is needed.
   approval: [{ id: "langgraph", slot: "approval", label: "LangGraph interrupts", blurb: "Pauses approval-flagged tools until a human approves.", status: "active", isConnected: async () => true }],
   // Login follows the state database (Supabase Auth with Supabase, Neon Auth with Neon); Clerk when the agent charges users.

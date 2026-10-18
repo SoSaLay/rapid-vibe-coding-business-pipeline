@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Interject } from "./Interject";
 import { StopButton, useStopper } from "./StopButton";
 import { Doc, DocSection, DocSub, DocMuted, DocList, DocQuote, DocProse, DocFacts, DocChips, DocDetails, firstSentence } from "./doc/Doc";
 
@@ -136,7 +135,6 @@ export function IdeaValidation({
         Search forums for real demand signal <span className="text-fg/70">and</span> research the market —
         competitors, sizing, segments, positioning — then deliver an evidence-grounded verdict.
       </p>
-      <Interject projectId={projectId} phase="idea-validation" />
       <div className="flex items-center justify-center gap-3">
         <button className="btn-ghost" disabled={busy} onClick={skip} title="Skip validation and move on">
           Skip — just building for fun

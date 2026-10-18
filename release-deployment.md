@@ -45,7 +45,7 @@ Each stage asks for a slot, never a specific vendor:
 | Tool credentials | store the agent's own tool logins, inject them at run and deploy time | In-app paste or connect (`data/`); Composio or Arcade later | 2, 3, 6 |
 | Agent framework | render code from `agent-design`: the loop, tools, structured output, step limit | LangChain `create_agent` | 3 |
 | Human approval | pause before an approval-flagged tool call | LangGraph interrupts | 4 |
-| Tracing | send traces, read runs back | **Langfuse** (free tier / self-host); LangSmith alternative | 3, 5, 7 |
+| Tracing (Agent monitoring) | send traces, read runs back | **Langfuse** (free tier / self-host). LangSmith removed as an option (owner, 2026-10-17) | 3, 5, 7 |
 | Auth | authenticate requests, keep users' data separate | **Supabase Auth** (follows the state DB); Neon Auth; Clerk when charging users | 4, 6 |
 | Unit tests | generate and run deterministic tests | pytest | 5 |
 | Eval runner | versioned dataset, evaluators, compare to baseline | **Built-in local runner** (the gate never depends on a vendor) | 5, 7 |

@@ -43,13 +43,13 @@ export function IdeaCapture({ onCreated, kind = "project" }: { onCreated: () => 
       body: JSON.stringify({ title, text, inputMethod: usedVoice ? "voice" : "text", kind }),
     });
     setBusy(false);
-    if (!res.ok) {
-      const d = await res.json().catch(() => ({}));
-      return setError(d.error || "Failed to capture idea.");
-    }
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) return setError(d.error || "Failed to capture idea.");
     setTitle("");
     setText("");
-    onCreated();
+    // Straight into the pipeline: Define the Problem / Define the Job starts on its own.
+    if (d.project?.id) router.push(`/project/${d.project.id}/product-owner?autostart=1`);
+    else onCreated();
   }
 
   async function submitImport() {
@@ -68,7 +68,7 @@ export function IdeaCapture({ onCreated, kind = "project" }: { onCreated: () => 
     if (!res.ok) return setError(d.error || "Failed to import the repository.");
     setRepoUrl("");
     setRepoToken("");
-    if (d.project?.id) router.push(`/project/${d.project.id}`);
+    if (d.project?.id) router.push(`/project/${d.project.id}/product-owner?autostart=1`);
     else onCreated();
   }
 
@@ -93,7 +93,7 @@ export function IdeaCapture({ onCreated, kind = "project" }: { onCreated: () => 
     setImportStatus(null);
     if (!res.ok) return setError(d.error || "Failed to import the folder.");
     setFolderFiles(null);
-    if (d.project?.id) router.push(`/project/${d.project.id}`);
+    if (d.project?.id) router.push(`/project/${d.project.id}/product-owner?autostart=1`);
     else onCreated();
   }
 
