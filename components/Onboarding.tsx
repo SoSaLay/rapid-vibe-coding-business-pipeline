@@ -18,7 +18,6 @@ export interface OnboardingStatus {
   langsmith: boolean;
   aws: boolean;
   railway: boolean;
-  "coding-model": boolean;
   /** An LLM engine (Claude OR OpenAI) connected — gates pipeline progression. */
   requiredComplete: boolean;
   /** Every slot connected — drives the "complete" (green) button state. */
@@ -94,7 +93,7 @@ const LLM_OPTIONS: LlmOption[] = [
 ];
 
 interface Service {
-  id: "exa" | "google" | "supabase" | "resend" | "posthog" | "langfuse" | "langsmith" | "aws" | "railway" | "coding-model";
+  id: "exa" | "google" | "supabase" | "resend" | "posthog" | "langfuse" | "langsmith" | "aws" | "railway";
   label: string;
   /** Why it matters / what connecting it unlocks. */
   unlocks: string;
@@ -222,20 +221,6 @@ const SERVICES: Service[] = [
     fields: [{ name: "apiKey", label: "LangSmith API key (lsv2_…)", type: "password" }],
   },
   {
-    id: "coding-model",
-    label: "Coding model",
-    unlocks: "Picks the model that writes code in Engineering & Development. Leave it unset to use your AI engine.",
-    help: "Any Claude or OpenAI model id your connected engine can use.",
-    docsUrl: "https://docs.claude.com/en/docs/about-claude/models/overview",
-    docs: [
-      "Connect Claude or OpenAI under AI engine first. The coding model runs on that key.",
-      "Type a model id: e.g. claude-fable-5-1 (most capable), claude-opus-5-5, claude-sonnet-5-5, or an OpenAI id like gpt-5.5.",
-      "Ids starting with 'claude' run on Claude; anything else runs on OpenAI.",
-      "Clear the box and save to go back to the AI engine's default.",
-    ],
-    fields: [{ name: "model", label: "Model id (e.g. claude-fable-5-1)", defaultValue: "claude-opus-5-5" }],
-  },
-  {
     id: "aws",
     label: "Amazon Bedrock AgentCore (AWS)",
     unlocks: "Hosts your agents on AgentCore: pay only while they run, each session isolated.",
@@ -316,9 +301,6 @@ async function connectService(id: Service["id"], values: Record<string, string>)
       host: values.host,
       personalApiKey: values.personalApiKey,
     };
-  } else if (id === "coding-model") {
-    endpoint = "/api/ai/coding-model";
-    payload = { model: values.model };
   } else if (id === "langfuse" || id === "langsmith" || id === "aws" || id === "railway") {
     endpoint = "/api/agent-tools/configure";
     payload = { id, values };
@@ -391,8 +373,6 @@ const AI_ENGINES: Slot[] = [
   { id: "ai-openai", label: "AI engine", section: "Every stage", options: [llm("ai-openai")] },
 ];
 
-/** Optional: a separate model for the code-writing work in Engineering & Development. */
-const CODING_MODEL: Slot = { id: "coding-model", label: "Coding model (optional)", section: "Engineering & Development", options: [service("coding-model")] };
 
 /**
  * One toolbox per pipeline. Keys are global (stored once, reused by every
@@ -405,7 +385,6 @@ const CODING_MODEL: Slot = { id: "coding-model", label: "Coding model (optional)
 const TOOLBOX: Record<PipelineKindKey, Slot[]> = {
   project: [
     ...AI_ENGINES,
-    CODING_MODEL,
     { id: "market-search", label: "Market search", section: "Market Researcher", options: [service("exa")] },
     { id: "images", label: "Images & design", section: "Pre-Marketing · Product Design", options: [service("google")] },
     { id: "waitlist", label: "Waitlist database", section: "Pre-Marketing", options: [service("supabase")] },
@@ -413,12 +392,11 @@ const TOOLBOX: Record<PipelineKindKey, Slot[]> = {
     { id: "analytics", label: "Analytics", section: "Operations · Iteration", options: [service("posthog")] },
   ],
   agent: [
-    ...AI_ENGINES,
-    CODING_MODEL,
+    ...AI_ENGINES.map((e) => ({ ...e, label: "Agent building engine" })),
     {
       id: "framework",
       label: "Agent framework",
-      section: "Agent Design · Engineering & Development",
+      section: "Engineering & Development",
       options: [
         placeholder({ id: "langchain", label: "LangChain", blurb: "Model and tool integrations, plus create_agent — the loop with structured responses.", statusText: "No key needed" }),
         placeholder({ id: "crewai", label: "CrewAI", blurb: "Teams of role-based agents that hand work to each other (Python). Not wired yet." }),
@@ -427,7 +405,7 @@ const TOOLBOX: Record<PipelineKindKey, Slot[]> = {
     {
       id: "validation",
       label: "Structured output & validation",
-      section: "Agent Design · Engineering & Development",
+      section: "Engineering & Development",
       options: [
         placeholder({
           id: "pydantic",
@@ -439,8 +417,8 @@ const TOOLBOX: Record<PipelineKindKey, Slot[]> = {
     },
     {
       id: "tracing",
-      label: "Tracing",
-      section: "Engineering & Development · Evaluations · Operations",
+      label: "Agent monitoring",
+      section: "Agent monitoring",
       options: [service("langfuse"), service("langsmith")],
     },
     {
@@ -452,38 +430,26 @@ const TOOLBOX: Record<PipelineKindKey, Slot[]> = {
     {
       id: "auth",
       label: "User login & authorization",
-      section: "Security · Deployment",
+      section: "Security",
       options: [
-        placeholder({ id: "supabase-auth", label: "Supabase Auth", blurb: "Default. Comes with the Supabase state database: one account, free tier, and the database itself keeps each user's data separate." }),
-        placeholder({ id: "clerk", label: "Clerk", blurb: "Pick this if the agent will charge users — login and payments in one account." }),
+        placeholder({ id: "supabase-auth", label: "Supabase Auth", blurb: "Default for agents people use for free. Chosen per agent in Agent Design → Who can use it, and wired automatically from that agent's Supabase database.", statusText: "Set per agent" }),
+        placeholder({ id: "clerk", label: "Clerk", blurb: "For agents you charge users for (login and payments in one account). Chosen per agent in Agent Design → Who can use it; its key address is pasted in Deployment.", statusText: "Set per agent" }),
       ],
-    },
-    {
-      id: "unit-tests",
-      label: "Unit tests",
-      section: "Evaluations",
-      options: [placeholder({ id: "pytest", label: "pytest", blurb: "Deterministic unit and integration tests for the agent's code and tools.", statusText: "No key needed" })],
-    },
-    {
-      id: "evals",
-      label: "Eval runner",
-      section: "Evaluations",
-      options: [placeholder({ id: "local-evals", label: "Built-in eval runner", blurb: "Versioned test cases in your agent's repo, repeat tries, a pinned baseline and a release gate. Runs on your machine.", statusText: "Built in" })],
-    },
-    {
-      id: "runtime",
-      label: "Agent host",
-      section: "Deployment",
-      options: [service("aws"), service("railway")],
     },
     {
       id: "state-db",
       label: "Agent state database",
-      section: "Deployment",
+      section: "Database",
       options: [
-        placeholder({ id: "supabase-postgres", label: "Supabase Postgres", blurb: "Keeps conversations, memory and actions waiting for your approval. Free tier." }),
-        placeholder({ id: "neon", label: "Neon Postgres", blurb: "Serverless Postgres alternative. Free tier." }),
+        placeholder({ id: "supabase-postgres", label: "Supabase Postgres", blurb: "Holds each agent's conversations, memory and pending approvals. Each agent gets its own: paste its connection string in Deployment → State database. Free tier.", statusText: "Set per agent" }),
+        placeholder({ id: "neon", label: "Neon Postgres", blurb: "Serverless Postgres alternative. Paste its connection string in Deployment → State database. Free tier.", statusText: "Set per agent" }),
       ],
+    },
+    {
+      id: "runtime",
+      label: "Agent deployment",
+      section: "Deployment",
+      options: [service("aws"), service("railway")],
     },
     {
       id: "web-host",
@@ -579,6 +545,113 @@ function slotStatus(slot: Slot, status: OnboardingStatus | null): { text: string
 }
 
 /** The onboarding toolbox: section · tool (pick one where there's a choice) · status · Update. */
+/** Status of one tool option: Active once connected (or the engine in use), else what's left to do. */
+function optionStatus(o: ToolDef, status: OnboardingStatus | null): { text: string; tone: OnboardingTone | "muted" } {
+  if (o.type === "placeholder") return { text: o.def.statusText ?? "Coming soon", tone: "muted" };
+  if (o.type === "llm") {
+    const active = (status?.activeLlm || "ai-anthropic") === o.def.id;
+    if (isConnected(o, status)) return active ? { text: "Active", tone: "green" } : { text: "Connected", tone: "green" };
+    return status?.anthropic || status?.openai ? { text: "Not needed", tone: "muted" } : { text: "Set one", tone: "red" };
+  }
+  return isConnected(o, status) ? { text: "Active", tone: "green" } : { text: "Not set", tone: "muted" };
+}
+
+/** One short, plain description per tool, shown from the ⓘ button. */
+const TOOL_INFO: Record<string, string> = {
+  "ai-anthropic": "Claude: the AI that runs every stage of the pipeline (questions, designs, code, reviews).",
+  "ai-openai": "OpenAI: an alternative AI engine for the pipeline. You only need one engine.",
+  langchain: "The framework your agent is built on: it runs the model, picks tools and follows the steps.",
+  crewai: "A framework for teams of agents that hand work to each other. Not wired yet.",
+  pydantic: "Checks the agent's answers and tool inputs have the right shape. Built into every agent.",
+  langfuse: "Records every agent run step by step (model calls, tools, time, cost) so you can see what happened.",
+  langsmith: "Records every agent run, like Langfuse. Pick one.",
+  langgraph: "Pauses risky actions until you approve them. Built in.",
+  "supabase-auth": "Login for agents people use for free, from the same Supabase account as the database.",
+  clerk: "Login plus payments, for agents you charge people for.",
+  "supabase-postgres": "Stores each agent's conversations, memory and actions waiting for approval.",
+  neon: "Same job as Supabase Postgres, from a different provider.",
+  aws: "Hosts your agent on Amazon Bedrock AgentCore. You pay only while it runs.",
+  railway: "Hosts your agent on Railway. Simple setup, about $5/month.",
+  vercel: "Hosts the chat page, for agents people talk to.",
+  "github-actions": "Runs tests and evaluations automatically on every change, and checks for alerts hourly.",
+  exa: "Searches forums and the web for real demand and competitors (Market Researcher).",
+  google: "Makes brand images and screen designs (Gemini).",
+  supabase: "Stores your landing page's waitlist signups.",
+  resend: "Sends waitlist and launch emails.",
+  posthog: "Measures visitors and signups on the pages you ship.",
+};
+
+function toolInfo(o: ToolDef): string {
+  return TOOL_INFO[o.def.id] ?? (o.type === "placeholder" ? o.def.blurb : o.type === "service" ? o.def.unlocks : o.def.label);
+}
+
+/** ⓘ — hover (or tap on a phone) for a one-line explanation. */
+function InfoTip({ text }: { text: string }) {
+  const [show, setShow] = useState(false);
+  return (
+    <span className="relative inline-flex" onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
+      <button
+        type="button"
+        aria-label="What is this?"
+        className="flex h-5 w-5 items-center justify-center rounded-full border border-edge text-[11px] font-semibold text-muted hover:border-accent hover:text-fg"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setShow((v) => !v);
+        }}
+      >
+        i
+      </button>
+      {show && (
+        <span role="tooltip" className="absolute left-1/2 top-6 z-30 w-60 -translate-x-1/2 rounded-lg border border-edge bg-panel p-2.5 text-xs font-normal leading-relaxed text-fg shadow-xl">
+          {text}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** A tool row's dot: green = in use, yellow = connected or not needed, red = not set. */
+function rowDot(text: string): OnboardingTone {
+  return text === "Active" ? "green" : text === "Connected" || text === "Not needed" ? "yellow" : "red";
+}
+
+/** Summary for a section with nothing to connect here: "Set per agent", else "Built in", else "Coming soon". */
+function sectionWord(opts: ToolDef[]): string {
+  const words = opts.map((o) => (o.type === "placeholder" ? o.def.statusText : undefined));
+  return words.find((w) => w && w !== "Built in" && w !== "No key needed") ?? (words.every(Boolean) ? "Built in" : "Coming soon");
+}
+
+/** Slots that do the same job (e.g. the two AI-engine lines) become one pick-one list. */
+function mergeJobs(group: Slot[]): Slot[] {
+  const out: Slot[] = [];
+  for (const s of group) {
+    const same = out.find((x) => x.label === s.label);
+    if (same) same.options = [...same.options, ...s.options];
+    else out.push({ ...s, options: [...s.options] });
+  }
+  return out;
+}
+
+/** One line per job, shown when its toggle opens. Optional jobs say so (and why). */
+const JOB_INTRO: Record<string, string> = {
+  "ai-anthropic": "The AI that does the work at every stage. Required: connect one.",
+  tracing: "Optional. Records each run step by step so you can see what happened; everything works without it.",
+  auth: "Optional. Only for agents people log in to use. You choose it per agent in Agent Design.",
+  "state-db": "Stores each agent's conversations, memory and pending approvals. Required to deploy; you add it per agent in Deployment.",
+  runtime: "Where your agent runs once it's live. Required to deploy.",
+  "market-search": "Finds real demand and competitors for your idea.",
+  images: "Makes your logo, brand images and screen designs.",
+  waitlist: "Stores signups from your landing page.",
+  email: "Sends waitlist and launch emails.",
+  analytics: "Measures visitors and signups on the pages you ship.",
+};
+const OPTIONAL_JOBS = new Set(["tracing", "auth"]);
+
+const isBuiltIn = (o: ToolDef) => o.type === "placeholder" && (o.def.statusText === "Built in" || o.def.statusText === "No key needed");
+const isPerAgent = (o: ToolDef) => o.type === "placeholder" && o.def.statusText === "Set per agent";
+const isLater = (o: ToolDef) => o.type === "placeholder" && !o.def.statusText;
+
 export function OnboardingPanel({
   status,
   onChanged,
@@ -590,101 +663,123 @@ export function OnboardingPanel({
   kind?: string | null;
 }) {
   const [editing, setEditing] = useState<{ slot: Slot; option: ToolDef } | null>(null);
-  const slots = toolboxFor(kind);
+  // The option the owner picked per job (before it's connected); defaults to the one in use.
+  const [picked, setPicked] = useState<Record<string, string>>({});
+  const jobs = mergeJobs(toolboxFor(kind));
+  // Each job is a plain toggle: the first starts open, the rest closed.
+  const [openJobs, setOpenJobs] = useState<Set<string>>(() => new Set(jobs[0] ? [jobs[0].label] : []));
+  const toggleJob = (label: string) =>
+    setOpenJobs((cur) => {
+      const next = new Set(cur);
+      next.has(label) ? next.delete(label) : next.add(label);
+      return next;
+    });
 
-  // Picking a connected engine switches to it right here; picking one that
-  // isn't connected yet opens its key pop-up.
-  async function pick(slot: Slot, option: ToolDef) {
-    if (option.type === "llm" && isConnected(option, status)) {
-      await activateLlm(option.def.id);
+  // 1) What you set up: jobs with a key to enter (and the per-agent ones, so nothing needed is hidden).
+  const setup = jobs
+    .map((j) => ({ ...j, options: j.options.filter((o) => o.type !== "placeholder" || isPerAgent(o)) }))
+    .filter((j) => j.options.length);
+  // 2) What already works: read-only.
+  const builtIn = jobs.flatMap((j) => j.options.filter(isBuiltIn).map((o) => ({ job: j.label, o })));
+  const later = jobs.flatMap((j) => j.options.filter(isLater).map((o) => shortName(o)));
+
+  async function select(slot: Slot, o: ToolDef) {
+    setPicked((p) => ({ ...p, [slot.label]: o.def.id }));
+    // Picking a connected engine switches to it right away.
+    if (o.type === "llm" && isConnected(o, status) && (status?.activeLlm || "ai-anthropic") !== o.def.id) {
+      await activateLlm(o.def.id);
       onChanged();
-    } else {
-      setEditing({ slot, option });
     }
   }
 
   return (
     <>
-      <div className="overflow-hidden rounded-xl border border-edge">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-edge/30 text-[11px] uppercase tracking-wider text-muted">
-            <tr>
-              <th className="hidden px-4 py-2.5 font-medium sm:table-cell">Section</th>
-              <th className="px-4 py-2.5 font-medium">Tool</th>
-              <th className="hidden px-4 py-2.5 font-medium sm:table-cell">Status</th>
-              <th className="px-4 py-2.5" />
-            </tr>
-          </thead>
-          {/* One <tbody> per section: the Section cell spans that section's tools. */}
-          {groupBySection(slots).map((group) => (
-            <tbody key={group[0].section} className="border-t border-edge first-of-type:border-t-0">
-              {group.map((slot, idx) => {
-                const st = slotStatus(slot, status);
-                const chosen = chosenOption(slot, status);
-                const dot = <span className={`h-2 w-2 shrink-0 rounded-full ${st.tone === "muted" ? "bg-edge" : TONE_DOT[st.tone]}`} />;
-                return (
-                  <tr key={slot.id} className={idx > 0 ? "border-t border-edge/50" : ""}>
-                    {idx === 0 && (
-                      <td rowSpan={group.length} className="hidden px-4 py-3 align-top font-medium text-fg sm:table-cell">
-                        {/* One section per line when a tool serves several. */}
-                        {slot.section.split(" · ").map((name) => (
-                          <div key={name} className="whitespace-nowrap">{name}</div>
-                        ))}
-                      </td>
-                    )}
-                    <td className="px-4 py-3 align-top">
-                      <div className="flex items-start gap-2">
-                        {/* On a phone the Status column folds into this dot. */}
-                        <span className="mt-1.5 sm:hidden">{dot}</span>
-                        <div>
-                          {slot.options.length > 1 ? (
-                            <div className="inline-flex rounded-lg border border-edge p-0.5" role="radiogroup" aria-label={`${slot.label}: pick one`}>
-                              {slot.options.map((o) => {
-                                const on = o === chosen;
-                                return (
-                                  <button
-                                    key={o.def.id}
-                                    role="radio"
-                                    aria-checked={on}
-                                    onClick={() => pick(slot, o)}
-                                    className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                                      on ? "bg-accent text-white" : "text-muted hover:text-fg"
-                                    }`}
-                                  >
-                                    {shortName(o)}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          ) : (
-                            <div className="font-medium text-fg">{shortName(chosen)}</div>
-                          )}
-                          <div className="mt-1 text-[11px] text-muted">
-                            <span className="sm:hidden">{slot.section} · </span>
-                            {slot.label}
-                            {slot.options.length > 1 && <span className="text-accent2"> · pick one</span>}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="hidden px-4 py-3 align-top sm:table-cell">
-                      <span className={`inline-flex items-center gap-1.5 whitespace-nowrap text-xs ${st.tone === "muted" ? "text-muted" : TONE_TEXT[st.tone]}`}>
-                        {dot}
-                        {st.text}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right align-top">
-                      <button className="btn-ghost text-xs" onClick={() => setEditing({ slot, option: chosen })}>
-                        Update
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          ))}
-        </table>
+      <h3 className="text-base font-semibold text-fg">Set up one tool per section, then build and deploy {kind === "agent" ? "agents" : "apps"} anytime.</h3>
+      <div className="mt-3 divide-y divide-edge/60">
+        {setup.map((slot) => {
+          const chosen = slot.options.find((o) => o.def.id === picked[slot.label]) ?? (slot.options.find((o) => isConnected(o, status)) ?? slot.options[0]);
+          const isOpen = openJobs.has(slot.label);
+          const anyActive = slot.options.some((o) => optionStatus(o, status).text === "Active");
+          const perAgentJob = slot.options.every(isPerAgent);
+          const dot: OnboardingTone = perAgentJob ? "yellow" : anyActive ? "green" : slot.options.some((o) => isConnected(o, status)) ? "yellow" : "red";
+          return (
+            <div key={slot.label} className="py-2.5">
+              <button className="flex w-full items-center gap-2 text-left" onClick={() => toggleJob(slot.label)} aria-expanded={isOpen}>
+                <span className={`text-[10px] text-muted transition-transform ${isOpen ? "rotate-90" : ""}`} aria-hidden>▶</span>
+                <span className="text-[14px] font-semibold text-accent2">{slot.label}</span>
+                {OPTIONAL_JOBS.has(slot.id) ? (
+                  <span className="text-xs text-muted">· optional</span>
+                ) : (
+                  slot.options.length > 1 && <span className="text-xs text-muted">· pick one</span>
+                )}
+                <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-muted">
+                  {perAgentJob ? "Set per agent" : ""}
+                  <span className={`h-2 w-2 rounded-full ${TONE_DOT[dot]}`} />
+                </span>
+              </button>
+              {isOpen && JOB_INTRO[slot.id] && <p className="mt-1.5 pl-5 text-xs text-muted">{JOB_INTRO[slot.id]}</p>}
+              {isOpen && (
+              <ul className="mt-2 space-y-1 pl-5" role="radiogroup" aria-label={slot.label}>
+                {slot.options.map((o) => {
+                  const on = o === chosen;
+                  const perAgent = isPerAgent(o);
+                  const st = optionStatus(o, status);
+                  return (
+                    <li key={o.def.id} className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-lg border px-3 py-2 ${on ? "border-accent/60 bg-accent/5" : "border-edge"}`}>
+                      <label className="flex min-w-0 cursor-pointer items-center gap-2.5">
+                        <input type="radio" name={slot.label} checked={on} onChange={() => select(slot, o)} />
+                        <span className="truncate font-medium text-fg">{shortName(o)}</span>
+                        <InfoTip text={toolInfo(o)} />
+                        {on && !perAgent && (
+                          <button
+                            className="btn-ghost ml-1 px-2 py-0.5 text-[11px]"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setEditing({ slot, option: o });
+                            }}
+                          >
+                            Update
+                          </button>
+                        )}
+                      </label>
+                      {perAgent ? (
+                        <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-muted">
+                          Set per agent
+                          <span className={`h-2 w-2 shrink-0 rounded-full ${TONE_DOT.yellow}`} />
+                        </span>
+                      ) : (
+                        <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${TONE_DOT[rowDot(st.text)]}`} title={st.text} aria-label={st.text} />
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+              )}
+            </div>
+          );
+        })}
       </div>
+
+      {builtIn.length > 0 && (
+        <>
+          <hr className="my-6 border-edge" />
+          <h2 className="text-xl font-semibold text-fg">Already built in</h2>
+          <ul className="mt-3 space-y-1.5">
+            {builtIn.map(({ job, o }) => (
+              <li key={o.def.id} className="flex items-center gap-2.5 text-sm">
+                <span role="img" aria-label={`${shortName(o)} is built in`} className="flex h-4 w-4 shrink-0 items-center justify-center rounded bg-ok text-[11px] font-bold text-onbright">
+                  ✓
+                </span>
+                <span className="font-medium text-fg">{shortName(o)}</span>
+                <span className="text-xs text-muted">{job.replace(/\s*\(.*\)$/, "")}</span>
+                <InfoTip text={toolInfo(o)} />
+              </li>
+            ))}
+          </ul>
+          {later.length > 0 && <p className="mt-4 text-xs text-muted">Coming later: {later.join(", ")}.</p>}
+        </>
+      )}
+
       {editing && (
         <UpdateDialog
           slot={editing.slot}
@@ -829,8 +924,8 @@ function UpdateDialog({
 
         {tool.type === "placeholder" ? (
           <p className="mt-4 text-sm text-muted">
-            <span className="font-medium text-fg">{tool.def.label}.</span> {tool.def.blurb} Not wired into the pipeline yet — see the
-            agent release plan.
+            <span className="font-medium text-fg">{tool.def.label}.</span> {tool.def.blurb}
+            {!tool.def.statusText && " Not wired into the pipeline yet — see the agent release plan."}
           </p>
         ) : (
           <>
@@ -916,7 +1011,7 @@ export function OnboardingModal({
     >
       <div className="card w-full max-w-2xl bg-panel p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="text-base font-semibold text-fg">Set up one tool per section, and the whole pipeline runs smoothly.</h2>
+          <h2 className="text-base font-semibold text-fg">Onboarding</h2>
           <button className="btn-ghost shrink-0 text-xs" onClick={onClose}>
             Close
           </button>

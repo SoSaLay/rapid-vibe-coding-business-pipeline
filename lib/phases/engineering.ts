@@ -11,7 +11,7 @@
  *  4. on completion, a build-manifest + Launch Guide → gates QA.
  */
 
-import { completeCodeJson } from "../llm/coding";
+import { activeProvider } from "../llm/registry";
 import { ideaTypeContext } from "../idea-types";
 import { STACK_SLOTS, StackChoice, getSlot, normalizeChoices, stackToText } from "../stack";
 import { SKIMMABLE_STYLE } from "./brevity";
@@ -95,7 +95,7 @@ export async function generateStackProposal(
   productTitle: string,
   extraContext = ""
 ): Promise<StackProposal> {
-  const result = await completeCodeJson<StackProposal>({
+  const result = await activeProvider().completeJson<StackProposal>({
     system:
       "You are a pragmatic system-design architect for solo-founder MVPs built by AI coding agents. " +
       "Bias hard toward the studio defaults — they are chosen for simplicity and agent-friendliness. " +
@@ -185,7 +185,7 @@ export async function generateTaskGraph(
         .join("\n")
     : "(no design-spec — derive screens from the product spec)";
 
-  return completeCodeJson<TaskGraph>({
+  return activeProvider().completeJson<TaskGraph>({
     system:
       "You are a tech lead breaking an MVP into a task graph an AI coding agent (Claude Code) will execute one task " +
       "per fresh session. Rules:\n" +
@@ -237,7 +237,7 @@ export async function generateIterationTaskGraph(args: {
     ? `Traction read (${iterationBrief.traction_read.verdict}): ${iterationBrief.traction_read.summary}`
     : "";
 
-  const graph = await completeCodeJson<TaskGraph>({
+  const graph = await activeProvider().completeJson<TaskGraph>({
     system:
       "You are a tech lead planning an ITERATION on an app that is already BUILT and DEPLOYED. " +
       "An AI coding agent (Claude Code) will execute your tasks one per fresh session inside the existing codebase. Rules:\n" +
@@ -542,7 +542,7 @@ export async function generateLaunchGuide(
   choices: StackChoice[],
   graph: TaskGraph | null
 ): Promise<string> {
-  const result = await completeCodeJson<{ markdown: string }>({
+  const result = await activeProvider().completeJson<{ markdown: string }>({
     system:
       "Write a LAUNCH-GUIDE.md for a non-developer who just had an AI agent build their app. Markdown, concrete, " +
       "no fluff: keys/accounts to create with exact .env var names, run-locally steps, what to click to verify, " +

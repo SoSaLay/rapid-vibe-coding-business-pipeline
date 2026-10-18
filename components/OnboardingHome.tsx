@@ -18,7 +18,6 @@ export function OnboardingHome({
 }) {
   return (
     <div>
-      <p className="mb-6 text-lg font-semibold text-fg">Set up one tool per section, and the whole pipeline runs smoothly.</p>
       <OnboardingPanel status={onboarding} onChanged={reloadOnboarding} kind={kind} />
     </div>
   );

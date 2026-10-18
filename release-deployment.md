@@ -285,7 +285,7 @@ Each stage asks for a slot, never a specific vendor:
 ## Models, skills, knowledge and light changes (2026-10-15)
 
 - [x] **Custom model** in Agent Design: any `provider:model` LangChain supports (Anthropic, OpenAI or any OpenAI-compatible endpoint, Gemini, Mistral, Groq, xAI, DeepSeek, Fireworks, Together, Ollama). Optional prices feed the cost numbers.
-- [x] **Coding model** (toolbox, optional): the model that writes code in Engineering (agent tool bodies, app task graphs). Unset means the AI engine is used.
+- ~~Coding model~~ removed (owner, 2026-10-17): the AI engine writes Engineering code; a separate model added a choice nobody sees.
 - [x] **Pydantic** listed in the toolbox (structured output + tool-input validation, built into every agent).
 - [x] **Skills** (procedural memory): `skills/<name>/SKILL.md`. The agent sees only each skill's name and description and opens the full playbook with `load_skill` (progressive disclosure). In Agent Design you can use the recommended skills, have one written from a short description, or import one from a GitHub link. Imports are text only, never scripts, and need a security review plus owner sign-off.
 - [x] **Knowledge**, one choice: none, built into skills, or document search (RAG). RAG is optional and needs an OpenAI key for embeddings; the index is bundled with the agent (`knowledge/index.json`, small document sets). Not yet tested live (no OpenAI key here).
