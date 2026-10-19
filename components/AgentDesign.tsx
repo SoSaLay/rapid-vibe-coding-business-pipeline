@@ -1,20 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import type { AgentDesign as Design, Choice, ToolContract, SkillDef } from "@/lib/agent/design";
 import { designBlockers, MODEL_PROVIDERS, modelProvider, effectiveMemory, effectiveLimits, defaultToolLimit, stopRules } from "@/lib/agent/design";
-import type { MemoryConfig, McpServer } from "@/lib/agent/design";
-import { Doc, DocSection, DocP, DocMuted, DocFacts } from "./doc/Doc";
+import type { MemoryConfig, McpServer, LoginId } from "@/lib/agent/design";
+import { DocMuted } from "./doc/Doc";
+import { sectionAnchor } from "@/lib/pipeline";
+import { AgentBuilder } from "./AgentBuilder";
 import { StopButton, useStopper } from "./StopButton";
 import { StageStart } from "./StageStart";
-
-interface CredItem {
-  env: string;
-  label: string;
-  tool: string;
-  set: boolean;
-  shared: boolean;
-}
 
 /**
  * Agent pipeline — stage 2. Every decision is shown as an editable
@@ -26,9 +21,15 @@ export function AgentDesign({
   state,
   spec,
   autostart = false,
+  builtVersion = null,
+  approvedVersion = 0,
   onUpdated,
 }: {
   autostart?: boolean;
+  /** The design version the agent's code was built from (null = not built yet). */
+  builtVersion?: number | null;
+  /** The latest approved design version. */
+  approvedVersion?: number;
   projectId: string;
   hasSpec: boolean;
   state: { design?: Design; approved?: boolean } | null;
@@ -38,9 +39,11 @@ export function AgentDesign({
   const [design, setDesign] = useState<Design | null>(state?.design ?? null);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [blockers, setBlockers] = useState<string[]>([]);
   const stopper = useStopper();
+  const router = useRouter();
   const approved = !!state?.approved && !dirty;
 
   useEffect(() => {
@@ -56,6 +59,23 @@ export function AgentDesign({
       propose();
     }
   }, [autostart, hasSpec, state?.design]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Older designs and imported/edited skills lack the plain one-liner: fill it once, quietly.
+  const plainAsked = useRef("");
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  useEffect(() => {
+    const missing = (state?.design?.skills ?? []).filter((s) => !s.plain).map((s) => s.name).join(",");
+    if (!missing || plainAsked.current === missing) return;
+    plainAsked.current = missing;
+    fetch(`/api/projects/${projectId}/agent-design/skills`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "plain" }),
+    })
+      .then((r) => r.ok && !dirtyRef.current && onUpdated())
+      .catch(() => {});
+  }, [state?.design]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function call(path: string, body?: any): Promise<any | null> {
     setError(null);
@@ -87,16 +107,14 @@ export function AgentDesign({
     if (d) onUpdated();
   }
 
-  async function approve() {
+  /** Lock the design (saving any edits first), then open Engineering, which starts itself. */
+  async function startEngineering() {
     if (!design) return;
     setBusy("Approving…");
     if (dirty && !(await call("save", { design }))) return setBusy(null);
-    const d = await call("approve");
-    setBusy(null);
-    if (d) {
-      setDirty(false);
-      onUpdated();
-    }
+    if (!approved && !(await call("approve"))) return setBusy(null);
+    setDirty(false);
+    router.push(`/project/${projectId}/engineering?autostart=1`);
   }
 
   /** Skills / knowledge changes go through their own routes; unsaved edits are saved first so nothing is lost. */
@@ -111,8 +129,32 @@ export function AgentDesign({
     if (d) {
       setDirty(false);
       onUpdated();
+      if (built) await confirmChanges(true);
     }
     return !!d;
+  }
+
+  /**
+   * On a built agent, a finished edit is confirmed right away: saved, approved, and Engineering
+   * starts building it in the background (then Deployment, if pushing is automatic).
+   */
+  async function confirmChanges(force = false) {
+    if (!built || (!dirty && !force && state?.approved)) return;
+    setBusy("Saving your change…");
+    if (dirty && design && !(await call("save", { design }))) return setBusy(null);
+    const d = await call("approve");
+    setBusy(null);
+    if (d) {
+      setDirty(false);
+      if (d.autoflow) setNotice("Saved. Engineering & Development is building your change now.");
+      onUpdated();
+    }
+  }
+
+  /** Before the Automatic Agent Builder works on the design, save unsaved edits so it sees them. */
+  async function saveDraft(): Promise<boolean> {
+    if (!dirty || !design) return true;
+    return !!(await call("save", { design }));
   }
 
   function edit(patch: Partial<Design>) {
@@ -136,150 +178,352 @@ export function AgentDesign({
   }
 
   const localBlockers = designBlockers(design);
+  const built = builtVersion !== null;
   const enabledTools = design.tools.filter((t) => t.enabled);
 
+  const memory = effectiveMemory(design, spec?.agent);
+  const limits = effectiveLimits(design);
+  const customLimits = enabledTools.some((t) => {
+    const d = defaultToolLimit(t);
+    const l = limits[t.name];
+    return l && (l.max_calls !== d.max_calls || l.retries !== d.retries || l.timeout_s !== d.timeout_s);
+  });
+  const skills = design.skills ?? [];
+  const knowledge = design.knowledge ?? { mode: design.retrieval?.enabled ? "rag" : "none", sources: [] };
+  const mcp = design.mcp_servers ?? [];
+  const on = (v: boolean) => (v ? "On" : "Off");
+
   return (
-    <Doc>
-      <div className={`card mb-6 flex flex-wrap items-center gap-3 p-4 ${approved ? "border border-ok/30" : ""}`}>
-        {approved ? (
-          <>
-            <span className="rounded-full bg-ok px-3 py-1 text-sm font-semibold text-onbright">design approved</span>
-            <span className="text-xs text-muted">Engineering builds exactly this. Change anything below to reopen it.</span>
-          </>
-        ) : (
-          <>
-            <span className="text-sm text-fg">Review the recommendations, change anything, then approve.</span>
-            <div className="ml-auto flex items-center gap-2">
-              <button className="btn-ghost text-sm" disabled={!!busy} onClick={propose}>Start over</button>
-              <button className="btn-primary" disabled={!!busy || localBlockers.length > 0} onClick={approve}>
-                {busy ?? "Approve design →"}
-              </button>
-            </div>
-          </>
+    <>
+    <AgentBuilder
+      projectId={projectId}
+      mode="design"
+      disabled={!!busy}
+      beforeSend={saveDraft}
+      onChanged={() => { setDirty(false); onUpdated(); if (built) confirmChanges(true); }}
+    />
+    <div className="space-y-4">
+      {notice && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-accent/40 bg-accent/10 px-4 py-3 text-sm text-fg">
+          <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-accent" />
+          <span className="flex-1">{notice}</span>
+          <a className="text-accent underline" href={`/project/${projectId}/engineering`}>See progress</a>
+        </div>
+      )}
+      <DoneContext.Provider value={() => confirmChanges()}>
+    <div className="space-y-3">
+        {design.login && (
+          <PanelSection title="Who uses it" tone="ok" summary={<AccessSummary login={design.login.selected} />} editor={
+            <AccessEditor login={design.login} onPick={(id) => edit({ login: { ...design.login!, selected: id } })} />
+          } />
         )}
-        {(error || blockers.length > 0 || (!approved && localBlockers.length > 0)) && (
-          <ul className="w-full list-disc pl-5 text-sm text-bad">
+
+        <PanelSection title="Model" summary={
+          <>
+            <Row label="Model"><Picked choice={design.model} /></Row>
+            <Row label="Cost per run">{design.est_cost_per_run}</Row>
+            <Row label="Time per run">{design.est_latency}</Row>
+          </>
+        } editor={
+          <>
+            <ChoicePicker choice={design.model} onPick={(id) => edit({ model: { ...design.model, selected: id }, model_endpoint: undefined, model_price: undefined })} />
+            <CustomModel design={design} onChange={edit} />
+          </>
+        } />
+
+        <PanelSection title="Tools" summary={
+          enabledTools.length ? (
+            enabledTools.map((t) => (
+              <Row key={t.name} label={toolTitle(t.name)}>
+                <Bullets items={[firstSentence(t.description)]} />
+              </Row>
+            ))
+          ) : (
+            <Row label="Tools">None</Row>
+          )
+        } editor={
+          <>
+            <div className="space-y-2">
+              {design.tools.map((t, i) => (
+                <ToolCard key={t.name + i} tool={t} onChange={(next) => edit({ tools: design.tools.map((x, j) => (j === i ? next : x)) })} />
+              ))}
+            </div>
+            <AddTool onAdd={(t) => edit({ tools: [...design.tools, t] })} existing={design.tools.map((t) => t.name)} />
+          </>
+        } />
+
+        <PanelSection title="MCP servers" summary={
+          mcp.length ? (
+            mcp.map((s) => (
+              <Row key={s.name} label={toolTitle(s.name)}>
+                <Bullets items={[s.transport === "http" ? "Remote" : "Local", s.approval ? "Asks you first" : "Runs on its own", ...(s.allow.length ? [`Only ${s.allow.join(", ")}`] : [])]} />
+              </Row>
+            ))
+          ) : (
+            <Row label="Servers">None added</Row>
+          )
+        } editor={
+          <>
+            <DocMuted>
+              Plug in ready-made tools from any MCP server (e.g. Notion, GitHub, a database). Leave &quot;Ask me first&quot; on unless you trust every tool it offers.
+            </DocMuted>
+            <McpEditor servers={mcp} onChange={(mcp_servers) => edit({ mcp_servers })} />
+          </>
+        } />
+
+        <PanelSection title="Data sources" summary={
+          design.data_sources.length ? (
+            design.data_sources.map((d) => (
+              <Row key={d.name} label={d.name}>
+                <Bullets items={[firstSentence(d.why)]} />
+              </Row>
+            ))
+          ) : (
+            <Row label="Sources">None needed</Row>
+          )
+        } />
+
+        <PanelSection title="Skills" summary={
+          skills.length ? (
+            skills.map((s) => (
+              <Row key={s.name} label={toolTitle(s.name)}>
+                <span className={s.enabled ? "" : "text-muted"}>{s.enabled ? s.plain ?? firstSentence(s.description) : "Off"}</span>
+                {s.review && !s.review.approved && <span className="ml-2 rounded-full bg-warn/15 px-2 py-0.5 text-[11px] font-semibold text-warn">needs your review</span>}
+              </Row>
+            ))
+          ) : (
+            <Row label="Skills">None yet</Row>
+          )
+        } editor={
+          <>
+            <DocMuted>Step-by-step playbooks the agent opens only when a task needs them. Add new ones any time instead of building a new agent.</DocMuted>
+            <SkillsEditor design={design} run={designAction} busy={!!busy} />
+          </>
+        } />
+
+        <PanelSection title="Knowledge" summary={
+          <>
+            <Row label="Agent's knowledge">
+              {skills.some((x) => x.enabled) ? "Already part of the agent, through its skills" : skills.length ? "Off (skills turned off)" : "The model's own knowledge"}
+            </Row>
+            <Row label="Document search">
+              {knowledge.mode === "rag" ? `On · ${knowledge.sources.length || "no"} document${knowledge.sources.length === 1 ? "" : "s"}` : "Off"}
+            </Row>
+          </>
+        } editor={<KnowledgeEditor design={design} run={designAction} busy={!!busy} />} />
+
+        <PanelSection title="Memory" summary={
+          <>
+            <Row label="This conversation">{on(memory.conversation)}</Row>
+            <Row label="User profile">
+              {on(memory.user_profile.enabled)}
+              {memory.user_profile.enabled && memory.user_profile.what.length > 0 && <Bullets items={[memory.user_profile.what.join(", ")]} />}
+            </Row>
+            <Row label="Past conversations">
+              {memory.past_conversations.enabled ? `Last ${memory.past_conversations.items}, past ${memory.past_conversations.days} days` : "Off"}
+            </Row>
+          </>
+        } editor={
+          <MemoryEditor
+            value={memory}
+            sensitive={["pii", "regulated"].includes(spec?.agent?.data_sensitivity)}
+            onChange={(m) =>
+              edit({
+                memory_config: m,
+                memory: { ...design.memory, selected: m.user_profile.enabled || m.past_conversations.enabled ? "long-term" : m.conversation ? "conversation" : "none" },
+              })
+            }
+          />
+        } />
+
+        <PanelSection title="Safety & limits" summary={
+          <>
+            <Row label="Step limit">{design.step_limit} steps, then a person takes over</Row>
+            {design.fallback && <Row label="Hands off to">{design.fallback}</Row>}
+            <Row label="Tool limits">{customLimits ? "Custom" : "Recommended"}</Row>
+          </>
+        } editor={
+          <>
+            <div className="flex flex-wrap items-center gap-3 text-sm">
+              <label htmlFor="step-limit" className="text-fg">Stop after</label>
+              <input id="step-limit" type="number" min={1} max={50} className="input w-20" value={design.step_limit} onChange={(e) => edit({ step_limit: Number(e.target.value) })} />
+              <span className="text-fg">steps, then hand off to a person.</span>
+            </div>
+            <LimitsEditor design={design} spec={spec} onChange={edit} />
+          </>
+        } />
+
+        <PanelSection title="Hosting & monthly cost" summary={
+          <CostEstimate projectId={projectId} login={design.login?.selected} mode="summary" refreshKey={design.model.selected + (design.login?.selected ?? "") + String(approved)} />
+        } editor={
+          <CostEstimate projectId={projectId} login={design.login?.selected} mode="edit" refreshKey={design.model.selected + (design.login?.selected ?? "") + String(approved)} />
+        } />
+      </div>
+    </DoneContext.Provider>
+
+      <div className="mt-12 flex flex-col items-center gap-3 border-t border-edge pt-8">
+        <div className="flex w-full max-w-xl flex-col-reverse items-stretch gap-3 sm:flex-row sm:items-center">
+          <button
+            className={`flex-1 rounded-xl bg-accent px-6 py-4 text-lg font-semibold text-white shadow-lg transition-transform hover:scale-[1.01] active:scale-100 disabled:opacity-50 disabled:hover:scale-100`}
+            disabled={!!busy || localBlockers.length > 0}
+            onClick={startEngineering}
+          >
+            {busy ?? "Start Engineering & Development →"}
+          </button>
+        </div>
+        {(error || blockers.length > 0 || localBlockers.length > 0) && (
+          <ul className="w-full max-w-xl list-disc pl-5 text-sm text-bad">
             {error && <li>{error}</li>}
             {(blockers.length ? blockers : localBlockers).map((b) => <li key={b}>{b}</li>)}
           </ul>
         )}
       </div>
 
+    </div>
+    </>
+  );
+}
 
-      <DocSection title="Overview">
-        <DocP>{design.summary}</DocP>
-        <DocFacts
-          items={[
-            { label: "Est. cost per run", value: design.est_cost_per_run },
-            { label: "Est. time per run", value: design.est_latency },
-          ]}
-        />
-      </DocSection>
+/** One settings block: title + Edit on the right, a short label/value summary, and the full options behind Edit. */
+/** Called when an Edit is closed with Done: on a built agent that confirms the change. */
+const DoneContext = createContext<() => void>(() => {});
 
-      <DocSection title="Approach">
-        <ChoicePicker choice={design.approach} onPick={(id) => edit({ approach: { ...design.approach, selected: id as any } })} />
-      </DocSection>
+function PanelSection({ title, summary, editor, editLabel = "Edit", tone }: { title: string; summary: ReactNode; editor?: ReactNode; editLabel?: string; tone?: "ok" }) {
+  const onDone = useContext(DoneContext);
+  const green = tone === "ok";
+  const [editing, setEditing] = useState(false);
+  return (
+    <section id={sectionAnchor(title)} className={`scroll-mt-24 overflow-hidden rounded-xl border bg-ink/40 ${green ? "border-ok/40" : "border-edge"}`}>
+      <div className={`flex items-center justify-between gap-3 border-b px-4 py-3 sm:px-6 ${green ? "border-ok/40 bg-ok/15" : "border-edge bg-panel"}`}>
+        <h2 className={`text-lg font-semibold ${green ? "text-ok" : "text-fg"}`}>{title}</h2>
+        {editor && (
+          <button className={`text-sm font-medium hover:underline ${green ? "text-ok" : "text-accent"}`} onClick={() => { if (editing) onDone(); setEditing(!editing); }}>
+            {editing ? "Done" : editLabel}
+          </button>
+        )}
+      </div>
+      <div className="px-4 py-4 sm:px-6">
+        {editing ? <div className="space-y-3">{editor}</div> : <dl className="space-y-3">{summary}</dl>}
+      </div>
+    </section>
+  );
+}
 
-      <DocSection title="Model">
-        <ChoicePicker choice={design.model} onPick={(id) => edit({ model: { ...design.model, selected: id }, model_endpoint: undefined, model_price: undefined })} />
-        <CustomModel design={design} onChange={edit} />
-      </DocSection>
+function Row({ label, children }: { label: ReactNode; children: ReactNode }) {
+  return (
+    <div className="grid grid-cols-[minmax(0,38%)_minmax(0,1fr)] gap-x-4 text-sm">
+      <dt className="break-words font-medium text-fg">{label}</dt>
+      <dd className="min-w-0 break-words text-fg/90">{children}</dd>
+    </div>
+  );
+}
 
-      <DocSection title="Tools">
-        <div className="space-y-2">
-          {design.tools.map((t, i) => (
-            <ToolCard
-              key={t.name + i}
-              tool={t}
-              onChange={(next) => edit({ tools: design.tools.map((x, j) => (j === i ? next : x)) })}
-            />
-          ))}
+function Bullets({ items }: { items: string[] }) {
+  const xs = items.filter(Boolean);
+  if (!xs.length) return null;
+  return (
+    <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-xs text-muted">
+      {xs.map((b) => <li key={b}>{b}</li>)}
+    </ul>
+  );
+}
+
+/** The plain answers behind the login choice: do people use it, do they pay, and is there a chat page. */
+function access(login: LoginId) {
+  const people = login !== "machine-key";
+  const paid = login === "clerk";
+  return {
+    people,
+    paid,
+    loginLabel: login === "clerk" ? "Clerk" : login === "neon-auth" ? "Neon Auth" : login === "supabase-auth" ? "Supabase Auth" : "None",
+    chat: !people ? "None" : paid ? "Vercel Pro (~$20/month, needed to charge users)" : "Vercel Hobby (free)",
+  };
+}
+
+function AccessSummary({ login }: { login: LoginId }) {
+  const a = access(login);
+  return (
+    <>
+      <Row label="People use it">
+        {a.people ? "Yes, they chat with it" : "No, it runs on its own"}
+        <Bullets items={[a.people ? "Each person sees only their own conversations" : "Called by your systems with a private key"]} />
+      </Row>
+      {a.people && <Row label="Free or paid">{a.paid ? "Paid" : "Free"}<Bullets items={[a.paid ? "Users pay through Clerk Billing" : "No payments"]} /></Row>}
+      <Row label="Login">{a.people ? a.loginLabel : "None"}<Bullets items={[a.people ? (a.paid ? "Login and payments in one account" : "Comes with your state database") : "Private machine key only"]} /></Row>
+      <Row label="Chat page">{a.people ? "Yes" : "None"}<Bullets items={[a.people ? `Hosted on ${a.chat}` : "No page to build or host"]} /></Row>
+    </>
+  );
+}
+
+function AccessEditor({ login, onPick }: { login: Choice<LoginId>; onPick: (id: LoginId) => void }) {
+  const a = access(login.selected);
+  const freeLogin: LoginId = login.selected === "neon-auth" ? "neon-auth" : "supabase-auth";
+  const seg = (on: boolean) => `rounded-lg border px-3 py-2 text-sm ${on ? "border-accent/60 bg-accent/5 text-fg" : "border-edge text-muted hover:border-accent/30"}`;
+  return (
+    <div className="space-y-4">
+      <div>
+        <SubLabel>Do people use this agent?</SubLabel>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button className={seg(a.people)} onClick={() => !a.people && onPick(freeLogin)}>Yes, people chat with it</button>
+          <button className={seg(!a.people)} onClick={() => onPick("machine-key")}>No, it runs on its own</button>
         </div>
-        <AddTool onAdd={(t) => edit({ tools: [...design.tools, t] })} existing={design.tools.map((t) => t.name)} />
-      </DocSection>
-
-      <DocSection title="MCP servers">
-        <DocMuted>
-          Plug in ready-made tools from any MCP server (e.g. Notion, GitHub, a database). The agent loads its tools when it starts, with
-          the same limits as its own tools. Leave &quot;Ask me first&quot; on unless you trust every tool the server offers.
-        </DocMuted>
-        <McpEditor servers={design.mcp_servers ?? []} onChange={(mcp_servers) => edit({ mcp_servers })} />
-      </DocSection>
-
-      <DocSection title="Data sources">
-        <ul className="doc-p space-y-2">
-          {design.data_sources.map((d) => (
-            <li key={d.name}>
-              <span className="font-medium text-fg">{d.name}</span>{" "}
-              <span className="text-xs text-muted">({d.kind} · {d.access})</span>
-              <DocMuted>{d.why}</DocMuted>
-            </li>
-          ))}
-          {design.data_sources.length === 0 && <DocMuted>None needed.</DocMuted>}
-        </ul>
-      </DocSection>
-
-      {design.login && (
-        <DocSection title="Who can use it">
-          <ChoicePicker choice={design.login} onPick={(id) => edit({ login: { ...design.login!, selected: id as any } })} />
-        </DocSection>
+      </div>
+      {a.people && (
+        <>
+          <div>
+            <SubLabel>Is it free or paid for them?</SubLabel>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button className={seg(!a.paid)} onClick={() => a.paid && onPick("supabase-auth")}>Free</button>
+              <button className={seg(a.paid)} onClick={() => onPick("clerk")}>Paid</button>
+            </div>
+          </div>
+          {!a.paid && (
+            <div>
+              <SubLabel>Login</SubLabel>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button className={seg(login.selected === "supabase-auth")} onClick={() => onPick("supabase-auth")}>Supabase Auth</button>
+                <button className={seg(login.selected === "neon-auth")} onClick={() => onPick("neon-auth")}>Neon Auth</button>
+              </div>
+              <DocMuted className="mt-1">Match your state database under Hosting.</DocMuted>
+            </div>
+          )}
+          <DocMuted>People get a chat page on {a.chat}. Everyone logs in and sees only their own conversations.</DocMuted>
+        </>
       )}
+      {login.selected !== login.recommended && (
+        <button className="text-xs text-accent underline" onClick={() => onPick(login.recommended)}>Back to recommended</button>
+      )}
+    </div>
+  );
+}
 
-      <DocSection title="Skills">
-        <DocMuted>
-          Skills are step-by-step playbooks the agent opens only when a task needs them, so they don&apos;t crowd its attention. Add new
-          ones any time instead of building a new agent.
-        </DocMuted>
-        <SkillsEditor design={design} run={designAction} busy={!!busy} />
-      </DocSection>
+/** Keep summaries to one short line. */
+function firstSentence(text: string) {
+  const m = text.match(/^.*?[.!?](\s|$)/);
+  return (m ? m[0] : text).trim();
+}
 
-      <DocSection title="Knowledge">
-        <KnowledgeEditor design={design} run={designAction} busy={!!busy} />
-      </DocSection>
+function SubLabel({ children }: { children: ReactNode }) {
+  return <div className="pt-1 text-xs font-semibold uppercase tracking-wider text-muted first:pt-0">{children}</div>;
+}
 
-      <DocSection title="Memory">
-        <MemoryEditor
-          value={effectiveMemory(design, spec?.agent)}
-          sensitive={["pii", "regulated"].includes(spec?.agent?.data_sensitivity)}
-          onChange={(m) =>
-            edit({
-              memory_config: m,
-              memory: { ...design.memory, selected: m.user_profile.enabled || m.past_conversations.enabled ? "long-term" : m.conversation ? "conversation" : "none" },
-            })
-          }
-        />
-      </DocSection>
+function optionLabel(choice: Choice) {
+  const o = choice.options.find((x) => x.id === choice.selected);
+  return (o?.label ?? choice.selected.split(":").slice(1).join(":") ?? choice.selected).split(" · ")[0];
+}
 
-      <DocSection title="Safety">
-        <div className="flex flex-wrap items-center gap-3 text-sm">
-          <label htmlFor="step-limit" className="text-fg">Stop after</label>
-          <input
-            id="step-limit"
-            type="number"
-            min={1}
-            max={50}
-            className="input w-20"
-            value={design.step_limit}
-            onChange={(e) => edit({ step_limit: Number(e.target.value) })}
-          />
-          <span className="text-fg">steps, then hand off to a person.</span>
-        </div>
-        {design.fallback && <p className="mt-2 text-sm text-muted">Hands off to: {design.fallback}</p>}
-      </DocSection>
-
-      <details className="doc-section">
-        <summary className="cursor-pointer text-sm font-semibold text-fg">Limits &amp; stopping (advanced)</summary>
-        <LimitsEditor design={design} spec={spec} onChange={edit} />
-      </details>
-
-      <DocSection title="Hosting & monthly cost">
-        <CostEstimate projectId={projectId} refreshKey={design.model.selected + (design.login?.selected ?? "") + String(approved)} />
-      </DocSection>
-
-      <DocSection title="Credentials">
-        <Credentials projectId={projectId} refreshKey={JSON.stringify(enabledTools.map((t) => t.credential_env)) + design.model.selected + String(approved)} />
-      </DocSection>
-    </Doc>
+/** The selected option with its 1–2 short notes underneath. */
+function Picked({ choice }: { choice: Choice }) {
+  const o = choice.options.find((x) => x.id === choice.selected);
+  const bullets = MODEL_BULLETS[choice.selected] ?? (o?.tradeoff ? [o.tradeoff] : ["Custom"]);
+  return (
+    <>
+      <span>{optionLabel(choice)}</span>
+      {choice.selected === choice.recommended && (
+        <span className="ml-2 rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-semibold text-accent">Recommended</span>
+      )}
+      <Bullets items={bullets.slice(0, 2)} />
+    </>
   );
 }
 
@@ -420,70 +664,6 @@ function AddTool({ onAdd, existing }: { onAdd: (t: ToolContract) => void; existi
 }
 
 
-/** Paste the keys the design's tools need. Values go to the server and are never shown again. */
-function Credentials({ projectId, refreshKey }: { projectId: string; refreshKey: string }) {
-  const [items, setItems] = useState<CredItem[]>([]);
-  const [langsmith, setLangsmith] = useState(false);
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState(false);
-
-  async function load() {
-    const d = await fetch(`/api/projects/${projectId}/agent-design/credentials`).then((r) => r.json()).catch(() => null);
-    if (d) {
-      setItems(d.items ?? []);
-      setLangsmith(!!d.langsmith);
-    }
-  }
-  useEffect(() => { load(); }, [projectId, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function save() {
-    setSaving(true);
-    const d = await fetch(`/api/projects/${projectId}/agent-design/credentials`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ values }),
-    }).then((r) => r.json()).catch(() => null);
-    setSaving(false);
-    if (d) {
-      setItems(d.items ?? []);
-      setValues({});
-    }
-  }
-
-  return (
-    <div className="space-y-3">
-      <DocMuted>Stored only on this machine and handed to the agent when it runs. Save after approving if the tools changed.</DocMuted>
-      {items.map((c) => (
-        <div key={c.env} className="flex flex-wrap items-center gap-2 text-sm">
-          <span className={c.set ? "text-ok" : "text-warn"}>{c.set ? "✓" : "•"}</span>
-          <span className="min-w-[10rem] font-medium text-fg">{c.label}</span>
-          <code className="text-xs text-muted">{c.env}</code>
-          {c.shared && c.set ? (
-            <span className="text-xs text-muted">Using your connected AI key</span>
-          ) : (
-            <input
-              type="password"
-              autoComplete="off"
-              className="input h-8 min-w-0 flex-1 text-xs"
-              placeholder={c.set ? "Saved — paste to replace" : "Paste key"}
-              value={values[c.env] ?? ""}
-              onChange={(e) => setValues({ ...values, [c.env]: e.target.value })}
-            />
-          )}
-        </div>
-      ))}
-      <div className="flex items-center gap-3">
-        <button className="btn-ghost text-sm" disabled={saving || Object.values(values).every((v) => !v)} onClick={save}>
-          {saving ? "Saving…" : "Save keys"}
-        </button>
-        <span className="text-xs text-muted">
-          LangSmith tracing: {langsmith ? "connected" : "not connected (optional — add it in the toolbox to inspect runs)"}
-        </span>
-      </div>
-    </div>
-  );
-}
-
 interface CostResp {
   host: "agentcore" | "railway";
   db: "supabase" | "neon";
@@ -499,12 +679,16 @@ interface CostResp {
 const money = (n: number) => (n === 0 ? "$0" : n < 1 ? `$${n.toFixed(2)}` : `$${n.toFixed(n < 100 ? 2 : 0)}`);
 
 /** Where it runs + what it costs per month. These choices never require rebuilding the agent. */
-function CostEstimate({ projectId, refreshKey }: { projectId: string; refreshKey: string }) {
+const HOST_LABEL = { agentcore: "Amazon Bedrock AgentCore", railway: "Railway" } as const;
+const DB_LABEL = { supabase: "Supabase", neon: "Neon" } as const;
+
+function CostEstimate({ projectId, refreshKey, mode, login }: { projectId: string; refreshKey: string; mode: "summary" | "edit"; login?: LoginId }) {
   const [data, setData] = useState<CostResp | null>(null);
   const [runs, setRuns] = useState<string>("");
 
   async function load(body?: Record<string, unknown>) {
-    const d = await fetch(`/api/projects/${projectId}/agent-cost`, {
+    const q = login ? `?login=${login}` : "";
+    const d = await fetch(`/api/projects/${projectId}/agent-cost${q}`, {
       method: body ? "POST" : "GET",
       ...(body ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}),
     })
@@ -519,13 +703,32 @@ function CostEstimate({ projectId, refreshKey }: { projectId: string; refreshKey
 
   if (!data) return <DocMuted>Loading the estimate…</DocMuted>;
   const e = data.estimate;
+  if (mode === "summary") {
+    return (
+      <>
+        <Row label="Agent host">
+          {HOST_LABEL[data.host]}
+          {data.host === "agentcore" && <span className="ml-2 rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-semibold text-accent">Recommended</span>}
+        </Row>
+        <Row label="State database">
+          {DB_LABEL[data.db]}
+          {data.db === "supabase" && <span className="ml-2 rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-semibold text-accent">Recommended</span>}
+        </Row>
+        <Row label="Runs per month">{e.runs_per_month.toLocaleString()}</Row>
+        <Row label={<mark className="rounded bg-warn/20 px-1.5 py-0.5 text-warn">Est. monthly total</mark>}>
+          <mark className="rounded bg-warn/20 px-1.5 py-0.5 font-semibold text-warn">{money(e.total)}</mark>
+          <Bullets items={e.lines.map((l) => `${l.item}: ${money(l.monthly)}`)} />
+        </Row>
+      </>
+    );
+  }
   const pick = (cls: boolean) => `rounded-lg border px-3 py-2 text-sm ${cls ? "border-accent/60 bg-accent/5 text-fg" : "border-edge text-muted hover:border-accent/30"}`;
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <span className="w-28 text-sm font-medium text-fg">Agent host</span>
-        <button className={pick(data.host === "agentcore")} onClick={() => load({ host: "agentcore" })}>Amazon Bedrock AgentCore <span className="text-[11px] text-accent">Recommended</span></button>
+        <button className={pick(data.host === "agentcore")} onClick={() => load({ host: "agentcore" })}>{HOST_LABEL.agentcore} <span className="text-[11px] text-accent">Recommended</span></button>
         <button className={pick(data.host === "railway")} onClick={() => load({ host: "railway" })}>Railway</button>
       </div>
       <div className="flex flex-wrap items-center gap-2">
@@ -622,7 +825,7 @@ function CustomModel({ design, onChange }: { design: Design; onChange: (p: Parti
         />
         out
       </div>
-      <DocMuted>The key for this provider is asked for under Credentials below. Evaluations will show whether it does the job as well.</DocMuted>
+      <DocMuted>You add the key for this provider in Engineering, after the build. Evaluations will show whether it does the job as well.</DocMuted>
     </div>
   );
 }
@@ -702,31 +905,64 @@ function SkillsEditor({ design, run, busy }: { design: Design; run: Run; busy: b
   );
 }
 
-const KNOWLEDGE_OPTIONS = [
-  { id: "none", label: "None", note: "The model's own knowledge is enough." },
-  { id: "skills", label: "Built into skills", note: "Small, stable facts (policies, tone, rules) written into the skills above. No extra setup." },
-  { id: "rag", label: "Document search (RAG)", note: "Optional. The agent searches your documents or pages for answers. Needs an OpenAI key, used for search embeddings only." },
-] as const;
+/** Knowledge that lives in the skills. Turning it off turns every skill off, so it asks first. */
+function SkillsKnowledgeToggle({ design, run, busy }: { design: Design; run: Run; busy: boolean }) {
+  const skills = design.skills ?? [];
+  const [confirming, setConfirming] = useState(false);
+  if (!skills.length) return null;
+  const on = skills.some((s) => s.enabled);
+  return (
+    <div className={`rounded-lg border p-3 text-sm ${on ? "border-accent/60 bg-accent/5" : "border-edge"}`}>
+      <label className="flex cursor-pointer items-start gap-3">
+        <input
+          type="checkbox"
+          className="mt-1"
+          checked={on && !confirming}
+          disabled={busy}
+          onChange={(e) => (e.target.checked ? run("skills", { action: "set-all", enabled: true }, "Saving…") : setConfirming(true))}
+        />
+        <span>
+          <span className="font-medium text-fg">Knowledge from its skills</span>
+          <span className="block text-muted">What the agent knows about this job, written into its {skills.length} skill{skills.length === 1 ? "" : "s"}.</span>
+        </span>
+      </label>
+      {confirming && (
+        <div className="mt-3 rounded-md border border-warn/40 bg-warn/10 p-3">
+          <p className="text-warn">
+            Turning this off also turns off all {skills.length} skill{skills.length === 1 ? "" : "s"}. The agent loses the steps and facts in them and may not do its job well.
+          </p>
+          <div className="mt-2 flex gap-2">
+            <button
+              className="btn-ghost border-warn/60 text-xs text-warn"
+              disabled={busy}
+              onClick={() => run("skills", { action: "set-all", enabled: false }, "Saving…").then(() => setConfirming(false))}
+            >
+              Turn off anyway
+            </button>
+            <button className="btn-ghost text-xs" onClick={() => setConfirming(false)}>Keep it on</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function KnowledgeEditor({ design, run, busy }: { design: Design; run: Run; busy: boolean }) {
   const k = design.knowledge ?? { mode: design.retrieval?.enabled ? "rag" : "none", sources: [] };
   const [url, setUrl] = useState("");
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
+  const off = (design.skills ?? []).some((s) => s.enabled) ? "skills" : "none";
   return (
     <div className="space-y-3">
-      <DocMuted>Pick one way for the agent to know what it needs.</DocMuted>
-      <div className="space-y-2">
-        {KNOWLEDGE_OPTIONS.map((o) => (
-          <label key={o.id} className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm ${k.mode === o.id ? "border-accent/60 bg-accent/5" : "border-edge"}`}>
-            <input type="radio" className="mt-1" checked={k.mode === o.id} disabled={busy} onChange={() => run("knowledge", { mode: o.id }, "Saving…")} />
-            <span>
-              <span className="font-medium text-fg">{o.label}</span>
-              <span className="block text-muted">{o.note}</span>
-            </span>
-          </label>
-        ))}
-      </div>
+      <SkillsKnowledgeToggle design={design} run={run} busy={busy} />
+      <label className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm ${k.mode === "rag" ? "border-accent/60 bg-accent/5" : "border-edge"}`}>
+        <input type="checkbox" className="mt-1" checked={k.mode === "rag"} disabled={busy} onChange={(e) => run("knowledge", { mode: e.target.checked ? "rag" : off }, "Saving…")} />
+        <span>
+          <span className="font-medium text-fg">Document search</span>
+          <span className="block text-muted">Also search your documents for answers. Needs an OpenAI key, used only to index them.</span>
+        </span>
+      </label>
       {k.mode === "rag" && (
         <div className="rounded-lg border border-edge p-3 text-sm">
           <div className="font-medium text-fg">Documents to search</div>
@@ -907,7 +1143,7 @@ function McpEditor({ servers, onChange }: { servers: McpServer[]; onChange: (s: 
           <input className="input h-9 min-w-0 flex-1" placeholder="Only these tools (optional, comma-separated)" value={allow} onChange={(e) => setAllow(e.target.value)} />
           <button className="btn-ghost" disabled={!draft.name.trim() || (draft.transport === "http" ? !draft.url : !draft.command)} onClick={add}>Add</button>
         </div>
-        <DocMuted>The token itself goes under Credentials below. Changing MCP servers is a light change: no code rewrite.</DocMuted>
+        <DocMuted>You add the token in Engineering, after the build. Changing MCP servers is a light change: no code rewrite.</DocMuted>
       </div>
     </div>
   );

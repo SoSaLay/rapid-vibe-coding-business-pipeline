@@ -7,6 +7,7 @@ import { activeEmailProvider } from "@/lib/email/registry";
 import { isPostHogConfigured } from "@/lib/posthog";
 import { langfuseConfig, langsmithKey } from "@/lib/agent/registry";
 import { readConnectorConfig } from "@/lib/connectors/config";
+import { githubToken } from "@/lib/agent/github";
 
 /**
  * Aggregate connection status for the onboarding panel.
@@ -18,6 +19,11 @@ export async function GET() {
   const providers = await listProviderInfo();
   const anthropic = !!providers.find((p) => p.id === "ai-anthropic")?.configured;
   const openai = !!providers.find((p) => p.id === "ai-openai")?.configured;
+  const [neon, supabaseMgmt, github] = await Promise.all([
+    readConnectorConfig("neon").then((c) => !!c?.apiKey),
+    readConnectorConfig("supabase-mgmt").then((c) => !!c?.accessToken),
+    githubToken().then(Boolean),
+  ]);
   const [langfuse, langsmith, aws, railway] = await Promise.all([
     langfuseConfig().then(Boolean),
     langsmithKey().then(Boolean),
@@ -47,6 +53,9 @@ export async function GET() {
     langsmith,
     aws,
     railway,
+    neon,
+    "supabase-mgmt": supabaseMgmt,
+    github,
     // requiredComplete gates progression (any LLM engine); allComplete = every slot in.
     requiredComplete: llm,
     allComplete: llm && exa && google && supabase && resend && posthog,

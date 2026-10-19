@@ -139,18 +139,6 @@ export const PHASES: PhaseDef[] = [
 export type PipelineKind = "project" | "agent";
 
 /** Agent-only stage. Placeholder until its tools are chosen — no logic behind it yet. */
-const SECURITY_PHASE: PhaseDef = {
-  id: "security",
-  name: "Security",
-  short: "Security",
-  consumes: ["build-manifest"],
-  produces: ["security-report"],
-  gate: "optional",
-  description:
-    "Hardens the agent before it's evaluated: prompt-injection and jailbreak resistance, tool and data permissions (least privilege), secrets handling, and guardrails on what the agent may do unattended.",
-};
-
-/** Agent-only stage. Placeholder until its tools are chosen — no logic behind it yet. */
 const DESIGN_AGENT_PHASE: PhaseDef = {
   id: "agent-design",
   name: "Agent Design",
@@ -167,7 +155,7 @@ const AGENT_ORDER: PhaseId[] = [
   "product-owner",
   "agent-design",
   "engineering",
-  "security",
+  // Security now lives inside Engineering's safety checklist ("security" stays a PhaseId for old projects' data).
   "qa",
   "deployment",
   "operations",
@@ -196,7 +184,7 @@ const AGENT_OVERRIDES: Partial<Record<PhaseId, Partial<PhaseDef>>> = {
   },
 };
 
-const AGENT_ONLY: Partial<Record<PhaseId, PhaseDef>> = { "agent-design": DESIGN_AGENT_PHASE, security: SECURITY_PHASE };
+const AGENT_ONLY: Partial<Record<PhaseId, PhaseDef>> = { "agent-design": DESIGN_AGENT_PHASE };
 
 export const AGENT_PHASES: PhaseDef[] = AGENT_ORDER.map((id) => ({
   ...(AGENT_ONLY[id] ?? PHASES.find((p) => p.id === id)!),
@@ -218,7 +206,6 @@ export function phasesFor(kind?: string | null): PhaseDef[] {
 export const HARD_PREREQ: Partial<Record<PhaseId, string>> = {
   "product-owner": "raw-idea",
   engineering: "product-spec",
-  security: "build-manifest",
   qa: "build-manifest",
   deployment: "qa-report",
   "marketing-sales": "deploy-manifest",

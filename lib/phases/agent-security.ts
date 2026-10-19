@@ -12,7 +12,7 @@ import { activeProvider } from "../llm/registry";
 import type { AgentDesign } from "../agent/design";
 import { specToAgentText } from "./agent-design";
 
-export type CheckStatus = "pass" | "fail" | "deferred" | "exception";
+export type CheckStatus = "pass" | "fail" | "deferred" | "exception" | "fixed";
 
 export interface SecurityCheck {
   id: string;
@@ -20,10 +20,12 @@ export interface SecurityCheck {
   status: CheckStatus;
   detail: string;
   exception_note?: string;
+  /** Set when the AI fixed it: one line on what it changed. */
+  fix_note?: string;
 }
 
 export interface ThreatModel {
-  entry_points: { source: string; injected_instruction_could: string; control: string; mitigated: boolean }[];
+  entry_points: { source: string; injected_instruction_could: string; control: string; mitigated: boolean; fix_note?: string }[];
   tool_misuse: { tool: string; worst_misuse: string; control: string }[];
 }
 
@@ -31,6 +33,8 @@ export interface SecurityReport {
   threat_model: ThreatModel;
   checks: SecurityCheck[];
   ran_at: string;
+  /** The design version the reviewed build came from (a newer build needs a new review). */
+  design_version?: number;
 }
 
 const THREAT_SCHEMA = {
@@ -44,7 +48,7 @@ const THREAT_SCHEMA = {
         type: "object",
         additionalProperties: false,
         properties: {
-          source: { type: "string" },
+          source: { type: "string", description: "Where the text comes from, in plain words, at most 5 words, no tool names (e.g. 'Photo web pages', 'Uploaded Excel rows')." },
           injected_instruction_could: { type: "string", description: "What a malicious instruction hidden there could make the agent do. ONE sentence." },
           control: { type: "string", description: "What in THIS design stops it, or what's missing. ONE sentence." },
           mitigated: { type: "boolean", description: "True only if the design/code ACTUALLY contains the harm (approval gate, no such tool, narrow scope). False if any meaningful part is unmitigated." },
@@ -87,7 +91,7 @@ export async function runSecurityReview(args: {
     system:
       "You are an AI-agent security reviewer. Threat-model prompt injection and tool misuse for THIS agent. Be concrete and brief; " +
       "name the actual sources and tools. Judge controls against the design and code you're given, not best intentions.",
-    effort: "medium",
+    effort: "high", // a big agent's threat model can outgrow the medium output cap
     schema: THREAT_SCHEMA,
     messages: [
       {
@@ -167,10 +171,13 @@ export async function runSecurityReview(args: {
     {
       id: "retention",
       label: "Retention policy and audit log",
-      status: sensitive ? "fail" : "pass",
-      detail: sensitive
-        ? "This agent handles personal or regulated data. Hand-offs are logged locally (handoffs.jsonl), but no retention period is set. Sign off an exception or set one before production."
-        : "Hand-offs are logged to handoffs.jsonl; runs are traced when LangSmith is connected.",
+      status: sensitive && !(design.retention_days! > 0) ? "fail" : "pass",
+      detail:
+        sensitive && !(design.retention_days! > 0)
+          ? "Handles personal data, but nothing says how long hand-off records are kept."
+          : design.retention_days
+            ? `Hand-off records are deleted after ${design.retention_days} days; runs are traced in Langfuse.`
+            : "Hand-offs are logged to handoffs.jsonl; runs are traced in Langfuse.",
     },
   ];
 

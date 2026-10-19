@@ -168,6 +168,71 @@ export interface ExampleResult {
   expected: string;
   passed: boolean;
   reason: string;
+  /** Owner-facing: what was checked, ≤6 words. Filled by summarizeChecks(). */
+  title?: string;
+  /** Owner-facing: one plain sentence on the result (for a failure: why, and whether it's safe to continue). */
+  plain?: string;
+}
+
+/**
+ * Turn raw test results into something a non-technical owner can skim: a short title and a
+ * one-sentence result per example task, plus a plain note when tool checks failed.
+ */
+/** Bump when the summary format changes so older runs are re-summarized. */
+export const CHECK_SUMMARY_VERSION = 2;
+
+export async function summarizeChecks(args: {
+  agentSummary: string;
+  examples: ExampleResult[];
+  failed: number;
+  output: string;
+}): Promise<{ examples: ExampleResult[]; note: string }> {
+  if (!args.examples.length && !args.failed) return { examples: args.examples, note: "" };
+  // `failed` counts every test, task checks included: only the rest are tool checks.
+  const toolFailed = Math.max(0, args.failed - args.examples.filter((e) => !e.passed).length);
+  const r = await activeProvider().completeJson<{ items: { index: number; title: string; plain: string }[]; note: string }>({
+    system:
+      "You explain an AI agent's test results to its non-technical owner. Plain words, no code, no jargon, no tool names in snake_case. " +
+      "For each example task: a title of at most 6 words saying what was checked (e.g. 'Fills a Walgreens cart'), and ONE sentence of at most 20 words. " +
+      "Passed: say what it did right. Failed: say why in plain words and whether it's still fine to move on to Security (e.g. it only failed because a key is missing).",
+    effort: "low",
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        items: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: { index: { type: "integer" }, title: { type: "string" }, plain: { type: "string" } },
+            required: ["index", "title", "plain"],
+          },
+        },
+        note: {
+          type: "string",
+          description:
+            "If ANYTHING failed (a task or a tool check): ONE line, at most 18 words, telling the owner what to fix, " +
+            "e.g. 'Add the Gmail token under Keys, then re-run the tests.' or 'Image fetching stalls on big batches: lower the batch size.' Else \"\".",
+        },
+      },
+      required: ["items", "note"],
+    },
+    messages: [
+      {
+        role: "user",
+        content:
+          `AGENT: ${args.agentSummary}\n\nEXAMPLE TASKS:\n` +
+          args.examples.map((e) => `#${e.index} ${e.passed ? "PASSED" : "FAILED"}\ninput: ${e.input}\nexpected: ${e.expected}\njudge: ${e.reason}`).join("\n\n") +
+          (toolFailed ? `\n\nTOOL CHECKS FAILED: ${toolFailed}. Test output (end):\n${args.output.slice(-3000)}` : "\n\nAll tool checks passed."),
+      },
+    ],
+  });
+  const byIndex = new Map((r.items ?? []).map((i) => [i.index, i]));
+  return {
+    examples: args.examples.map((e) => ({ ...e, title: byIndex.get(e.index)?.title?.trim() || e.title, plain: byIndex.get(e.index)?.plain?.trim() || e.plain })),
+    note: args.failed || args.examples.some((e) => !e.passed) ? String(r.note ?? "").trim() : "",
+  };
 }
 
 export async function readExampleResults(dir: string): Promise<ExampleResult[]> {

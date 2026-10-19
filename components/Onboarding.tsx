@@ -18,6 +18,8 @@ export interface OnboardingStatus {
   langsmith: boolean;
   aws: boolean;
   railway: boolean;
+  /** A GitHub token saved here, or this Mac's GitHub CLI sign-in. */
+  github: boolean;
   /** An LLM engine (Claude OR OpenAI) connected — gates pipeline progression. */
   requiredComplete: boolean;
   /** Every slot connected — drives the "complete" (green) button state. */
@@ -93,7 +95,7 @@ const LLM_OPTIONS: LlmOption[] = [
 ];
 
 interface Service {
-  id: "exa" | "google" | "supabase" | "resend" | "posthog" | "langfuse" | "aws" | "railway";
+  id: "exa" | "google" | "supabase" | "resend" | "posthog" | "langfuse" | "aws" | "railway" | "github";
   label: string;
   /** Why it matters / what connecting it unlocks. */
   unlocks: string;
@@ -227,6 +229,20 @@ const SERVICES: Service[] = [
     ],
   },
   {
+    id: "github",
+    label: "GitHub",
+    unlocks: "Backs up each agent's code in a private repo and lets GitHub test and release every change for you.",
+    help: "Already signed in to the GitHub CLI (gh) on this Mac? It's used automatically: nothing to paste.",
+    docsUrl: "https://github.com/settings/personal-access-tokens/new",
+    docs: [
+      "Signed in to the GitHub CLI on this Mac (gh auth login)? You're done: GitHub shows as connected.",
+      "Otherwise, open GitHub → Settings → Developer settings → Fine-grained tokens → Generate new token.",
+      "Repository access: All repositories. Permissions: Administration, Contents, Secrets, Workflows and Environments → Read and write.",
+      "Copy the token (github_pat_…) and paste it below.",
+    ],
+    fields: [{ name: "token", label: "Personal access token (github_pat_…)", type: "password" }],
+  },
+  {
     id: "railway",
     label: "Railway",
     unlocks: "Hosts your agents on Railway: it builds the Docker image for you.",
@@ -288,6 +304,9 @@ async function connectService(id: Service["id"], values: Record<string, string>)
       host: values.host,
       personalApiKey: values.personalApiKey,
     };
+  } else if (id === "github") {
+    endpoint = "/api/github/configure";
+    payload = { token: values.token };
   } else if (id === "langfuse" || id === "aws" || id === "railway") {
     endpoint = "/api/agent-tools/configure";
     payload = { id, values };
@@ -427,10 +446,10 @@ const TOOLBOX: Record<PipelineKindKey, Slot[]> = {
       options: [placeholder({ id: "vercel", label: "Vercel", blurb: "Hosts the login-protected chat page. Agents that run on their own skip it." })],
     },
     {
-      id: "ci",
-      label: "CI / release gates",
+      id: "github",
+      label: "Agent automated releases",
       section: "Deployment",
-      options: [placeholder({ id: "github-actions", label: "GitHub Actions", blurb: "Tests and offline evals on every pull request, preview deploys, and approval-gated promotion." })],
+      options: [service("github")],
     },
   ],
 };
@@ -484,7 +503,8 @@ export interface OnboardingProgress {
 export function onboardingProgress(status: OnboardingStatus | null, kind?: string | null): OnboardingProgress | null {
   if (!status) return null;
   const llmOn = status.anthropic || status.openai;
-  const slots = toolboxFor(kind).filter((s) => wired(s) && s.options[0].type !== "llm");
+  // Optional jobs never hold onboarding back.
+  const slots = toolboxFor(kind).filter((s) => wired(s) && s.options[0].type !== "llm" && !OPTIONAL_JOBS.has(s.id));
   const total = 1 + slots.length;
   const connected = Number(llmOn) + slots.filter((s) => s.options.some((o) => isConnected(o, status))).length;
   if (!llmOn) return { tone: "red", label: "You need to do onboarding", connected, total };
@@ -542,6 +562,7 @@ const TOOL_INFO: Record<string, string> = {
   railway: "Hosts your agent on Railway. Simple setup, about $5/month.",
   vercel: "Hosts the chat page, for agents people talk to.",
   "github-actions": "Runs tests and evaluations automatically on every change, and checks for alerts hourly.",
+  github: "Keeps each agent's code in a private GitHub repo. GitHub then tests every change and releases a test copy by itself; going live still needs your OK.",
   exa: "Searches forums and the web for real demand and competitors (Market Researcher).",
   google: "Makes brand images and screen designs (Gemini).",
   supabase: "Stores your landing page's waitlist signups.",
@@ -606,6 +627,7 @@ const JOB_INTRO: Record<string, string> = {
   "ai-anthropic": "The AI that does the work at every stage. Required: connect one.",
   tracing: "Optional. Records each run step by step so you can see what happened; everything works without it.",
   runtime: "Where your agent runs once it's live. Required to deploy.",
+  github: "Required. Pushes every change to your agent to a private GitHub repo; GitHub then tests it and releases a test copy by itself.",
   "market-search": "Finds real demand and competitors for your idea.",
   images: "Makes your logo, brand images and screen designs.",
   waitlist: "Stores signups from your landing page.",
@@ -667,7 +689,8 @@ export function OnboardingPanel({
           const isOpen = openJobs.has(slot.label);
           const anyActive = slot.options.some((o) => optionStatus(o, status).text === "Active");
           const perAgentJob = slot.options.every(isPerAgent);
-          const dot: OnboardingTone = perAgentJob ? "yellow" : anyActive ? "green" : slot.options.some((o) => isConnected(o, status)) ? "yellow" : "red";
+          const dot: OnboardingTone =
+            perAgentJob || (OPTIONAL_JOBS.has(slot.id) && !anyActive) ? "yellow" : anyActive ? "green" : slot.options.some((o) => isConnected(o, status)) ? "yellow" : "red";
           return (
             <div key={slot.label} className="py-2.5">
               <button className="flex w-full items-center gap-2 text-left" onClick={() => toggleJob(slot.label)} aria-expanded={isOpen}>

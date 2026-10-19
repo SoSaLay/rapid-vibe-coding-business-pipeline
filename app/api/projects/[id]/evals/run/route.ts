@@ -39,7 +39,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const passed = checks.every((c) => c.ok);
 
   const entry = { at: new Date().toISOString(), summary, gate: checks, passed, unit: { ok: unit.ok, passed: unit.passed, failed: unit.failed } };
-  const next = { ...state, runs: [...state.runs, entry].slice(-20) };
+  // A new run supersedes earlier Fix it notes and explanations.
+  const next = { ...state, runs: [...state.runs, entry].slice(-20), fixes: {}, proposals: {} };
   // The first passing run becomes the pinned baseline.
   if (!next.baseline && passed) Object.assign(next, { baseline: summary, baseline_at: entry.at });
   await saveEvals(params.id, next);

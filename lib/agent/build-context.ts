@@ -22,7 +22,7 @@ export interface AgentBuildState {
   tools_signature?: string;
   knowledge?: { chunks: number; problems: string[] };
   install?: { ok: boolean; output: string; at: string; repaired?: boolean };
-  tests?: { ok: boolean; passed: number; failed: number; output: string; examples: ExampleResult[]; at: string; skipped_examples: boolean };
+  tests?: { ok: boolean; passed: number; failed: number; output: string; examples: ExampleResult[]; at: string; skipped_examples: boolean; note?: string; summarized?: boolean | number };
 }
 
 export async function loadBuild(projectId: string) {

@@ -1,6 +1,7 @@
 /**
  * "Create a database for me": provisions a free Postgres for one agent through the provider's
- * API and returns its connection string. Neon is instant; the key lives in data/connectors/neon.json.
+ * API and returns its connection string. Neon is instant (key in data/connectors/neon.json);
+ * Supabase takes a minute or two (personal access token in data/connectors/supabase-mgmt.json).
  */
 
 import { readConnectorConfig } from "../connectors/config";
@@ -31,4 +32,62 @@ export async function createNeonDatabase(apiKey: string, name: string, orgId?: s
   const pooler: string | undefined = j?.connection_uris?.[0]?.connection_parameters?.pooler_host;
   const host: string | undefined = j?.connection_uris?.[0]?.connection_parameters?.host;
   return pooler && host ? uri.replace(host, pooler) : uri;
+}
+
+/* ---------------- Supabase (Management API, personal access token) ---------------- */
+
+const SUPABASE_API = "https://api.supabase.com/v1";
+
+export async function supabaseToken(): Promise<string | null> {
+  return (await readConnectorConfig("supabase-mgmt"))?.accessToken || process.env.SUPABASE_ACCESS_TOKEN || null;
+}
+
+const sbHeaders = (token: string) => ({ Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json" });
+
+export async function verifySupabaseToken(token: string): Promise<{ ok: boolean; error?: string }> {
+  const r = await fetch(`${SUPABASE_API}/organizations`, { headers: sbHeaders(token) });
+  return r.ok ? { ok: true } : { ok: false, error: `Supabase rejected the token (${r.status}).` };
+}
+
+/**
+ * Create a free Supabase project for this agent, wait until it's up (usually 1–3 minutes),
+ * and return its session-pooler connection string (works over IPv4, unlike the direct host).
+ */
+export async function createSupabaseDatabase(token: string, name: string, opts: { orgId?: string; region?: string } = {}): Promise<string> {
+  let orgId = opts.orgId;
+  if (!orgId) {
+    const orgs: any = await fetch(`${SUPABASE_API}/organizations`, { headers: sbHeaders(token) }).then((r) => r.json()).catch(() => null);
+    orgId = Array.isArray(orgs) ? orgs[0]?.id : undefined;
+    if (!orgId) throw new Error("No Supabase organization found for this token.");
+  }
+  const password = Array.from(crypto.getRandomValues(new Uint8Array(24)), (b) => b.toString(16).padStart(2, "0")).join("");
+  const region = opts.region || "us-east-1";
+  const created = await fetch(`${SUPABASE_API}/projects`, {
+    method: "POST",
+    headers: sbHeaders(token),
+    body: JSON.stringify({ name: name.slice(0, 60), organization_id: orgId, db_pass: password, region }),
+  });
+  const p: any = await created.json().catch(() => ({}));
+  if (!created.ok) throw new Error(`Supabase couldn't create the project: ${p?.message || p?.error || created.status}`);
+  const ref: string = p.id ?? p.ref;
+  if (!ref) throw new Error("Supabase created the project but returned no id.");
+
+  // New projects take a minute or two to come up.
+  const deadline = Date.now() + 5 * 60_000;
+  for (;;) {
+    const s: any = await fetch(`${SUPABASE_API}/projects/${ref}`, { headers: sbHeaders(token) }).then((r) => r.json()).catch(() => ({}));
+    if (s?.status === "ACTIVE_HEALTHY") break;
+    if (Date.now() > deadline) throw new Error("Supabase is still setting up the project. Try Save & set up in a few minutes.");
+    await new Promise((r) => setTimeout(r, 5000));
+  }
+
+  // Session pooler string (port 5432): long-lived connections, IPv4-friendly.
+  const pooler: any = await fetch(`${SUPABASE_API}/projects/${ref}/config/database/pooler`, { headers: sbHeaders(token) })
+    .then((r) => (r.ok ? r.json() : null))
+    .catch(() => null);
+  const entry = Array.isArray(pooler) ? pooler.find((x: any) => x?.database_type === "PRIMARY") ?? pooler[0] : pooler;
+  if (entry?.db_host && entry?.db_user) {
+    return `postgresql://${entry.db_user}:${password}@${entry.db_host}:5432/${entry.db_name || "postgres"}`;
+  }
+  return `postgresql://postgres:${password}@db.${ref}.supabase.co:5432/postgres`;
 }

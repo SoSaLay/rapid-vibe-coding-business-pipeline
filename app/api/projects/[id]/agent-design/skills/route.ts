@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPhaseState, savePhaseState } from "@/lib/store";
 import type { AgentDesign, SkillDef } from "@/lib/agent/design";
-import { importSkill, skillSlug, writeSkill } from "@/lib/agent/skills";
+import { importSkill, plainSkillSummaries, skillSlug, writeSkill } from "@/lib/agent/skills";
 
 /**
  * Body: { action, ... }
  *   write { request }          — the model writes a SKILL.md from a short description
  *   import { url }             — fetch a SKILL.md (GitHub link), security-review it; owner must sign off
+ *   plain {}                   — fill the owner-facing one-liners that are missing (display only; keeps approval)
+ *   set-all { enabled }        — turn every skill on or off (the Knowledge section's skills switch)
  *   edit { name, description, instructions } · toggle { name } · remove { name } · approve-review { name }
  * Any change reopens the design for approval (skills are part of what Engineering builds).
  */
@@ -23,6 +25,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return { ...s, name: n };
   };
 
+  if (b.action === "plain") {
+    try {
+      const next = { ...state, design: { ...design, skills: await plainSkillSummaries(skills) } };
+      await savePhaseState(params.id, "agent-design", next);
+      return NextResponse.json(next);
+    } catch (e: any) {
+      return NextResponse.json({ error: e?.message || "Couldn't summarize the skills." }, { status: 400 });
+    }
+  }
+
   try {
     if (b.action === "write") {
       if (!String(b.request ?? "").trim()) return NextResponse.json({ error: "Describe the skill first." }, { status: 400 });
@@ -37,12 +49,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         ...skills[i],
         description: String(b.description ?? skills[i].description).slice(0, 600),
         instructions: String(b.instructions ?? skills[i].instructions).slice(0, 40_000),
+        plain: undefined,
         // Editing an imported skill makes it yours, but it still needs a fresh look.
         review: skills[i].review ? { ...skills[i].review!, approved: false } : undefined,
       };
     } else if (b.action === "toggle") {
       const i = at(b.name);
       if (i >= 0) skills[i] = { ...skills[i], enabled: !skills[i].enabled };
+    } else if (b.action === "set-all") {
+      for (let i = 0; i < skills.length; i++) skills[i] = { ...skills[i], enabled: !!b.enabled };
     } else if (b.action === "remove") {
       const i = at(b.name);
       if (i >= 0) skills.splice(i, 1);
@@ -56,7 +71,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: e?.message || "That didn't work." }, { status: 400 });
   }
 
-  const next = { ...state, design: { ...design, skills: skills.map((s) => ({ ...s, name: skillSlug(s.name) })) }, approved: false };
+  const k = design.knowledge;
+  const knowledge = k && k.mode !== "rag" ? { ...k, mode: skills.some((s) => s.enabled) ? ("skills" as const) : ("none" as const) } : k;
+  const next = { ...state, design: { ...design, knowledge, skills: skills.map((s) => ({ ...s, name: skillSlug(s.name) })) }, approved: false };
   await savePhaseState(params.id, "agent-design", next);
   return NextResponse.json(next);
 }

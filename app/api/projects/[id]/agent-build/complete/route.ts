@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { saveArtifact, completePhase } from "@/lib/store";
+import { saveArtifact, completePhase, getPhaseState } from "@/lib/store";
+import { securityPasses, type SecurityReport } from "@/lib/phases/agent-security";
 import { loadBuild } from "@/lib/agent/build-context";
 
-/** Step 4: record the build-manifest and unlock Security. Failing examples need { force: true }. */
+/** Record the build-manifest + security-report and unlock Evaluations. Failing tasks need { force: true }; failing safety items must be fixed or signed off. */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await loadBuild(params.id);
   const body = await req.json().catch(() => ({}));
@@ -12,6 +13,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if ((!tests.ok || !examplesPassing) && !body.force) {
     return NextResponse.json({ error: "Some checks or example tasks failed. Complete anyway to continue." }, { status: 400 });
   }
+  const report = (await getPhaseState<{ report?: SecurityReport }>(params.id, "security"))?.report;
+  if (!report || report.design_version !== ctx.build.design_version) return NextResponse.json({ error: "Run the safety review first." }, { status: 400 });
+  if (!securityPasses(report)) return NextResponse.json({ error: "Fix or accept every red safety item first." }, { status: 400 });
+  await saveArtifact({ projectId: params.id, phase: "engineering", artifactType: "security-report", payload: report, inputs: ["agent-design", "build-manifest"] });
   const artifact = await saveArtifact({
     projectId: params.id,
     phase: "engineering",

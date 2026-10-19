@@ -1,15 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPhaseState, getProjectSettings, saveProjectSettings } from "@/lib/store";
 import { estimateMonthly, type DbId, type HostId } from "@/lib/agent/cost";
-import type { AgentDesign } from "@/lib/agent/design";
+import type { AgentDesign, LoginId } from "@/lib/agent/design";
 import { getEvals } from "@/lib/agent/evals-state";
 
 const HOSTS = new Set(["agentcore", "railway"]);
 const DBS = new Set(["supabase", "neon"]);
 
-async function estimate(projectId: string) {
-  const design = (await getPhaseState<{ design?: AgentDesign }>(projectId, "agent-design"))?.design;
-  if (!design) return null;
+const LOGINS = new Set(["machine-key", "supabase-auth", "neon-auth", "clerk"]);
+
+/** `login` previews an unsaved login choice from the design page (it decides the chat page line). */
+async function estimate(projectId: string, login?: string | null) {
+  const saved = (await getPhaseState<{ design?: AgentDesign }>(projectId, "agent-design"))?.design;
+  if (!saved) return null;
+  const design: AgentDesign =
+    login && LOGINS.has(login) && saved.login ? { ...saved, login: { ...saved.login, selected: login as LoginId } } : saved;
   const settings = await getProjectSettings(projectId);
   const host = (settings.agentStack?.runtime as HostId) || "agentcore";
   const db = (settings.agentStack?.["state-db"] as DbId) || "supabase";
@@ -28,8 +33,8 @@ async function estimate(projectId: string) {
   };
 }
 
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
-  return NextResponse.json(await estimate(params.id));
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  return NextResponse.json(await estimate(params.id, req.nextUrl.searchParams.get("login")));
 }
 
 /** Body: { host?, db?, runsPerMonth? } — choices that change cost but never require rebuilding the agent. */
@@ -44,5 +49,5 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     agentStack: stack,
     ...(Number.isFinite(runs) && runs >= 0 ? { agentRunsPerMonth: Math.min(10_000_000, Math.round(runs)) } : {}),
   });
-  return NextResponse.json(await estimate(params.id));
+  return NextResponse.json(await estimate(params.id, req.nextUrl.searchParams.get("login")));
 }

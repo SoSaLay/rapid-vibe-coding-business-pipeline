@@ -29,7 +29,10 @@ export function DocSidebar({
   present,
   kind,
   onboarding,
+  live = {},
 }: {
+  /** Agents: a stage working in the background ("working"), or waiting on the owner ("attention"). */
+  live?: Record<string, "working" | "attention">;
   projectId: string;
   /** undefined = Onboarding home; otherwise the active phase id. */
   activeSlug?: string;
@@ -81,7 +84,18 @@ export function DocSidebar({
                   isActive ? "bg-accent/10" : "hover:bg-edge/40"
                 }`}
               >
-                <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[chip]}`} aria-hidden />
+                {live[p.id] === "working" ? (
+                  <span className="relative flex h-2 w-2 shrink-0" title="Working on your latest changes" aria-label="in progress">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-75" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-accent" />
+                  </span>
+                ) : live[p.id] === "attention" ? (
+                  <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-bad text-[9px] font-bold text-white" title="New changes to deploy" aria-label="needs attention">
+                    !
+                  </span>
+                ) : (
+                  <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[chip]}`} aria-hidden />
+                )}
                 <span className={`truncate ${isActive ? "font-medium text-fg" : "text-muted"}`}>
                   {i + 1}. {p.name}
                 </span>

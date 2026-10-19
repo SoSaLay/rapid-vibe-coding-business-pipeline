@@ -1,6 +1,9 @@
 "use client";
 
+import { StageLoading } from "./BuildingRobot";
+
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { EvalsState, EvalRun } from "@/lib/agent/evals-state";
 import type { EvalSummary, EvalCase } from "@/lib/phases/agent-evals";
 import { Doc, DocSection, DocP, DocMuted, DocFacts } from "./doc/Doc";
@@ -21,6 +24,7 @@ const CATEGORY_LABEL: Record<string, string> = {
 };
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
+const RUN_LABEL = "Running the evaluations (a few minutes)…";
 
 /** Agent pipeline — stage 5. Versioned dataset → repeated runs → metrics vs pinned baseline → release gate. */
 export function AgentEvals({
@@ -41,18 +45,20 @@ export function AgentEvals({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [log, setLog] = useState<string | null>(null);
-  const [trials, setTrials] = useState(3);
   const [override, setOverride] = useState("");
   const [cases, setCases] = useState<EvalCase[] | null>(null);
   const stopper = useStopper();
+  const router = useRouter();
   const autoRan = useRef(false);
   const [loaded, setLoaded] = useState(false);
+  // Running the tests is automatic: on arrival, and whenever test cases exist with no results yet.
   useEffect(() => {
-    if (!autostart || !hasSecurity || !loaded || autoRan.current || (state?.runs?.length ?? 0) > 0) return;
+    if (!hasSecurity || !loaded || autoRan.current || (state?.runs?.length ?? 0) > 0) return;
+    if (!autostart && !cases) return;
     autoRan.current = true;
     (async () => {
-      if (!cases) await post("dataset", {}, "Writing test cases…");
-      await post("run", { trials: 3 }, "Running the evaluations (a few minutes)…");
+      if (!cases && !(await post("dataset", {}, "Writing test cases…"))) return;
+      await post("run", { trials: 3 }, RUN_LABEL);
     })();
   }, [autostart, hasSecurity, loaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -64,7 +70,8 @@ export function AgentEvals({
       .finally(() => setLoaded(true));
   }, [projectId, state?.dataset_version]);
 
-  async function post(path: string, body: any, label: string) {
+  async function post(path: string, body: any, label: string): Promise<boolean> {
+    let ok = false;
     setBusy(label);
     setError(null);
     setLog(null);
@@ -79,14 +86,23 @@ export function AgentEvals({
       if (!res.ok) {
         setError(d.error || "Request failed.");
         if (d.output) setLog(d.output);
-      } else onUpdated();
+      } else {
+        ok = true;
+        onUpdated();
+      }
     } catch (e: any) {
       if (!stopper.isAbort(e)) setError(e?.message || "Request failed.");
     }
     setBusy(null);
+    return ok;
   }
 
-  if (!hasSecurity) return <StageStart label="Start Evaluations" locked="Finish Security first." onStart={() => {}} />;
+  /** New test cases are only useful once they've run: write them, then run them. */
+  async function newTests() {
+    if (await post("dataset", {}, "Writing test cases…")) await post("run", { trials: 3 }, RUN_LABEL);
+  }
+
+  if (!hasSecurity) return <StageStart label="Start Evaluations" locked="Finish Engineering & Development first (including its safety checklist)." onStart={() => {}} />;
 
   const runs = state?.runs ?? [];
   const last: EvalRun | undefined = runs[runs.length - 1];
@@ -103,130 +119,129 @@ export function AgentEvals({
 
   return (
     <Doc>
-      <DocSection title="How it's tested">
-        <DocP>
-          Every case runs several times, because AI answers vary. Writes run in dry run, and each tool returns test data, so nothing
-          real is touched. Each run is scored on whether the task got done, whether the right tools were used, and whether it stayed
-          safe. The first passing run becomes the baseline, and every later run must not fall below it.
-        </DocP>
-      </DocSection>
+      {last && (state?.dataset_version ?? 1) === last.summary.dataset_version && (
+        <FixAllIssues
+          projectId={projectId}
+          targets={[
+            ...Object.entries(last.summary.categories)
+              .filter(([k, r]) => r.rate < 1 && !state?.fixes?.[`cat:${k}`])
+              .map(([k]) => ({ kind: "category" as const, category: k })),
+            ...last.gate
+              .map((g, i) => ({ g, i }))
+              .filter(({ g, i }) => !g.ok && i > 0 && !state?.fixes?.[`gate:${i}`])
+              .map(({ i }) => ({ kind: "gate" as const, index: i })),
+          ]}
+          labels={(t) => (t.kind === "category" ? CATEGORY_LABEL[t.category] ?? t.category : `Release rule: ${last.gate[t.index]?.label ?? ""}`)}
+          onFixed={onUpdated}
+        />
+      )}
 
-      <DocSection title="Test cases">
+      <section id="test-cases" className="doc-section scroll-mt-24">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="doc-h !mb-0">Test cases</h2>
+          <div className="flex flex-wrap gap-2">
+          {cases && (
+            <button
+              className={`${Object.keys(state?.fixes ?? {}).length ? "btn-primary" : "btn-ghost"} flex shrink-0 items-center gap-1.5 text-sm`}
+              disabled={!!busy}
+              onClick={() => post("run", { trials: 3 }, RUN_LABEL)}
+              title="Runs this version's test cases again against your agent as it is now"
+            >
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor" aria-hidden>
+                <path d="M8 5v14l11-7z" />
+              </svg>
+              Re-run tests
+            </button>
+          )}
+          <button
+            className="btn-ghost flex shrink-0 items-center gap-1.5 text-sm"
+            disabled={!!busy}
+            onClick={newTests}
+            title="Writes a fresh set of test cases, then runs them"
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+              <path d="M21 3v6h-6" />
+            </svg>
+            Generate new test cases
+          </button>
+          </div>
+        </div>
         {cases ? (
-          <>
-            <DocFacts
-              items={[
-                { label: "Dataset", value: `Version ${state?.dataset_version ?? "—"} · ${caseCount} cases` },
-                ...Object.entries(state?.dataset_counts ?? {}).map(([k, v]) => ({ label: CATEGORY_LABEL[k] ?? k, value: String(v) })),
-              ]}
-            />
-            <details className="mt-3">
-              <summary className="cursor-pointer text-sm font-medium text-fg">See every case</summary>
-              <ul className="mt-2 space-y-2 text-sm">
-                {cases.map((c) => (
-                  <li key={c.id}>
-                    <span className="text-xs text-muted">{CATEGORY_LABEL[c.category] ?? c.category} · {c.suite}</span>
-                    <div className="text-fg">{c.turns.join(" → ")}</div>
-                    <DocMuted>Expected: {c.expected}</DocMuted>
-                  </li>
-                ))}
-              </ul>
-            </details>
-          </>
+          <CaseTable
+            projectId={projectId}
+            runs={runs}
+            currentVersion={state?.dataset_version ?? 1}
+            currentCounts={state?.dataset_counts ?? {}}
+            fixes={state?.fixes ?? {}}
+            onFixed={onUpdated}
+          />
         ) : (
           <DocMuted>No test cases yet. They start from your example tasks, plus harder cases built from the design and the security threat model.</DocMuted>
         )}
-        <div className="mt-4">
-          <button className="btn-ghost" disabled={!!busy} onClick={() => post("dataset", {}, "Writing test cases…")}>
-            {cases ? "Make a new dataset version" : "Build test cases →"}
-          </button>
-        </div>
-      </DocSection>
+      </section>
 
-      {cases && (
-        <DocSection title="Run">
-          <div className="flex flex-wrap items-center gap-3 text-sm">
-            <label htmlFor="trials" className="text-fg">Tries per case</label>
-            <select id="trials" className="input h-9 w-20" value={trials} onChange={(e) => setTrials(Number(e.target.value))}>
-              {[1, 2, 3, 5].map((n) => <option key={n} value={n}>{n}</option>)}
-            </select>
-            <span className="text-xs text-muted">{caseCount * trials} agent runs{baseline?.cost_per_run ? ` · about $${(baseline.cost_per_run * caseCount * trials).toFixed(2)}` : ""}</span>
-          </div>
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            {busy ? (
-              <>
-                <span className="text-sm text-muted">{busy}</span>
-                <StopButton onStop={() => { stopper.stop(); setBusy(null); }} />
-              </>
-            ) : (
-              <button className="btn-primary" onClick={() => post("run", { trials }, `Running ${caseCount * trials} agent runs (a few minutes)…`)}>
-                Run evaluations →
-              </button>
-            )}
-          </div>
+      {(busy || error || log) && (
+        <section className="doc-section">
+          {busy && <StageLoading text={busy} onStop={() => { stopper.stop(); setBusy(null); }} />}
           {error && <p className="mt-3 text-sm text-bad">{error}</p>}
           {log && <pre className="mt-3 max-h-60 overflow-auto rounded-lg border border-edge bg-ink p-3 text-[11px] text-fg/80 whitespace-pre-wrap">{log}</pre>}
-        </DocSection>
+        </section>
       )}
 
       {last && (
         <>
-          <DocSection title="Release gate">
-            <div className={`card mb-3 p-3 text-sm ${last.passed ? "border border-ok/30" : "border border-bad/30"}`}>
-              <span className={`rounded-full px-3 py-1 text-sm font-semibold text-onbright ${last.passed ? "bg-ok" : "bg-bad"}`}>
-                {last.passed ? "passes" : "blocked"}
-              </span>
-              <span className="ml-3 text-xs text-muted">Run {new Date(last.at).toLocaleString()} · dataset v{last.summary.dataset_version} · {last.summary.trials} tries per case</span>
-            </div>
-            <ul className="space-y-2 text-sm">
-              {last.gate.map((g) => (
-                <li key={g.label}>
-                  <span className={g.ok ? "text-ok" : "text-bad"}>{g.ok ? "✓" : "✗"}</span> <span className="text-fg">{g.label}</span>
-                  <DocMuted>{g.detail}</DocMuted>
-                </li>
-              ))}
-            </ul>
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              {completed ? (
-                <span className="text-sm text-ok">Evaluations recorded. Deployment is unlocked.</span>
-              ) : last.passed ? (
-                <button className="btn-primary" disabled={!!busy} onClick={() => post("complete", {}, "Finishing…")}>Finish → Deployment</button>
-              ) : (
-                <>
-                  <input
-                    className="input h-9 min-w-0 flex-1 text-sm"
-                    placeholder="Release anyway? Write why (kept in the report)"
-                    value={override}
-                    onChange={(e) => setOverride(e.target.value)}
-                  />
-                  <button className="btn-ghost" disabled={!!busy || !override.trim()} onClick={() => post("complete", { override }, "Finishing…")}>
-                    Override → Deployment
-                  </button>
-                </>
-              )}
-              {last.passed && baseline && state?.baseline_at !== last.at && (
-                <button className="btn-ghost text-sm" disabled={!!busy} onClick={() => post("pin", {}, "Pinning…")}>Make this the new baseline</button>
-              )}
-            </div>
-          </DocSection>
-
           <DocSection title="Results">
             <Metrics s={last.summary} base={baseline && state?.baseline_at !== last.at ? baseline : null} />
-            {last.summary.failing_cases.length > 0 && (
-              <>
-                <div className="mt-5 text-xs font-semibold uppercase tracking-wider text-muted">Cases that failed at least once</div>
-                <ul className="mt-2 space-y-2 text-sm">
-                  {last.summary.failing_cases.map((f) => (
-                    <li key={f.case}>
-                      <span className="text-bad">{f.passed_trials}/{f.trials}</span> <code className="text-fg">{f.case}</code>{" "}
-                      <span className="text-xs text-muted">{CATEGORY_LABEL[f.category] ?? f.category}</span>
-                      <DocMuted>{f.reason}</DocMuted>
-                    </li>
-                  ))}
-                </ul>
-              </>
+          </DocSection>
+
+          <DocSection title="Release gate">
+            <div className="overflow-hidden rounded-xl border border-edge">
+              {last.gate.map((g, i) => (
+                <FixRow
+                  key={g.label}
+                  projectId={projectId}
+                  target={{ kind: "gate", index: i }}
+                  canFix={!g.ok && i > 0 /* "Unit tests pass" is Engineering's job */}
+                  fixed={state?.fixes?.[`gate:${i}`]?.summary}
+                  onFixed={onUpdated}
+                  cells={
+                    <>
+                      <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${g.ok ? "bg-ok text-onbright" : "bg-bad text-white"}`}>
+                        {g.ok ? "✓" : "✗"}
+                      </span>
+                      <span className="flex-1 text-fg">{g.label}</span>
+                    </>
+                  }
+                />
+              ))}
+            </div>
+            {last.passed && baseline && state?.baseline_at !== last.at && (
+              <button className="btn-ghost mt-4 text-sm" disabled={!!busy} onClick={() => post("pin", {}, "Pinning…")}>Make this the new baseline</button>
             )}
           </DocSection>
+
+          {!completed && (
+            <div className="mt-12 border-t border-edge pt-8">
+              {!last.passed && (
+                <input
+                  className="input mb-3 h-10 w-full text-sm"
+                  placeholder="Blocked. To release anyway, write why (kept in the report)"
+                  value={override}
+                  onChange={(e) => setOverride(e.target.value)}
+                />
+              )}
+              <button
+                className="w-full rounded-xl bg-accent px-6 py-4 text-lg font-semibold text-white shadow-lg transition-transform hover:scale-[1.01] active:scale-100 disabled:opacity-50 disabled:hover:scale-100"
+                disabled={!!busy || (!last.passed && !override.trim())}
+                onClick={async () => {
+                  if (await post("complete", last.passed ? {} : { override }, "Finishing…")) router.push(`/project/${projectId}/deployment?autostart=1`);
+                }}
+              >
+                {busy === "Finishing…" ? "Finishing…" : last.passed ? "Start Deployment →" : "Start Deployment anyway →"}
+              </button>
+            </div>
+          )}
         </>
       )}
     </Doc>
@@ -266,15 +281,251 @@ function Metrics({ s, base }: { s: EvalSummary; base: EvalSummary | null }) {
           </div>
         ))}
       </div>
-      <div className="mt-5 text-xs font-semibold uppercase tracking-wider text-muted">By kind of case</div>
-      <ul className="mt-2 space-y-1 text-sm">
-        {Object.entries(s.categories).map(([k, r]) => (
-          <li key={k} className="flex justify-between gap-3">
-            <span className="text-fg">{CATEGORY_LABEL[k] ?? k}</span>
-            <span className={r.rate === 1 ? "text-ok" : r.rate >= 0.5 ? "text-warn" : "text-bad"}>{r.passed}/{r.total}</span>
-          </li>
-        ))}
-      </ul>
     </>
+  );
+}
+
+type FixTargetUI = { kind: "category"; category: string } | { kind: "gate"; index: number };
+
+/**
+ * Big red "Fix all issues": explains every red item at once (kinds of case and release rules),
+ * then on Confirm fixes them one after another and the agent is re-checked once.
+ */
+function FixAllIssues({ projectId, targets, labels, onFixed }: {
+  projectId: string;
+  targets: FixTargetUI[];
+  labels: (t: FixTargetUI) => string;
+  onFixed: () => void;
+}) {
+  const [stage, setStage] = useState<"idle" | "explaining" | "proposed" | "applying">("idle");
+  const [items, setItems] = useState<{ explanation: string; plan: string; fixable: boolean }[]>([]);
+  const [msg, setMsg] = useState<string | null>(null);
+  const call = (step: "explain-all" | "apply-all", list: FixTargetUI[]) =>
+    fetch(`/api/projects/${projectId}/evals/fix`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targets: list, step }),
+    }).then((r) => r.json()).catch(() => ({ error: "That didn't work." }));
+
+  async function explain() {
+    setMsg(null);
+    setStage("explaining");
+    const d = await call("explain-all", targets);
+    if (d.error) {
+      setMsg(d.error);
+      setStage("idle");
+    } else {
+      setItems(d.items ?? []);
+      setStage("proposed");
+    }
+  }
+  async function apply() {
+    const list = targets.filter((_, i) => items[i]?.fixable);
+    setStage("applying");
+    const d = await call("apply-all", list);
+    setStage("idle");
+    if (d.error) setMsg(d.error);
+    else {
+      const failed = (d.results ?? []).filter((r: any) => !r.fixed);
+      if (failed.length) setMsg(`${failed.length} couldn't be fixed automatically.`);
+      onFixed();
+    }
+  }
+
+  return (
+    <div className="mb-8 space-y-3">
+      {stage === "idle" && targets.length === 0 && (
+        <button disabled className="w-full cursor-default whitespace-nowrap rounded-xl border border-ok/40 bg-ok/15 px-5 py-3 text-base font-semibold text-ok opacity-80 sm:w-1/4 sm:min-w-[13rem]">
+          ✓ All issues fixed
+        </button>
+      )}
+      {stage === "idle" && targets.length > 0 && (
+        <button
+          className="w-full whitespace-nowrap rounded-xl bg-bad px-5 py-3 text-base font-semibold text-white shadow-lg transition-transform hover:scale-[1.02] active:scale-100 sm:w-1/4 sm:min-w-[13rem]"
+          onClick={explain}
+        >
+          Fix all issues ({targets.length})
+        </button>
+      )}
+      {stage === "explaining" && <StageLoading text="Looking at every issue…" size="sm" />}
+      {stage === "proposed" && (
+        <div className="space-y-3 rounded-xl border border-bad/40 bg-ink/40 p-4 text-sm">
+          {targets.map((t, i) => (
+            <div key={i}>
+              <div className="font-semibold text-fg">{labels(t)}</div>
+              <p className="text-fg/90">{items[i]?.explanation}</p>
+              {items[i]?.fixable ? (
+                <p className="text-fg"><span className="font-semibold">Fix:</span> {items[i].plan}</p>
+              ) : (
+                <p className="text-xs text-muted">Can&apos;t be fixed automatically.</p>
+              )}
+            </div>
+          ))}
+          <div className="flex gap-2">
+            {items.some((x) => x?.fixable) && (
+              <button className="rounded-lg bg-bad px-4 py-2 text-sm font-semibold text-white hover:opacity-90" onClick={apply}>
+                Confirm, fix all
+              </button>
+            )}
+            <button className="btn-ghost text-sm" onClick={() => setStage("idle")}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {stage === "applying" && <StageLoading text={`Fixing ${targets.length} issues in your agent's code, one after another…`} size="sm" />}
+      {msg && <p className="text-sm text-warn">{msg}</p>}
+    </div>
+  );
+}
+
+/**
+ * A table row with Fix it on the right. Fix it first explains (what's wrong, why, what the AI will
+ * change); Confirm makes the change in the agent's code. Afterwards the row says what was done
+ * until the tests are re-run.
+ */
+function FixRow({ projectId, target, canFix, fixed, onFixed, cells }: {
+  projectId: string;
+  target: FixTargetUI;
+  canFix: boolean;
+  fixed?: string;
+  onFixed: () => void;
+  cells: React.ReactNode;
+}) {
+  const [stage, setStage] = useState<"idle" | "explaining" | "proposed" | "applying">("idle");
+  const [p, setP] = useState<{ explanation: string; plan: string; fixable: boolean } | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const call = (step: "explain" | "apply") =>
+    fetch(`/api/projects/${projectId}/evals/fix`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target, step }),
+    }).then((r) => r.json()).catch(() => ({ error: "That didn't work." }));
+
+  async function explain() {
+    setMsg(null);
+    setStage("explaining");
+    const d = await call("explain");
+    if (d.error) {
+      setMsg(d.error);
+      setStage("idle");
+    } else {
+      setP(d);
+      setStage("proposed");
+    }
+  }
+  async function apply() {
+    setStage("applying");
+    const d = await call("apply");
+    setStage("idle");
+    setP(null);
+    if (d.error) setMsg(d.error);
+    else if (!d.fixed) setMsg(d.summary);
+    else onFixed();
+  }
+
+  return (
+    <div className="border-t border-edge bg-ink/40 first:border-t-0">
+      <div className="flex items-center gap-3 px-4 py-2.5 text-sm">
+        {cells}
+        <span className="w-24 shrink-0 text-right">
+          {fixed ? (
+            <span className="text-xs font-medium text-ok">Fixed</span>
+          ) : canFix && stage === "idle" ? (
+            <button className="rounded-lg bg-bad px-3 py-1 text-xs font-semibold text-white hover:opacity-90" onClick={explain}>
+              Fix it
+            </button>
+          ) : stage === "explaining" ? (
+            <span className="text-xs text-muted">Looking…</span>
+          ) : null}
+        </span>
+      </div>
+      {fixed && <p className="px-4 pb-2.5 text-xs text-ok">{fixed} Re-run the tests to check it.</p>}
+      {stage === "proposed" && p && (
+        <div className="space-y-2 border-t border-edge px-4 py-3 text-sm">
+          <p className="text-fg/90">{p.explanation}</p>
+          <p className="text-fg"><span className="font-semibold">Fix:</span> {p.plan}</p>
+          <div className="flex gap-2">
+            {p.fixable && (
+              <button className="rounded-lg bg-bad px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90" onClick={apply}>
+                Confirm, fix it
+              </button>
+            )}
+            <button className="btn-ghost text-sm" onClick={() => setStage("idle")}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {stage === "applying" && <StageLoading text="Fixing it in your agent's code…" size="sm" />}
+      {msg && <p className="px-4 pb-2.5 text-xs text-warn">{msg}</p>}
+    </div>
+  );
+}
+
+/**
+ * Test cases per dataset version: how many of each kind, how the latest run of that version did,
+ * and Fix it on kinds with failures. Arrows step through versions; older versions are rebuilt
+ * from their runs (and are read-only).
+ */
+function CaseTable({ projectId, runs, currentVersion, currentCounts, fixes, onFixed }: {
+  projectId: string;
+  runs: EvalRun[];
+  currentVersion: number;
+  currentCounts: Record<string, number>;
+  fixes: Record<string, { summary: string }>;
+  onFixed: () => void;
+}) {
+  const versions = Array.from(new Set([...runs.map((r) => r.summary.dataset_version), currentVersion])).sort((a, b) => a - b);
+  const [v, setV] = useState(currentVersion);
+  useEffect(() => setV(currentVersion), [currentVersion]);
+  const at = versions.indexOf(v);
+  const run = [...runs].reverse().find((r) => r.summary.dataset_version === v);
+  const latest = runs[runs.length - 1];
+  const counts: Record<string, number> =
+    v === currentVersion && Object.keys(currentCounts).length
+      ? currentCounts
+      : Object.fromEntries(Object.entries(run?.summary.categories ?? {}).map(([k, r]) => [k, Math.round(r.total / Math.max(1, run!.summary.trials))]));
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  const arrow = "flex h-8 w-8 items-center justify-center rounded-md border border-edge text-fg hover:border-accent disabled:opacity-30 disabled:hover:border-edge";
+  const when = run ? new Date(run.at).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : null;
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-edge">
+      <div className="flex items-center justify-between gap-3 border-b border-edge bg-panel px-3 py-2">
+        <button className={arrow} disabled={at <= 0} onClick={() => setV(versions[at - 1])} aria-label="Previous version">‹</button>
+        <div className="text-center">
+          <div className="text-sm font-semibold text-fg">Version {v}{v === currentVersion ? " (current)" : ""}</div>
+          <div className="text-xs text-muted">{total} cases · {when ? `run ${when}` : "not run yet"}</div>
+        </div>
+        <button className={arrow} disabled={at >= versions.length - 1} onClick={() => setV(versions[at + 1])} aria-label="Next version">›</button>
+      </div>
+      <div className="flex items-center gap-3 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted">
+        <span className="flex-1">Kind of case</span>
+        <span className="w-14 text-right">Cases</span>
+        <span className="w-24 whitespace-nowrap text-right">Passed runs</span>
+        <span className="w-24" />
+      </div>
+      {Object.entries(counts).map(([k, n]) => {
+        const r = run?.summary.categories[k];
+        // Fix it only on the current version's latest run (that's the agent as it is now).
+        const fixable = !!r && r.rate < 1 && run === latest && v === currentVersion;
+        return (
+          <FixRow
+            key={k}
+            projectId={projectId}
+            target={{ kind: "category", category: k }}
+            canFix={fixable}
+            fixed={fixable ? fixes[`cat:${k}`]?.summary : undefined}
+            onFixed={onFixed}
+            cells={
+              <>
+                <span className="flex-1 text-fg">{CATEGORY_LABEL[k] ?? k}</span>
+                <span className="w-14 text-right text-fg">{n}</span>
+                <span className={`w-24 text-right font-medium ${!r ? "text-muted" : r.rate === 1 ? "text-ok" : r.rate >= 0.5 ? "text-warn" : "text-bad"}`}>
+                  {r ? `${r.passed}/${r.total}` : "—"}
+                </span>
+              </>
+            }
+          />
+        );
+      })}
+    </div>
   );
 }

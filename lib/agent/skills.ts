@@ -36,6 +36,10 @@ export function parseSkillMd(md: string): { name: string; description: string; i
   return { name, description, instructions: m[2].trim() };
 }
 
+const PLAIN_RULE =
+  "For the owner, not the agent: ONE everyday sentence, max 16 words, no jargon, framed as a routine it repeats. " +
+  "Start with 'Every time' or 'Each time', e.g. 'Every time a new order list arrives, it checks each row before shopping.'";
+
 const SKILL_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -45,16 +49,17 @@ const SKILL_SCHEMA = {
       type: "string",
       description: "What it does AND when to use it, in the third person, ≤40 words. This is all the agent sees before opening the skill.",
     },
+    plain: { type: "string", description: PLAIN_RULE },
     instructions: {
       type: "string",
       description: "Markdown: when to use, step-by-step how to do the job, rules and edge cases, and the facts the job needs. Plain English.",
     },
   },
-  required: ["name", "description", "instructions"],
+  required: ["name", "description", "plain", "instructions"],
 };
 
 export async function writeSkill(args: { request: string; agentSummary: string; tools: string[] }): Promise<SkillDef> {
-  const r = await activeProvider().completeJson<{ name: string; description: string; instructions: string }>({
+  const r = await activeProvider().completeJson<{ name: string; description: string; plain: string; instructions: string }>({
     system:
       "You write Agent Skills: a SKILL.md an AI agent opens only when a task needs it. Make it a repeatable procedure for ONE job, " +
       "in plain English, using only the agent's existing tools. Keep it tight: what to do, in what order, what to avoid, and the facts it needs.",
@@ -67,12 +72,12 @@ export async function writeSkill(args: { request: string; agentSummary: string; 
       },
     ],
   });
-  return { name: skillSlug(r.name), description: r.description, instructions: r.instructions, source: "written", enabled: true };
+  return { name: skillSlug(r.name), description: r.description, plain: r.plain, instructions: r.instructions, source: "written", enabled: true };
 }
 
 /** Recommend 1-3 skills for a new design (run alongside the other design calls). */
 export async function recommendSkills(args: { jobText: string; tools: string[] }): Promise<SkillDef[]> {
-  const r = await activeProvider().completeJson<{ skills: { name: string; description: string; instructions: string }[] }>({
+  const r = await activeProvider().completeJson<{ skills: { name: string; description: string; plain: string; instructions: string }[] }>({
     system:
       "You recommend Agent Skills for a new agent: 1-3 repeatable procedures it will need for its job (e.g. how to classify, how to write a reply in the house style). " +
       "Each is a SKILL.md the agent opens only when needed. Only what the job needs today; more can be added later.",
@@ -80,7 +85,31 @@ export async function recommendSkills(args: { jobText: string; tools: string[] }
     schema: { type: "object", additionalProperties: false, properties: { skills: { type: "array", items: SKILL_SCHEMA } }, required: ["skills"] },
     messages: [{ role: "user", content: `JOB:\n${args.jobText}\n\nTOOLS: ${args.tools.join(", ") || "(none yet)"}` }],
   });
-  return (r.skills ?? []).slice(0, 3).map((s) => ({ name: skillSlug(s.name), description: s.description, instructions: s.instructions, source: "recommended" as const, enabled: true }));
+  return (r.skills ?? []).slice(0, 3).map((s) => ({ name: skillSlug(s.name), description: s.description, plain: s.plain, instructions: s.instructions, source: "recommended" as const, enabled: true }));
+}
+
+/** Fill the owner-facing one-liner for skills that lack it (older designs, imports, edits). One cheap call. */
+export async function plainSkillSummaries(skills: SkillDef[]): Promise<SkillDef[]> {
+  const todo = skills.filter((s) => !s.plain);
+  if (!todo.length) return skills;
+  const r = await activeProvider().completeJson<{ items: { name: string; plain: string }[] }>({
+    system: `Rewrite each Agent Skill for a non-technical owner. ${PLAIN_RULE}`,
+    effort: "low",
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        items: {
+          type: "array",
+          items: { type: "object", additionalProperties: false, properties: { name: { type: "string" }, plain: { type: "string" } }, required: ["name", "plain"] },
+        },
+      },
+      required: ["items"],
+    },
+    messages: [{ role: "user", content: todo.map((s) => `name: ${s.name}\ndescription: ${s.description}`).join("\n\n") }],
+  });
+  const byName = new Map((r.items ?? []).map((i) => [i.name, i.plain.trim()]));
+  return skills.map((s) => (s.plain || !byName.get(s.name) ? s : { ...s, plain: byName.get(s.name) }));
 }
 
 /** GitHub blob/tree URLs → the raw SKILL.md URL. */

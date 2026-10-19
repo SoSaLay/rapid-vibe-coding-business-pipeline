@@ -235,3 +235,13 @@ body {
     transition: none;
   }
 }
+
+/* Agent Design's AI Automatic Design Changer panel (20rem): shift the page left so it stays readable. */
+@media (min-width: 1024px) {
+  html.design-chat-open main {
+    padding-right: 21rem;
+  }
+  html.design-chat-tab main {
+    padding-right: 6rem;
+  }
+}

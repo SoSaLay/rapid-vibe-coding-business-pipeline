@@ -1,9 +1,13 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { Doc, DocSection, DocP, DocMuted, DocFacts } from "./doc/Doc";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Doc, DocSection, DocMuted } from "./doc/Doc";
 import { StopButton, useStopper } from "./StopButton";
 import { StageStart } from "./StageStart";
+import { AgentKeys } from "./AgentKeys";
+import { StageLoading } from "./BuildingRobot";
+import type { SecurityReport } from "@/lib/phases/agent-security";
 
 interface ExampleResult {
   index: number;
@@ -11,19 +15,22 @@ interface ExampleResult {
   expected: string;
   passed: boolean;
   reason: string;
+  title?: string;
+  plain?: string;
 }
 interface Build {
   design_version: number;
   workspace_path: string;
   files: { path: string; explains: string }[];
   install?: { ok: boolean; output: string; repaired?: boolean };
-  tests?: { ok: boolean; passed: number; failed: number; output: string; examples: ExampleResult[]; skipped_examples: boolean };
+  tests?: { ok: boolean; passed: number; failed: number; output: string; examples: ExampleResult[]; skipped_examples: boolean; note?: string; summarized?: boolean | number };
 }
 
 const STEPS = [
   { id: "write", label: "Write the code", busy: "Writing your agent's code from the approved design…" },
   { id: "install", label: "Install", busy: "Installing Python and packages (first time takes a minute)…" },
   { id: "test", label: "Run example tasks", busy: "Running the example tasks (dry run — nothing real is sent or changed)…" },
+  { id: "review", label: "Safety review", busy: "Reviewing your agent's safety…" },
 ] as const;
 
 /**
@@ -36,9 +43,14 @@ export function AgentEngineering({
   designVersion,
   build,
   manifest,
+  security,
+  autoflow = null,
   autostart = false,
   onUpdated,
 }: {
+  security: SecurityReport | null;
+  /** The background flow carrying a design change through (null = none). */
+  autoflow?: { running: boolean; stage: string; phase: string | null; message: string; error?: string } | null;
   autostart?: boolean;
   projectId: string;
   hasDesign: boolean;
@@ -51,7 +63,38 @@ export function AgentEngineering({
   const [error, setError] = useState<string | null>(null);
   const [log, setLog] = useState<string | null>(null);
   const stopper = useStopper();
+  const router = useRouter();
+  // The background flow (after a design change) is doing the work: the page only shows it.
+  const flowBusy = !!autoflow?.running && autoflow.phase === "engineering";
   const autoRan = useRef(false);
+
+  // Test runs from before plain summaries existed: fill the titles once, quietly.
+  const summarizing = useRef(false);
+  useEffect(() => {
+    if (!build?.tests || build.tests.summarized === 2 || summarizing.current) return;
+    summarizing.current = true;
+    fetch(`/api/projects/${projectId}/agent-build/summaries`, { method: "POST" }).then((r) => r.ok && onUpdated()).catch(() => {});
+  }, [build?.tests]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Tests and the safety review are part of the build: whenever a finished build lacks them, run them on their own.
+  const reviewFor = useRef<string | null>(null);
+  useEffect(() => {
+    const current = !!security && !!build && security.design_version === build.design_version;
+    if (!build?.install?.ok || build.design_version !== designVersion || busy || flowBusy) return;
+    // A change from the Automatic Agent Builder clears the tests: re-test, then review.
+    const key = `${build.design_version}:${build.tests ? "r" : "t"}`;
+    if ((build.tests && current) || reviewFor.current === key) return;
+    reviewFor.current = key;
+    runFrom(build.tests ? 3 : 2);
+  }, [build?.design_version, build?.install?.ok, !!build?.tests, designVersion, security?.design_version, busy, flowBusy]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The design changed after this build: re-sync on arrival, once per design version.
+  const resyncedFor = useRef<number | null>(null);
+  useEffect(() => {
+    if (!build || build.design_version === designVersion || busy || flowBusy || resyncedFor.current === designVersion) return;
+    resyncedFor.current = designVersion;
+    resync();
+  }, [build?.design_version, designVersion, busy, flowBusy]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function step(id: string, body?: any): Promise<Build | null> {
     const res = await fetch(`/api/projects/${projectId}/agent-build/${id}`, {
@@ -87,20 +130,36 @@ export function AgentEngineering({
   }
 
   /** Light update: re-render without rewriting code (skills, knowledge, model, limits), then re-run the tests. */
-  async function light() {
+  /**
+   * Bring the code back in step with the approved design: a quick update when only settings changed
+   * (skills, model, limits…), a full rebuild when the tools changed; then tests and the safety review.
+   */
+  async function resync() {
     setError(null);
     setLog(null);
-    setBusy("Applying the design changes (no code rewrite)…");
+    setBusy("Updating your agent to the new design…");
     try {
-      const b = await step("refresh");
+      const res = await fetch(`/api/projects/${projectId}/agent-build/refresh`, { method: "POST", signal: stopper.signal() });
+      if (res.status === 409) {
+        // The tools themselves changed: the code has to be written again.
+        setBusy(null);
+        await runFrom(0);
+        return;
+      }
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) setError(d.error || "Updating the agent failed.");
+      const b = res.ok ? d.build : null;
       onUpdated();
       if (b) {
         setBusy(STEPS[2].busy);
-        await step("test");
+        if (await step("test")) {
+          setBusy(STEPS[3].busy);
+          await step("review");
+        }
         onUpdated();
       }
     } catch (e: any) {
-      if (!stopper.isAbort(e)) setError(e?.message || "Light update failed.");
+      if (!stopper.isAbort(e)) setError(e?.message || "Updating the agent failed.");
     }
     setBusy(null);
   }
@@ -116,7 +175,7 @@ export function AgentEngineering({
     const d = await res.json().catch(() => ({}));
     setBusy(null);
     if (!res.ok) setError(d.error || "Failed.");
-    else onUpdated();
+    else router.push(`/project/${projectId}/qa?autostart=1`);
   }
 
   if (!hasDesign) return <StageStart label="Start Engineering & Development" locked="Approve the Agent Design first." onStart={() => {}} />;
@@ -126,143 +185,389 @@ export function AgentEngineering({
   }
 
   if (!build) {
-    return <StageStart label="Start Engineering & Development" busy={busy} error={error} onStart={() => runFrom(0)} onStop={() => { stopper.stop(); setBusy(null); }} />;
+    return (
+      <StageStart
+        label="Start Engineering & Development"
+        busy={busy}
+        error={error}
+        onStart={() => runFrom(0)}
+        onStop={() => { stopper.stop(); setBusy(null); }}
+      />
+    );
   }
 
   const stale = !!build && build.design_version !== designVersion;
-  const done = { write: !!build && !stale, install: !!build?.install?.ok && !stale, test: !!build?.tests && !stale };
+  const reviewed = !!security && security.design_version === build.design_version;
+  const done = { write: !!build && !stale, install: !!build?.install?.ok && !stale, test: !!build?.tests && !stale, review: reviewed && !stale };
+  const redSafety = reviewed
+    ? security!.checks.filter((c) => c.status === "fail").length + security!.threat_model.entry_points.filter((e) => !e.mitigated).length
+    : 0;
   const examples = build?.tests?.examples ?? [];
   const allPass = !!build?.tests?.ok && examples.length > 0 && examples.every((e) => e.passed);
 
   return (
     <Doc>
-      <DocSection title="The build">
-        <DocP>
-          This builds exactly the design you approved. Nothing new is decided here. It writes the code, installs it, and tries it on your
-          example tasks. Write actions run in dry run, so nothing real is sent or changed.
-        </DocP>
-        <ol className="mt-4 space-y-2">
-          {STEPS.map((s, i) => {
-            const ok = done[s.id];
-            const failed = s.id === "install" ? build?.install && !build.install.ok : s.id === "test" ? build?.tests && !allPass : false;
-            return (
-              <li key={s.id} className="flex items-center gap-3 text-sm">
-                <span
-                  className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${
-                    ok && !failed ? "bg-ok text-onbright" : failed && !stale ? "bg-warn text-onbright" : "bg-edge text-muted"
-                  }`}
-                >
-                  {ok && !failed ? "✓" : i + 1}
-                </span>
-                <span className="text-fg">{s.label}</span>
-                {s.id === "install" && build?.install?.repaired && !stale && <span className="text-xs text-muted">(fixed a problem automatically)</span>}
-              </li>
-            );
-          })}
-        </ol>
-        <div className="mt-5 flex flex-wrap items-center gap-2">
-          {busy ? (
-            <>
-              <span className="text-sm text-muted">{busy}</span>
-              <StopButton onStop={() => { stopper.stop(); setBusy(null); }} />
-            </>
-          ) : (
-            <>
-              {stale && (
-                <button className="btn-primary" onClick={light}>
-                  Apply design changes →
-                </button>
-              )}
-              <button className={stale ? "btn-ghost" : "btn-primary"} onClick={() => runFrom(0)}>
-                {!build ? "Build my agent →" : stale ? "Rebuild everything" : "Rebuild from scratch"}
-              </button>
-              {build && !stale && !done.install && <button className="btn-ghost" onClick={() => runFrom(1)}>Retry install</button>}
-              {done.install && <button className="btn-ghost" onClick={() => runFrom(2)}>Re-run tests</button>}
-            </>
+      {flowBusy && <StageLoading text={autoflow!.message || "Building the latest changes you made in Agent Design…"} />}
+      {autoflow && !autoflow.running && autoflow.stage === "failed" && autoflow.error && build.design_version !== designVersion && (
+        <p className="mb-4 rounded-lg border border-bad/40 bg-bad/10 px-4 py-3 text-sm text-bad">Building your latest change failed: {autoflow.error}</p>
+      )}
+      {/* Build controls live in the top-right corner, out of the reading flow. */}
+      {!busy && !flowBusy && (
+        <div className="-mt-2 mb-4 flex flex-wrap justify-end gap-2">
+          {stale && error && (
+            <button className="btn-primary text-sm" onClick={resync}>
+              Try again
+            </button>
           )}
+          {!done.install && !stale && <button className="btn-ghost text-sm" onClick={() => runFrom(1)}>Retry install</button>}
+          {done.install && <button className="btn-ghost text-sm" onClick={() => runFrom(2)}>Re-run tests</button>}
         </div>
-        {stale && (
-          <DocMuted className="mt-2">
-            The design changed after this build. If you only changed skills, knowledge, the model, memory, approvals or limits, apply the
-            changes. Nothing is rewritten. New or changed tools need Rebuild everything.
-          </DocMuted>
-        )}
+      )}
+      <section className="doc-section">
+        {busy && <div className="mt-5"><StageLoading text={busy} onStop={() => { stopper.stop(); setBusy(null); }} /></div>}
+        {stale && !busy && !flowBusy && !error && <DocMuted className="mt-2">Your design changed: updating your agent…</DocMuted>}
         {error && <p className="mt-3 text-sm text-bad">{error}</p>}
         {log && <pre className="mt-3 max-h-60 overflow-auto rounded-lg border border-edge bg-ink p-3 text-[11px] text-fg/80 whitespace-pre-wrap">{log}</pre>}
-      </DocSection>
+      </section>
 
-      {build?.tests && !stale && (
-        <DocSection title="Example tasks">
-          {build.tests.skipped_examples ? (
-            <DocMuted>Skipped: the model key isn't set. Add it under Agent Design → Credentials, then re-run the tests.</DocMuted>
+      {!stale && <Codebase projectId={projectId} build={build} />}
+
+      {!stale && <AgentKeys projectId={projectId} refreshKey={String(build.design_version)} />}
+
+      {!stale && reviewed && <FixAllSafety projectId={projectId} count={redSafety} onDone={onUpdated} />}
+
+      {!stale && (
+        <DocSection title="Safety checklist">
+          <SubHead>Code (logic)</SubHead>
+          {!build.tests ? (
+            <p className="text-sm text-muted">Not tested yet: run the tests above.</p>
           ) : (
-            <ul className="space-y-3">
+          <>
+          {build.tests.skipped_examples && <p className="text-sm text-muted">Task checks skipped: the model key isn&apos;t set.</p>}
+          {!build.tests.skipped_examples && (
+            <div className="space-y-2">
               {examples.map((e) => (
-                <li key={e.index} className="text-sm">
-                  <span className={e.passed ? "text-ok" : "text-bad"}>{e.passed ? "✓ Pass" : "✗ Fail"}</span>{" "}
-                  <span className="text-fg">{e.input}</span>
-                  <DocMuted>{e.reason}</DocMuted>
-                </li>
+                <SafetyItem key={e.index} state={e.passed ? "pass" : "fail"} title={e.title || `Task ${e.index + 1}`}>
+                  <p className={e.passed ? "text-fg/90" : "text-bad"}>{e.plain || e.reason}</p>
+                  <p className="text-xs text-muted"><span className="font-semibold">Task:</span> {e.input}</p>
+                  <p className="text-xs text-muted"><span className="font-semibold">Should:</span> {e.expected}</p>
+                </SafetyItem>
               ))}
-            </ul>
-          )}
-          <DocFacts items={[{ label: "Code checks", value: `${build.tests.passed} passed · ${build.tests.failed} failed` }]} />
-          <details className="mt-3">
-            <summary className="cursor-pointer text-xs text-muted">Test output</summary>
-            <pre className="mt-2 max-h-72 overflow-auto rounded-lg border border-edge bg-ink p-3 text-[11px] text-fg/80 whitespace-pre-wrap">{build.tests.output}</pre>
-          </details>
-          {!manifest && (
-            <div className="mt-4 flex flex-wrap gap-2">
-              {allPass ? (
-                <button className="btn-primary" disabled={!!busy} onClick={() => complete(false)}>Finish → Security</button>
-              ) : (
-                <button className="btn-ghost" disabled={!!busy} onClick={() => complete(true)}>Continue anyway → Security</button>
-              )}
             </div>
           )}
-          {manifest && <p className="mt-4 text-sm text-ok">Build recorded. Security is unlocked.</p>}
+          </>
+          )}
+
+          <SubHead>Security</SubHead>
+          {!reviewed ? (
+            <p className="text-sm text-muted">{error && !busy ? error : "Reviewing your agent's safety…"}</p>
+          ) : (
+            <div className="space-y-2">
+              {security!.checks.map((c) => (
+                <SafetyItem
+                  key={c.id}
+                  state={c.status === "pass" ? "pass" : c.status === "fixed" ? "fixed" : c.status === "deferred" ? "later" : c.status === "exception" ? "accepted" : "fail"}
+                  title={CHECK_TITLES[c.id] ?? c.label}
+                  fix={c.status === "fail" || c.status === "exception" ? { projectId, target: { kind: "check", id: c.id }, accepted: c.status === "exception", onDone: onUpdated } : undefined}
+                >
+                  {c.status === "fixed" ? (
+                    <p className="text-ok">Fixed: {c.fix_note}</p>
+                  ) : c.status === "exception" ? (
+                    <p className="text-warn">You accepted this risk: {c.exception_note}</p>
+                  ) : (
+                    <p className={c.status === "fail" ? "text-bad" : "text-fg/90"}>{c.detail}</p>
+                  )}
+                </SafetyItem>
+              ))}
+            </div>
+          )}
+
+          {reviewed && (
+            <>
+              <SubHead>Threat model</SubHead>
+              <div className="space-y-2">
+                {security!.threat_model.entry_points.map((e, i) => (
+                  <SafetyItem
+                    key={`e${i}`}
+                    state={e.fix_note ? "fixed" : e.mitigated ? "pass" : "fail"}
+                    title={`Tricked by ${shortSource(e.source)}`}
+                    fix={!e.mitigated ? { projectId, target: { kind: "threat", index: i }, onDone: onUpdated } : undefined}
+                  >
+                    {e.fix_note && <p className="text-ok">Fixed: {e.fix_note}</p>}
+                    <p className="text-fg/90"><span className="font-semibold">Could make it:</span> {e.injected_instruction_could}</p>
+                    {!e.fix_note && <p className="text-xs text-muted"><span className="font-semibold">Stopped by:</span> {e.control}</p>}
+                  </SafetyItem>
+                ))}
+                {byTool(security!.threat_model.tool_misuse).map(([tool, rows]) => (
+                  <SafetyItem key={tool} state="info" title={`If "${tool.replace(/_/g, " ")}" is misused`}>
+                    {rows.map((t, i) => (
+                      <div key={i} className="space-y-1">
+                        <p className="text-fg/90"><span className="font-semibold">Worst case:</span> {t.worst_misuse}</p>
+                        <p className="text-xs text-muted"><span className="font-semibold">Stopped by:</span> {t.control}</p>
+                      </div>
+                    ))}
+                  </SafetyItem>
+                ))}
+              </div>
+            </>
+          )}
         </DocSection>
       )}
 
-      {build && !stale && <Codebase projectId={projectId} build={build} />}
+
+      {build?.tests && !stale && !manifest && (
+        <div className="mt-12 border-t border-edge pt-8">
+          <button
+            className="w-full rounded-xl bg-accent px-6 py-4 text-lg font-semibold text-white shadow-lg transition-transform hover:scale-[1.01] active:scale-100 disabled:opacity-50"
+            disabled={!!busy || !reviewed || redSafety > 0}
+            onClick={() => complete(!allPass)}
+          >
+            {busy === "Finishing…" ? "Finishing…" : "Start Evaluations →"}
+          </button>
+          {!reviewed ? (
+            <p className="mt-2 text-center text-xs text-muted">Run the safety review first.</p>
+          ) : redSafety > 0 ? (
+            <p className="mt-2 text-center text-xs text-muted">Fix or accept the {redSafety} red safety item{redSafety === 1 ? "" : "s"} first.</p>
+          ) : (
+            !allPass && <p className="mt-2 text-center text-xs text-muted">Not every task passed. You can still move on.</p>
+          )}
+        </div>
+      )}
     </Doc>
   );
 }
 
-/** "Your codebase": what each part does in plain language; the code is one click away. */
-function Codebase({ projectId, build }: { projectId: string; build: Build }) {
-  const [open, setOpen] = useState<string | null>(null);
-  const [content, setContent] = useState<string>("");
+/** Plain titles for the security checks (the stored labels are the reviewer's wording). */
+const CHECK_TITLES: Record<string, string> = {
+  approval: "Asks you before risky actions",
+  secrets: "Keys kept secret",
+  "least-privilege": "Only the access it needs, with a step cap",
+  injection: "Can't be tricked by text it reads",
+  "user-auth": "Users must log in",
+  isolation: "Each user's conversations kept separate",
+  "tool-authz": "Acts only as the signed-in user",
+  retention: "Personal data isn't kept forever",
+};
 
-  async function view(p: string) {
-    if (open === p) return setOpen(null);
-    setOpen(p);
-    setContent("Loading…");
-    const d = await fetch(`/api/projects/${projectId}/agent-build/file?path=${encodeURIComponent(p)}`).then((r) => r.json()).catch(() => null);
-    setContent(d?.content ?? "Couldn't load this file.");
+/** "Photo page URL fetched by extract_fullres_image (requests.get …)" → "photo page URL". */
+function shortSource(src: string) {
+  const s = src.replace(/\s*\([^)]*\)/g, "").split(/\s+(?:via|fetched by|in|from|captured by|read by)\s+/i)[0].trim();
+  return s.charAt(0).toLowerCase() + s.slice(1);
+}
+
+function byTool<T extends { tool: string }>(rows: T[]): [string, T[]][] {
+  const m = new Map<string, T[]>();
+  for (const r of rows) m.set(r.tool, [...(m.get(r.tool) ?? []), r]);
+  return Array.from(m.entries());
+}
+
+/** Big red "Fix all issues": every red security check and threat, fixed one after another. */
+function FixAllSafety({ projectId, count, onDone }: { projectId: string; count: number; onDone: () => void }) {
+  const [stage, setStage] = useState<"idle" | "confirm" | "fixing">("idle");
+  const [msg, setMsg] = useState<string | null>(null);
+  async function run() {
+    setStage("fixing");
+    setMsg(null);
+    const d = await fetch(`/api/projects/${projectId}/agent-build/fix-all`, { method: "POST" }).then((r) => r.json()).catch(() => ({ error: "That didn't work." }));
+    setStage("idle");
+    if (d.error) setMsg(d.error);
+    else {
+      const failed = (d.results ?? []).filter((r: any) => !r.fixed).length;
+      if (failed) setMsg(`${failed} couldn't be fixed automatically. Open them below.`);
+    }
+    onDone();
+  }
+  return (
+    <div className="mt-12 space-y-3">
+      {stage === "idle" && count === 0 && (
+        <button disabled className="w-full cursor-default whitespace-nowrap rounded-xl border border-ok/40 bg-ok/15 px-5 py-3 text-base font-semibold text-ok opacity-80 sm:w-1/4 sm:min-w-[13rem]">
+            ✓ All issues fixed
+          </button>
+      )}
+      {stage === "idle" && count > 0 && (
+        <button
+          className="w-full whitespace-nowrap rounded-xl bg-bad px-5 py-3 text-base font-semibold text-white shadow-lg transition-transform hover:scale-[1.02] active:scale-100 sm:w-1/4 sm:min-w-[13rem]"
+          onClick={() => setStage("confirm")}
+        >
+          Fix all issues ({count})
+        </button>
+      )}
+      {stage === "confirm" && (
+        <div className="space-y-3 rounded-xl border border-bad/40 bg-ink/40 p-4 text-sm">
+          <p className="text-fg">The AI will fix all {count} red items in the safety checklist below, one after another, by changing your agent&apos;s code. Each one is ticked off with what was changed.</p>
+          <div className="flex gap-2">
+            <button className="rounded-lg bg-bad px-4 py-2 text-sm font-semibold text-white hover:opacity-90" onClick={run}>Confirm, fix all</button>
+            <button className="btn-ghost text-sm" onClick={() => setStage("idle")}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {stage === "fixing" && <StageLoading text={`Fixing ${count} issues in your agent's code, one after another…`} size="sm" />}
+      {msg && <p className="text-sm text-warn">{msg}</p>}
+    </div>
+  );
+}
+
+function SubHead({ children }: { children: React.ReactNode }) {
+  return <h3 className="mb-2 mt-6 text-xs font-semibold uppercase tracking-wider text-muted first:mt-0">{children}</h3>;
+}
+
+type ItemState = "pass" | "fail" | "fixed" | "later" | "accepted" | "info";
+const ICON: Record<ItemState, { glyph: string; cls: string }> = {
+  pass: { glyph: "✓", cls: "bg-ok text-onbright" },
+  fixed: { glyph: "✓", cls: "bg-ok text-onbright" },
+  fail: { glyph: "✗", cls: "bg-bad text-white" },
+  later: { glyph: "…", cls: "bg-edge text-muted" },
+  accepted: { glyph: "!", cls: "bg-warn text-onbright" },
+  info: { glyph: "i", cls: "bg-accent/20 text-accent" },
+};
+
+type FixTarget = { kind: "check"; id: string } | { kind: "threat"; index: number };
+
+/**
+ * One checklist row: status icon + title, and — on a red row — a Fix it button right on the row.
+ * Open the row for the short explanation, extra instructions for the fix, or to accept the risk.
+ */
+function SafetyItem({ state, title, fix, children }: {
+  state: ItemState;
+  title: string;
+  fix?: { projectId: string; target: FixTarget; accepted?: boolean; onDone: () => void };
+  children: React.ReactNode;
+}) {
+  const i = ICON[state];
+  const [fixing, setFixing] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [mode, setMode] = useState<null | "details" | "accept">(null);
+  const [text, setText] = useState("");
+
+  async function runFix(details = "") {
+    if (!fix) return;
+    setFixing(true);
+    setMsg(null);
+    const d = await fetch(`/api/projects/${fix.projectId}/agent-build/fix`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target: fix.target, details }),
+    }).then((r) => r.json()).catch(() => ({ error: "The fix didn't work." }));
+    setFixing(false);
+    if (d.error) setMsg(d.error);
+    else if (!d.fixed) setMsg(d.summary);
+    else fix.onDone();
+  }
+  async function accept(note: string) {
+    if (!fix || fix.target.kind !== "check") return;
+    await fetch(`/api/projects/${fix.projectId}/security/exception`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: fix.target.id, note }),
+    });
+    setMode(null);
+    fix.onDone();
   }
 
-  const main = build.files.filter((f) => !f.path.endsWith("__init__.py"));
+  return (
+    <details className="group rounded-lg border border-edge bg-ink/40">
+      <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 text-sm">
+        <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${i.cls}`}>{i.glyph}</span>
+        <span className={`flex-1 font-medium ${state === "fixed" ? "text-muted line-through" : "text-fg"}`}>{title}</span>
+        {state === "later" && <span className="text-[11px] text-muted">At deployment</span>}
+        {fix &&
+          (fixing ? (
+            <span className="text-xs text-muted">Fixing…</span>
+          ) : (
+            <button
+              className="shrink-0 rounded-lg bg-bad px-3 py-1 text-xs font-semibold text-white hover:opacity-90"
+              onClick={(e) => {
+                e.preventDefault(); // don't toggle the row
+                runFix();
+              }}
+            >
+              Fix it
+            </button>
+          ))}
+        <span className="text-muted transition-transform group-open:rotate-90">›</span>
+      </summary>
+      <div className="space-y-2 border-t border-edge px-4 py-3 text-sm">
+        {children}
+        {fixing && <StageLoading text="Fixing it in your agent's code…" size="sm" />}
+        {fix && !fixing && (
+          <div className="space-y-2 pt-1">
+            <div className="flex flex-wrap items-center gap-3">
+              <button className="text-xs text-accent underline" onClick={() => setMode(mode === "details" ? null : "details")}>
+                Fix it my way
+              </button>
+              {fix.target.kind === "check" &&
+                (fix.accepted ? (
+                  <button className="text-xs text-accent underline" onClick={() => accept("")}>Withdraw acceptance</button>
+                ) : (
+                  <button className="text-xs text-muted underline" onClick={() => setMode(mode === "accept" ? null : "accept")}>Accept the risk</button>
+                ))}
+            </div>
+            {mode && (
+              <div className="flex flex-wrap gap-2">
+                <input
+                  className="input h-9 min-w-0 flex-1 text-sm"
+                  placeholder={mode === "details" ? "Tell the AI how you'd like it fixed" : "Why is this OK? (e.g. I watch every run)"}
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                />
+                <button className="btn-ghost text-sm" disabled={!text.trim()} onClick={() => (mode === "details" ? runFix(text) : accept(text))}>
+                  {mode === "details" ? "Fix with this" : "Accept"}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+        {msg && <p className="text-xs text-warn">{msg}</p>}
+      </div>
+    </details>
+  );
+}
+
+const EDITORS = [
+  { id: "vscode", label: "VS Code", download: "https://code.visualstudio.com/download" },
+  { id: "cursor", label: "Cursor", download: "https://cursor.com/download" },
+] as const;
+
+/** "Your codebase": where it lives, and one click to open it in an editor (or get the editor if it's missing). */
+function Codebase({ projectId, build }: { projectId: string; build: Build }) {
+  const [msg, setMsg] = useState<string | null>(null);
+  const [have, setHave] = useState<Record<string, boolean> | null>(null);
+  const url = `/api/projects/${projectId}/agent-build/open`;
+  useEffect(() => {
+    fetch(url).then((r) => r.json()).then(setHave).catch(() => setHave({}));
+  }, [url]);
+  async function open(app: string) {
+    setMsg(null);
+    const d = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ app }),
+    }).then((r) => r.json()).catch(() => ({ error: "Couldn't open it." }));
+    if (d.error) {
+      setMsg(d.error);
+      if (d.missing) setHave((h) => ({ ...(h ?? {}), [app]: false }));
+    }
+  }
   return (
     <DocSection title="Your codebase">
-      <DocP>
-        This is your agent. These files hold all the logic and settings that do the work. You don't need to open them, but they're here
-        if you want to look.
-      </DocP>
-      <DocFacts items={[{ label: "Lives in", value: <code className="break-all text-xs">{build.workspace_path}</code> }]} />
-      <ul className="mt-4 divide-y divide-edge rounded-lg border border-edge">
-        {main.map((f) => (
-          <li key={f.path} className="p-3">
-            <button className="flex w-full items-start gap-3 text-left" onClick={() => view(f.path)}>
-              <code className="shrink-0 text-xs text-accent">{f.path}</code>
-              <span className="text-sm text-fg/90">{f.explains}</span>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+        <span className="font-medium text-fg">Lives in</span>
+        <code className="break-all text-xs text-muted">{build.workspace_path}</code>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {EDITORS.map((e) =>
+          have && have[e.id] === false ? (
+            <a key={e.id} href={e.download} target="_blank" rel="noreferrer" className="btn-ghost text-sm">
+              Download {e.label} ↗
+            </a>
+          ) : (
+            <button key={e.id} className="btn-ghost text-sm" disabled={!have} onClick={() => open(e.id)}>
+              Open in {e.label}
             </button>
-            {open === f.path && (
-              <pre className="mt-2 max-h-96 overflow-auto rounded-lg bg-ink p-3 text-[11px] leading-relaxed text-fg/80">{content}</pre>
-            )}
-          </li>
-        ))}
-      </ul>
+          ),
+        )}
+      </div>
+      {msg && <p className="mt-2 text-sm text-bad">{msg}</p>}
     </DocSection>
   );
 }

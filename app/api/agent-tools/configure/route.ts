@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { saveConnectorConfig } from "@/lib/connectors/config";
-import { verifyNeonKey } from "@/lib/agent/db-provision";
+import { verifyNeonKey, verifySupabaseToken } from "@/lib/agent/db-provision";
 import { awsDefaultRegion, awsIdentity } from "@/lib/agent/aws";
 
 /**
@@ -41,6 +41,15 @@ export async function POST(req: NextRequest) {
     const check = await verifyNeonKey(apiKey);
     if (!check.ok) return NextResponse.json(check, { status: 400 });
     await saveConnectorConfig("neon", { apiKey, orgId: (v.orgId || "").trim() });
+    return NextResponse.json({ ok: true });
+  }
+
+  if (body.id === "supabase-mgmt") {
+    const accessToken = (v.accessToken || "").trim();
+    if (!accessToken) return NextResponse.json({ ok: false, error: "Paste your Supabase access token." }, { status: 400 });
+    const check = await verifySupabaseToken(accessToken);
+    if (!check.ok) return NextResponse.json(check, { status: 400 });
+    await saveConnectorConfig("supabase-mgmt", { accessToken, orgId: (v.orgId || "").trim(), region: (v.region || "us-east-1").trim() });
     return NextResponse.json({ ok: true });
   }
 

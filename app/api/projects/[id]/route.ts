@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getProject, listArtifacts, getPhaseState, deleteProject } from "@/lib/store";
 import { PODialogue } from "@/lib/phases/product-owner";
+import { getAutoflow, isAutoflowRunning } from "@/lib/agent/autoflow";
+import { githubStatus } from "@/lib/agent/github";
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const project = await getProject(params.id);
@@ -18,6 +20,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const iteration = await getPhaseState(params.id, "iteration");
   const agentDesign = await getPhaseState(params.id, "agent-design");
   const security = await getPhaseState(params.id, "security");
+  // Agents: the background flow after a design change, and what's not on GitHub yet.
+  const flow = project.kind === "agent" ? await getAutoflow(params.id) : null;
+  const autoflow = flow ? { ...flow, running: isAutoflowRunning(params.id) } : null;
+  const github = project.kind === "agent" ? await githubStatus(params.id).catch(() => null) : null;
   return NextResponse.json({
     project,
     artifacts,
@@ -34,6 +40,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       iteration,
       "agent-design": agentDesign,
       security,
+      autoflow,
+      github,
     },
   });
 }

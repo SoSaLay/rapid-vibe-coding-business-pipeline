@@ -231,3 +231,8 @@ export async function generateAgentDesign(spec: Record<string, any>, title: stri
     knowledge: { mode: raw.retrieval?.enabled ? "rag" : skills.length ? "skills" : "none", sources: [] },
   };
 }
+
+/** Shared with the design chat so a tool it adds has the same contract shape. */
+export const TOOL_SCHEMA = CONTRACTS_SCHEMA.properties.tools.items;
+export const DATA_SOURCE_SCHEMA = CONTRACTS_SCHEMA.properties.data_sources.items;
+export { MODEL_IDS, SYSTEM as DESIGN_SYSTEM };

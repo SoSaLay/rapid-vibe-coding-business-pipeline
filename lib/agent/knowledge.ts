@@ -67,7 +67,7 @@ async function embed(texts: string[], key: string): Promise<number[][]> {
 
 export async function buildIndex(projectId: string, sources: KnowledgeSource[]) {
   const key = await embeddingsKey(projectId);
-  if (!key) throw new Error("Document search needs an OpenAI key (for embeddings). Connect OpenAI in the toolbox or paste OPENAI_API_KEY under Credentials.");
+  if (!key) throw new Error("Document search needs an OpenAI key (for embeddings). Connect OpenAI in the toolbox or paste OPENAI_API_KEY under Keys this agent needs (Engineering).");
   const pieces: { source: string; text: string }[] = [];
   const problems: string[] = [];
   for (const s of sources) {

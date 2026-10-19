@@ -50,6 +50,8 @@ export interface SkillDef {
   name: string;
   /** What it's for and when to use it — the only part the agent reads up front. */
   description: string;
+  /** UI only: one everyday sentence framed as a routine ("Every time…, it…"). Missing = filled by plainSkillSummaries(). */
+  plain?: string;
   /** The SKILL.md body: plain-English steps and the knowledge the job needs. */
   instructions: string;
   source: "recommended" | "written" | "imported";
@@ -135,6 +137,8 @@ export interface AgentDesign {
   model_price?: { input: number; output: number };
   /** Expected runs per month (the default for the cost estimate; the user can change it). */
   runs_per_month?: number;
+  /** Days to keep hand-off records before deleting them (set by a safety fix for personal data). Missing = keep. */
+  retention_days?: number;
   /** Who can use it and how they log in. Missing on designs made before this existed. */
   login?: Choice<LoginId>;
 }

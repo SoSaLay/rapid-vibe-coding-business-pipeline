@@ -1,5 +1,7 @@
 "use client";
 
+import { StageLoading } from "./BuildingRobot";
+
 import { useEffect, useState } from "react";
 import type { OpsState } from "@/lib/agent/ops";
 import Link from "next/link";
@@ -277,7 +279,7 @@ export function AgentOperations({ projectId, live, completed, onUpdated }: { pro
         )}
       </DocSection>
 
-      {busy && <p className="text-sm text-muted">{busy}</p>}
+      {busy && <StageLoading text={busy} size="sm" />}
       {note && <p className="text-sm text-ok">{note}</p>}
       {error && <p className="text-sm text-bad">{error}</p>}
     </Doc>

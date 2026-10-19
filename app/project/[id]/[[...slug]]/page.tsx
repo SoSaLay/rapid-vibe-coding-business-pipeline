@@ -16,9 +16,8 @@ import { ProductDesign } from "@/components/ProductDesign";
 import { Engineering } from "@/components/Engineering";
 import { AgentDesign } from "@/components/AgentDesign";
 import { AgentEngineering } from "@/components/AgentEngineering";
-import { AgentSecurity } from "@/components/AgentSecurity";
 import { AgentEvals } from "@/components/AgentEvals";
-import { AgentDeployment } from "@/components/AgentDeployment";
+import { AgentDeployment, LatestChanges } from "@/components/AgentDeployment";
 import { AgentOperations } from "@/components/AgentOperations";
 import { QA } from "@/components/QA";
 import { Deployment } from "@/components/Deployment";
@@ -81,6 +80,14 @@ export default function ProjectWorkspace() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  // While a background flow is carrying an agent change through, keep every page and the sidebar current.
+  const flowRunning = !!(data?.phaseState as any)?.autoflow?.running;
+  useEffect(() => {
+    if (!flowRunning) return;
+    const t = setInterval(refresh, 4000);
+    return () => clearInterval(t);
+  }, [flowRunning, refresh]);
+
   // Reset transient UI when the route changes via soft nav (phase or doc↔artifact).
   useEffect(() => { setShowIdea(false); setShowIterate(false); setNavOpen(false); window.scrollTo({ top: 0 }); }, [activeSlug, artifactMode, artifactSlug]);
 
@@ -110,6 +117,12 @@ export default function ProjectWorkspace() {
   const iteration = (phaseState as any)?.["iteration"] ?? null;
 
   const present = new Set(artifacts.map((a) => a.artifact_type));
+  // Agents: which stages are working on a change in the background, or waiting on the owner.
+  const flow = (phaseState as any)?.autoflow;
+  const gh = (phaseState as any)?.github;
+  const liveStages: Record<string, "working" | "attention"> = {};
+  if (flow?.running && flow.phase) liveStages[flow.phase] = "working";
+  else if (gh?.unpushed > 0 && project.phase_status.deployment && project.phase_status.deployment !== "locked") liveStages.deployment = "attention";
   const phases = phasesFor(project.kind);
   const phaseIndex = phases.findIndex((p) => p.id === activeSlug);
   const phaseDef = phaseIndex >= 0 ? phases[phaseIndex] : null;
@@ -180,6 +193,8 @@ export default function ProjectWorkspace() {
               designVersion={agentDesignArt?.version ?? 0}
               build={engineering?.agentBuild ?? null}
               manifest={buildManifest?.payload ?? null}
+              security={(phaseState as any)?.security?.report ?? null}
+              autoflow={(phaseState as any)?.autoflow ?? null}
               autostart={autostart}
               onUpdated={refresh}
             />
@@ -187,15 +202,15 @@ export default function ProjectWorkspace() {
         }
         return <Engineering projectId={project.id} hasSpec={!!productSpec} state={engineering} manifest={buildManifest?.payload ?? null} mode={mode} onUpdated={refresh} />;
       case "agent-design":
-        return <AgentDesign projectId={project.id} hasSpec={!!productSpec} state={(phaseState as any)?.["agent-design"] ?? null} spec={productSpec?.payload ?? null} autostart={autostart} onUpdated={refresh} />;
-      case "security":
         return (
-          <AgentSecurity
+          <AgentDesign
             projectId={project.id}
-            hasBuild={!!buildManifest}
-            report={(phaseState as any)?.security?.report ?? null}
-            completed={project.phase_status.security === "complete"}
+            hasSpec={!!productSpec}
+            state={(phaseState as any)?.["agent-design"] ?? null}
+            spec={productSpec?.payload ?? null}
             autostart={autostart}
+            builtVersion={engineering?.agentBuild?.design_version ?? null}
+            approvedVersion={agentDesignArt?.version ?? 0}
             onUpdated={refresh}
           />
         );
@@ -204,7 +219,7 @@ export default function ProjectWorkspace() {
           return (
             <AgentEvals
               projectId={project.id}
-              hasSecurity={project.phase_status.security === "complete"}
+              hasSecurity={project.phase_status.engineering === "complete"}
               state={qa}
               completed={project.phase_status.qa === "complete"}
               autostart={autostart}
@@ -220,6 +235,8 @@ export default function ProjectWorkspace() {
               projectId={project.id}
               hasEvals={project.phase_status.qa === "complete"}
               completed={project.phase_status.deployment === "complete"}
+              autoflow={(phaseState as any)?.autoflow ?? null}
+              github={(phaseState as any)?.github ?? null}
               autostart={autostart}
               onUpdated={refresh}
             />
@@ -268,7 +285,7 @@ export default function ProjectWorkspace() {
           <div className="mb-3">
             <div className="truncate text-sm font-semibold text-fg">{project.title}</div>
           </div>
-          <DocSidebar projectId={id} activeSlug={activeSlug} status={project.phase_status} present={present} kind={project.kind} onboarding={onboarding} />
+          <DocSidebar projectId={id} activeSlug={activeSlug} status={project.phase_status} present={present} kind={project.kind} onboarding={onboarding} live={liveStages} />
         </aside>
 
         {/* Main reading column */}
@@ -286,8 +303,21 @@ export default function ProjectWorkspace() {
               <div className="min-w-0 lg:col-start-2 lg:row-start-1">
                 {phaseDef && (
                   <header className="mb-6 border-b border-edge pb-5">
-                    <div className="wp-eyebrow">{activeSlug === "iteration" ? "↻ Action" : `Stage ${phaseIndex + 1}`}</div>
-                    <h2 className="wp-title mt-1.5">{phaseDef.name}</h2>
+                    <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+                      <div>
+                        <div className="wp-eyebrow">{activeSlug === "iteration" ? "↻ Action" : `Stage ${phaseIndex + 1}`}</div>
+                        <h2 className="wp-title mt-1.5">{phaseDef.name}</h2>
+                      </div>
+                      {/* Agents' Deployment: new changes and deploying them, on the title line. */}
+                      {project.kind === "agent" && activeSlug === "deployment" && (
+                        <LatestChanges
+                          projectId={project.id}
+                          autoflow={(phaseState as any)?.autoflow ?? null}
+                          github={(phaseState as any)?.github ?? null}
+                          onUpdated={refresh}
+                        />
+                      )}
+                    </div>
                     {activeSlug === "product-owner" ? (
                       // Define the Problem / Define the Job is where the raw idea lives now (there is no capture stage).
                       <>
@@ -346,11 +376,12 @@ export default function ProjectWorkspace() {
                     {(() => {
                       // One big button to the next stage once this one is done; the next page starts itself.
                       const next = phaseIndex >= 0 ? phases[phaseIndex + 1] : undefined;
-                      if (!next || next.id === "iteration" || project.phase_status[activeSlug as string] !== "complete") return null;
+                      // Agent Design has its own Start button at the top (it approves first).
+                      if (!next || next.id === "iteration" || activeSlug === "agent-design" || project.phase_status[activeSlug as string] !== "complete") return null;
                       return (
                         <div className="mt-12 border-t border-edge pt-8">
                           <button
-                            className="w-full rounded-xl bg-bad px-6 py-4 text-lg font-semibold text-white shadow-lg transition-transform hover:scale-[1.01] active:scale-100"
+                            className="w-full rounded-xl bg-accent px-6 py-4 text-lg font-semibold text-white shadow-lg transition-transform hover:scale-[1.01] active:scale-100"
                             onClick={() => router.push(`/project/${id}/${next.id}?autostart=1`)}
                           >
                             Start {next.name} →

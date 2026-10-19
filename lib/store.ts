@@ -104,7 +104,13 @@ export async function writeMeta(meta: ProjectMeta): Promise<void> {
 export async function getProject(id: string): Promise<ProjectMeta | null> {
   try {
     const raw = await fs.readFile(path.join(projectDir(id), "meta.json"), "utf8");
-    return JSON.parse(raw) as ProjectMeta;
+    const meta = JSON.parse(raw) as ProjectMeta;
+    // Agents built before Security moved into Engineering: Evaluations may still be waiting on the old Security stage.
+    if (meta.kind === "agent" && meta.phase_status.engineering === "complete" && meta.phase_status.qa === "locked") {
+      meta.phase_status.qa = "active";
+      if (meta.current_phase === "security") meta.current_phase = "qa";
+    }
+    return meta;
   } catch {
     return null;
   }
@@ -226,6 +232,8 @@ export interface ProjectSettings {
   agentStack?: Record<string, string>;
   /** Agent pipeline: expected runs per month, for the monthly cost estimate. */
   agentRunsPerMonth?: number;
+  /** Agent pipeline: the agent's private GitHub repo and what was last pushed (lib/agent/github.ts). */
+  agentGithub?: { owner: string; repo: string; pushed_sha?: string; pushed_at?: string; secret_hashes?: Record<string, string> };
 }
 
 function settingsPath(id: string) {

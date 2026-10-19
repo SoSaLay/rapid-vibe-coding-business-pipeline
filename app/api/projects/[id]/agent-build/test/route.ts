@@ -5,7 +5,7 @@ import { loadBuild, saveBuild } from "@/lib/agent/build-context";
 import { unitTestAdapter } from "@/lib/agent/registry";
 import { agentEnv, renderDotEnv } from "@/lib/agent/env";
 import { modelKeyEnv } from "@/lib/agent/design";
-import { readExampleResults } from "@/lib/phases/agent-engineering";
+import { CHECK_SUMMARY_VERSION, readExampleResults, summarizeChecks } from "@/lib/phases/agent-engineering";
 
 /** Step 3: tool checks + the example tasks, in dry run (write tools never execute). */
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -15,10 +15,14 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   // Keys may have been added since the code was written.
   await fs.writeFile(path.join(ctx.dir, ".env"), renderDotEnv(env), { mode: 0o600 });
   const run = await (await unitTestAdapter(params.id)).run({ dir: ctx.dir, env: { ...env, AGENT_DRY_RUN: "1" } });
-  const examples = await readExampleResults(ctx.dir);
+  const raw = await readExampleResults(ctx.dir);
+  // Plain titles + one-line results for the owner. Optional: raw results still show if this fails.
+  const plain = await summarizeChecks({ agentSummary: ctx.design.summary, examples: raw, failed: run.failed, output: run.output }).catch(() => null);
   const tests = {
     ...run,
-    examples,
+    examples: plain?.examples ?? raw,
+    note: plain?.note ?? "",
+    summarized: plain ? CHECK_SUMMARY_VERSION : false,
     skipped_examples: !!modelKeyEnv(ctx.design.model.selected) && !env[modelKeyEnv(ctx.design.model.selected)],
     at: new Date().toISOString(),
   };

@@ -132,9 +132,20 @@ from pathlib import Path
 
 HUMAN = ${lit(design.fallback)}
 LOG = Path(__file__).resolve().parent.parent / "handoffs.jsonl"
+RETENTION_DAYS = ${design.retention_days && design.retention_days > 0 ? Math.round(design.retention_days) : 0}  # 0 = keep
+
+
+def _prune() -> None:
+    """Drop hand-off records older than RETENTION_DAYS."""
+    if not RETENTION_DAYS or not LOG.exists():
+        return
+    cutoff = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(time.time() - RETENTION_DAYS * 86400))
+    keep = [l for l in LOG.read_text(encoding="utf-8").splitlines() if l and json.loads(l).get("at", "") >= cutoff]
+    LOG.write_text("".join(k + "\\n" for k in keep), encoding="utf-8")
 
 
 def hand_off(task: str, reason: str) -> dict:
+    _prune()
     entry = {"at": time.strftime("%Y-%m-%dT%H:%M:%S"), "task": task, "reason": reason, "to": HUMAN}
     with LOG.open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\\n")

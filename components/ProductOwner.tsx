@@ -1,5 +1,7 @@
 "use client";
 
+import { StageLoading } from "./BuildingRobot";
+
 import { useEffect, useRef, useState } from "react";
 import { StopButton, useStopper } from "./StopButton";
 import { StageStart } from "./StageStart";
@@ -189,11 +191,10 @@ export function ProductOwner({
       {!dialogue && !busy && <StageStart label={isAgent ? "Start agent building" : "Start"} locked={aiReady === null ? "Checking your AI engine…" : null} onStart={startReview} />}
 
       {busy && (
-        <div className="flex items-center gap-3 py-6 text-sm text-muted">
-          <span className="h-2 w-2 animate-pulse rounded-full bg-accent" />
-          {dialogue?.ready || (dialogue && openQuestions.length === 0) ? "Writing it up…" : dialogue ? "Reading your answers…" : "Reading your idea…"}
-          <StopButton onStop={stopper.stop} />
-        </div>
+        <StageLoading
+          text={dialogue?.ready || (dialogue && openQuestions.length === 0) ? "Writing it up…" : dialogue ? "Reading your answers…" : "Reading your idea…"}
+          onStop={stopper.stop}
+        />
       )}
 
       {!busy && openQuestions.length > 0 && (

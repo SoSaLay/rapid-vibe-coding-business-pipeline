@@ -3,12 +3,12 @@ import { loadBuild } from "@/lib/agent/build-context";
 import { getDeploy, saveDeploy } from "@/lib/agent/deploy";
 import { credentialsAdapter } from "@/lib/agent/registry";
 import { scrub, sh, uvBin } from "@/lib/agent/proc";
-import { createNeonDatabase, neonKey } from "@/lib/agent/db-provision";
+import { createNeonDatabase, createSupabaseDatabase, neonKey, supabaseToken } from "@/lib/agent/db-provision";
 import { readConnectorConfig } from "@/lib/connectors/config";
 
 /**
  * Create the agent's tables in its Postgres (safe to re-run).
- * Body { create: "neon" } first creates a free Neon database for this agent and saves its connection string.
+ * Body { create: "neon" | "supabase" } first creates a free database for this agent and saves its connection string.
  */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const body = await req.json().catch(() => ({}));
@@ -18,6 +18,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (!key) return NextResponse.json({ error: "Add a Neon API key in onboarding first." }, { status: 400 });
     try {
       const url = await createNeonDatabase(key, `agent-${ctx.slug}`, (await readConnectorConfig("neon"))?.orgId || undefined);
+      await (await credentialsAdapter(params.id)).save(params.id, { DATABASE_URL: url });
+    } catch (e: any) {
+      return NextResponse.json({ error: e?.message || "Couldn't create the database." }, { status: 500 });
+    }
+  }
+  if (body.create === "supabase") {
+    const token = await supabaseToken();
+    if (!token) return NextResponse.json({ error: "Add a Supabase access token in onboarding first." }, { status: 400 });
+    try {
+      const cfg = await readConnectorConfig("supabase-mgmt");
+      const url = await createSupabaseDatabase(token, `agent-${ctx.slug}`, { orgId: cfg?.orgId || undefined, region: cfg?.region || undefined });
       await (await credentialsAdapter(params.id)).save(params.id, { DATABASE_URL: url });
     } catch (e: any) {
       return NextResponse.json({ error: e?.message || "Couldn't create the database." }, { status: 500 });

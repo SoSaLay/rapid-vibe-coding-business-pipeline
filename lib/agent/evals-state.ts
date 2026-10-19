@@ -17,6 +17,10 @@ export interface EvalsState {
   runs: EvalRun[];
   baseline: EvalSummary | null;
   baseline_at?: string;
+  /** Fix it on a kind of case or a gate rule, since the last run: key → what the AI changed. Cleared by the next run. */
+  fixes?: Record<string, { summary: string; at: string }>;
+  /** Cached explanations for Fix it (so reopening one doesn't cost another AI call). Cleared by the next run. */
+  proposals?: Record<string, { explanation: string; plan: string; fixable: boolean }>;
 }
 
 export async function getEvals(projectId: string): Promise<EvalsState> {
