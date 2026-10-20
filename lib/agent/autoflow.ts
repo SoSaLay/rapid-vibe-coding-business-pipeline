@@ -45,23 +45,34 @@ async function set(projectId: string, patch: Partial<AutoflowState>) {
 }
 
 /** Deployment only: push what's built and follow GitHub's run (the owner's "Push & deploy"). */
-export function startDeploy(projectId: string) {
+export function startDeploy(projectId: string, origin: string) {
   if (running.has(projectId)) return false;
   running.add(projectId);
-  deploy(projectId)
+  deploy(projectId, origin)
     .catch(async (e) => set(projectId, { stage: "failed", phase: null, message: "Deploying failed.", error: String(e?.message ?? e) }))
     .finally(() => running.delete(projectId));
   return true;
 }
 
-async function deploy(projectId: string) {
+async function deploy(projectId: string, origin: string) {
   const token = await githubToken();
   if (!token) throw new Error("Connect GitHub in onboarding first.");
+  const prev = await getAutoflow(projectId);
+  const unpushed = (await githubStatus(projectId)).unpushed;
   await set(projectId, { stage: "pushing", phase: "deployment", message: "Pushing your latest changes to GitHub…", error: undefined, run_url: undefined });
   const pushed = await pushAgent(projectId);
   if (!pushed.ok) throw new Error(pushed.error || "Pushing to GitHub failed.");
+  // Nothing new to push (a retry): re-run the last run's failed jobs instead.
+  const runId = /\/actions\/runs\/(\d+)/.exec(prev?.run_url ?? "")?.[1];
+  if (!unpushed && runId) {
+    const repo = (await githubStatus(projectId)).repo;
+    await fetch(`https://api.github.com/repos/${repo}/actions/runs/${runId}/rerun-failed-jobs`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "rapid-vibe-coding-pipeline" },
+    });
+  }
   await set(projectId, { stage: "deploying", message: "Deploying your latest changes: GitHub is testing and releasing them…" });
-  await followRun(projectId, token);
+  await followRun(projectId, token, origin);
 }
 
 /** Start (or restart) the flow for a project. `origin` is this server's base URL, so steps reuse the API routes. */
@@ -132,11 +143,11 @@ async function run(projectId: string, origin: string, designVersion?: number, co
     await set(projectId, { stage: "ready", phase: null, message: "Your latest changes are built and ready to deploy." });
     return;
   }
-  await deploy(projectId);
+  await deploy(projectId, origin);
 }
 
 /** Follow the GitHub Actions run for the pushed commit until it finishes (up to ~25 minutes). */
-async function followRun(projectId: string, token: string) {
+async function followRun(projectId: string, token: string, origin: string) {
   const status = await githubStatus(projectId);
   if (!status.repo) throw new Error("No GitHub repo.");
   const { sh } = await import("./proc");
@@ -164,12 +175,87 @@ async function followRun(projectId: string, token: string) {
     await set(projectId, { run_url: r.html_url });
     if (r.status === "completed") {
       if (r.conclusion === "success") {
-        await set(projectId, { stage: "deployed", phase: null, message: "Changes deployed: tests and evals passed, and the test copy is updated." });
+        await set(projectId, { message: "GitHub released your changes. Checking the new test copy…" });
+        await set(projectId, { stage: "deployed", phase: null, message: await recordAndCheck(projectId, origin) });
       } else {
-        await set(projectId, { stage: "failed", phase: null, message: "GitHub's checks or release failed.", error: `GitHub run ${r.conclusion}. Open it for details.` });
+        await set(projectId, { stage: "failed", phase: null, ...(await explainRun(status.repo, r.id, headers)) });
       }
       return;
     }
   }
   await set(projectId, { stage: "failed", phase: null, message: "GitHub is taking too long.", error: "Open the GitHub run to see where it is." });
+}
+
+/**
+ * GitHub released a new staging version: record it in Deployment (so Technical output and Release
+ * history show it), then run the live check against it. Returns the plain outcome.
+ */
+async function recordAndCheck(projectId: string, origin: string): Promise<string> {
+  const s = await syncGithubRelease(projectId);
+  if (!s.staging) return "Changes deployed: tests and evals passed on GitHub, and the test copy is updated.";
+  const c = await call(origin, projectId, "deploy/check");
+  const check = c.d.check;
+  if (!c.ok || !check) return `Changes deployed, but the live check couldn't run${c.d.error ? `: ${c.d.error}` : "."}`;
+  if (check.inconclusive) return `Changes deployed, but the live check couldn't score them: ${check.inconclusive}`;
+  return check.passed ? "Changes deployed and the test copy passed its live check." : "Changes deployed, but the test copy failed its live check. See Technical output.";
+}
+
+/**
+ * If GitHub's agent-ci released a newer push than the staging release on record, record that release
+ * (version + target from the host). Safe to call any time; returns the current deploy state.
+ */
+export async function syncGithubRelease(projectId: string) {
+  const { getProjectSettings } = await import("../store");
+  const { loadBuild } = await import("./build-context");
+  const { chosenHost, getDeploy, hostCredentials, saveDeploy } = await import("./deploy");
+  const { currentStaging } = await import("./adapters/runtime");
+  const s = await getDeploy(projectId);
+  const gh = (await getProjectSettings(projectId)).agentGithub;
+  if (!gh?.pushed_sha || !gh.pushed_at) return s;
+  if (s.staging && s.staging.release.at >= gh.pushed_at) return s; // already newer than the last push
+  const short = gh.pushed_sha.slice(0, 7);
+  if (s.staging && gh.pushed_sha.startsWith(s.staging.release.commit)) return s;
+  // Only if GitHub's run for that push actually released.
+  const token = await githubToken();
+  if (!token) return s;
+  const headers = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "rapid-vibe-coding-pipeline" };
+  const j: any = await fetch(`https://api.github.com/repos/${gh.owner}/${gh.repo}/actions/runs?head_sha=${gh.pushed_sha}&per_page=5`, { headers }).then((r) => r.json()).catch(() => null);
+  const run = (j?.workflow_runs ?? []).find((r: any) => r.name === "agent-ci");
+  if (run?.status !== "completed" || run.conclusion !== "success") return s;
+  const host = await chosenHost(projectId);
+  const creds = await hostCredentials(host);
+  if (!creds) return s;
+  const now = await currentStaging(host, (await loadBuild(projectId)).dir, creds, s.railway_urls);
+  if (!now) return s;
+  // agent-ci names the release after the short commit (its RELEASE file).
+  const release = { id: short, commit: short, at: run.updated_at ?? new Date().toISOString(), env: "staging" as const, version: now.version, ok: true, log: `Released by GitHub (agent-ci): ${run.html_url}` };
+  const next = { ...s, host, staging: { release, target: now.target }, history: [...s.history.filter((h) => h.id !== short), release].slice(-30) };
+  await saveDeploy(projectId, next);
+  return next;
+}
+
+/** Which GitHub job and step failed, in plain words, and who needs to act. */
+async function explainRun(repo: string, runId: number, headers: Record<string, string>): Promise<{ message: string; error: string }> {
+  const j: any = await fetch(`https://api.github.com/repos/${repo}/actions/runs/${runId}/jobs`, { headers }).then((r) => r.json()).catch(() => null);
+  const jobs: any[] = j?.jobs ?? [];
+  const failed = jobs.find((x) => x.conclusion === "failure");
+  const step: string = failed?.steps?.find((x: any) => x.conclusion === "failure")?.name ?? "";
+  const testsOk = jobs.some((x) => x.name === "test" && x.conclusion === "success");
+  if (!failed) return { message: "GitHub's run didn't finish.", error: "Open it on GitHub for details." };
+  if (failed.name === "test") {
+    return { message: "GitHub's tests failed on the new version.", error: "Agent code: fix the failing tests in Evaluations, then deploy again." };
+  }
+  if (/credential|aws-actions|configure-aws/i.test(step)) {
+    return {
+      message: `${testsOk ? "Tests passed, but " : ""}GitHub couldn't sign in to AWS to release.`,
+      error: "Pipeline issue: deploy again and the pipeline sets up GitHub's AWS access first.",
+    };
+  }
+  if (/railway/i.test(step)) {
+    return { message: `${testsOk ? "Tests passed, but " : ""}the release to Railway failed.`, error: "You need to: check the Railway token in onboarding." };
+  }
+  return {
+    message: `${testsOk ? "Tests passed, but " : ""}the ${failed.name} step "${step || "unknown"}" failed.`,
+    error: "Open it on GitHub for the details.",
+  };
 }

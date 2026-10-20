@@ -141,6 +141,14 @@ export const railwayRuntime: RuntimeAdapter = {
   },
 };
 
+/** What a release made elsewhere (GitHub's agent-ci) left on the host: its newest version and staging target. */
+export async function currentStaging(host: HostId, dir: string, creds: Record<string, string>, urls?: Partial<Record<DeployEnv, string>>): Promise<{ version?: string; target: Target } | null> {
+  if (host === "railway") return urls?.staging ? { target: { host: "http", url: urls.staging } } : null;
+  const { info } = await agentcoreInfo(dir, creds);
+  if (!info?.arn) return null;
+  return { version: info.versions[info.versions.length - 1], target: { host: "agentcore", arn: info.arn, qualifier: "DEFAULT", region: info.region } };
+}
+
 export function runtimeAdapter(host: HostId): RuntimeAdapter {
   return host === "railway" ? railwayRuntime : agentcoreRuntime;
 }

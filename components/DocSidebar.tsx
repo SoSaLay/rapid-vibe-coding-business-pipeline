@@ -85,10 +85,20 @@ export function DocSidebar({
                 }`}
               >
                 {live[p.id] === "working" ? (
-                  <span className="relative flex h-2 w-2 shrink-0" title="Working on your latest changes" aria-label="in progress">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-75" />
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-accent" />
-                  </span>
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-3.5 w-3.5 shrink-0 animate-spin text-bad"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2.5}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-label="Updating with your latest changes"
+                  >
+                    <title>Updating with your latest changes</title>
+                    <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                    <path d="M21 3v6h-6" />
+                  </svg>
                 ) : live[p.id] === "attention" ? (
                   <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-bad text-[9px] font-bold text-white" title="New changes to deploy" aria-label="needs attention">
                     !

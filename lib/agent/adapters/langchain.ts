@@ -127,11 +127,16 @@ function renderFallback(design: AgentDesign): string {
 from __future__ import annotations
 
 import json
+import logging
+import os
+import tempfile
 import time
 from pathlib import Path
 
 HUMAN = ${lit(design.fallback)}
-LOG = Path(__file__).resolve().parent.parent / "handoffs.jsonl"
+_HERE = Path(__file__).resolve().parent.parent
+# Hosted runtimes (e.g. AgentCore) run the code from a read-only folder: log to a writable one there.
+LOG = Path(os.getenv("HANDOFF_LOG") or (_HERE / "handoffs.jsonl" if os.access(_HERE, os.W_OK) else Path(tempfile.gettempdir()) / "handoffs.jsonl"))
 RETENTION_DAYS = ${design.retention_days && design.retention_days > 0 ? Math.round(design.retention_days) : 0}  # 0 = keep
 
 
@@ -145,10 +150,14 @@ def _prune() -> None:
 
 
 def hand_off(task: str, reason: str) -> dict:
-    _prune()
     entry = {"at": time.strftime("%Y-%m-%dT%H:%M:%S"), "task": task, "reason": reason, "to": HUMAN}
-    with LOG.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(entry) + "\\n")
+    # Logging a hand-off must never break the hand-off itself.
+    try:
+        _prune()
+        with LOG.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\\n")
+    except OSError as e:
+        logging.getLogger(__name__).warning("couldn't write the hand-off log: %s", e)
     return {"ok": False, "handed_off": True, "reason": reason, "to": HUMAN}
 `;
 }
@@ -498,7 +507,7 @@ export const langchainFramework: FrameworkAdapter = {
         explains: "Lets LangSmith Studio open the agent so you can inspect its runs.",
       },
       { path: ".env.example", content: renderEnvExample(design), explains: "The keys the agent needs (the real values live in .env, which is never committed)." },
-      { path: ".gitignore", content: ".env\n.venv/\n__pycache__/\n.results/\nhandoffs.jsonl\n.langgraph_api/\n", explains: "Keeps secrets and local files out of git." },
+      { path: ".gitignore", content: ".env\n.venv/\n__pycache__/\n.results/\nhandoffs.jsonl\n.langgraph_api/\n.bedrock_agentcore/\n", explains: "Keeps secrets, local files and AWS build bundles out of git." },
       { path: "README.md", content: renderReadme(title, design), explains: "A plain-language tour of the codebase." },
       ...renderSkillsAndKnowledge(design),
     ];

@@ -81,13 +81,19 @@ export async function createSupabaseDatabase(token: string, name: string, opts: 
     await new Promise((r) => setTimeout(r, 5000));
   }
 
-  // Session pooler string (port 5432): long-lived connections, IPv4-friendly.
+  // Transaction pooler (port 6543): built for many short-lived clients, like an agent host running
+  // one copy per session. (The session pooler on 5432 caps clients at the pool size.) IPv4-friendly.
   const pooler: any = await fetch(`${SUPABASE_API}/projects/${ref}/config/database/pooler`, { headers: sbHeaders(token) })
     .then((r) => (r.ok ? r.json() : null))
     .catch(() => null);
   const entry = Array.isArray(pooler) ? pooler.find((x: any) => x?.database_type === "PRIMARY") ?? pooler[0] : pooler;
   if (entry?.db_host && entry?.db_user) {
-    return `postgresql://${entry.db_user}:${password}@${entry.db_host}:5432/${entry.db_name || "postgres"}`;
+    return `postgresql://${entry.db_user}:${password}@${entry.db_host}:6543/${entry.db_name || "postgres"}`;
   }
   return `postgresql://postgres:${password}@db.${ref}.supabase.co:5432/postgres`;
+}
+
+/** A Supabase session-pooler string (…pooler.supabase.com:5432) → the transaction pooler (6543). Others unchanged. */
+export function serverlessDatabaseUrl(url: string): string {
+  return /\.pooler\.supabase\.com:5432\//.test(url) ? url.replace(/(\.pooler\.supabase\.com):5432\//, "$1:6543/") : url;
 }

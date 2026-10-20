@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /* ---------------- status hook ---------------- */
 
@@ -826,6 +826,9 @@ function UpdateDialog({
         : [];
   const [values, setValues] = useState<Record<string, string>>(() => (initial.type === "service" ? initialValues(initial.def) : {}));
   const [showHelp, setShowHelp] = useState(false);
+  // Tools that can connect with a browser sign-in get Quick start (shown first) next to the key fields.
+  const quick = tool.type === "service" && (tool.def.id === "aws" || tool.def.id === "github") ? (tool.def.id as "aws" | "github") : null;
+  const [mode, setMode] = useState<"quick" | "manual">("quick");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -895,6 +898,29 @@ function UpdateDialog({
         ) : (
           <>
             {tool.type === "service" && <p className="mt-3 text-xs text-muted">{tool.def.unlocks}</p>}
+            {quick && (
+              <div className="mt-4 overflow-hidden rounded-xl border border-edge">
+                <div className="grid grid-cols-2 divide-x divide-edge bg-ink/40 text-xs font-semibold">
+                  {([["quick", "⚡ Quick start"], ["manual", "Traditional setup"]] as const).map(([id, label]) => (
+                    <button
+                      key={id}
+                      className={`px-3 py-2 ${mode === id ? "bg-accent/15 text-fg" : "text-muted hover:text-fg"}`}
+                      onClick={() => setMode(id)}
+                      aria-pressed={mode === id}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {mode === "quick" && (
+                  <div className="border-t border-edge p-3">
+                    <QuickStart id={quick} onDone={onChanged} />
+                  </div>
+                )}
+              </div>
+            )}
+            {(!quick || mode === "manual") && (
+            <>
             <div className="mt-4 space-y-2">
               {fields.map((f, i) => (
                 <input
@@ -922,6 +948,8 @@ function UpdateDialog({
                 {busy ? "Saving…" : "Save"}
               </button>
             </div>
+            </>
+            )}
 
             <div className="mt-4 border-t border-edge pt-3">
               <button
@@ -954,6 +982,66 @@ function UpdateDialog({
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Quick start: sign in with the browser (AWS: aws login; GitHub: device sign-in), then poll until connected. */
+function QuickStart({ id, onDone }: { id: "aws" | "github"; onDone: () => void }) {
+  const [st, setSt] = useState<{ state: string; code?: string; url?: string; error?: string; needsUpdate?: boolean; command?: string; version?: string } | null>(null);
+  const opened = useRef(false);
+
+  async function start() {
+    opened.current = false;
+    const d = await fetch(`/api/quickstart/${id}`, { method: "POST" }).then((r) => r.json()).catch(() => ({ state: "failed", error: "Couldn't start." }));
+    setSt(d);
+  }
+  useEffect(() => {
+    if (st?.state !== "running") return;
+    if (st.url && st.code && !opened.current) {
+      opened.current = true;
+      window.open(st.url, "_blank", "noopener");
+    }
+    const t = setInterval(async () => {
+      const d = await fetch(`/api/quickstart/${id}`).then((r) => r.json()).catch(() => null);
+      if (!d) return;
+      setSt(d);
+      if (d.state === "done") onDone();
+    }, 2000);
+    return () => clearInterval(t);
+  }, [st?.state, st?.code]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const steps =
+    id === "aws"
+      ? ["Click Sign in: your browser opens AWS.", "Sign in with your AWS account and approve.", "Come back here: AWS is connected."]
+      : ["Click Sign in: a code appears and GitHub opens.", "Enter the code on GitHub and approve.", "Come back here: GitHub is connected."];
+
+  return (
+    <div className="space-y-3 text-xs">
+      <ol className="list-decimal space-y-1 pl-4 text-fg/85">{steps.map((x) => <li key={x}>{x}</li>)}</ol>
+      {st?.needsUpdate ? (
+        <p className="text-warn">
+          Your AWS CLI ({st.version}) is too old for browser sign-in. Update it, then try again:{" "}
+          <code className="rounded bg-ink px-1 py-0.5 text-fg">{st.command}</code>
+        </p>
+      ) : st?.state === "running" ? (
+        <div className="space-y-1">
+          {st.code && (
+            <p className="text-fg">
+              Your code: <span className="rounded bg-ink px-2 py-1 font-mono text-sm font-semibold tracking-widest">{st.code}</span>{" "}
+              {st.url && <a className="text-accent2 underline" href={st.url} target="_blank" rel="noopener noreferrer">open GitHub ↗</a>}
+            </p>
+          )}
+          <p className="flex items-center gap-2 text-muted"><span className="h-2 w-2 animate-pulse rounded-full bg-accent" /> Waiting for you to finish signing in…</p>
+        </div>
+      ) : st?.state === "done" ? (
+        <p className="text-ok">✓ Connected.</p>
+      ) : (
+        <>
+          {st?.state === "failed" && <p className="text-bad">{st.error}</p>}
+          <button className="btn-primary text-sm" onClick={start}>Sign in</button>
+        </>
+      )}
     </div>
   );
 }

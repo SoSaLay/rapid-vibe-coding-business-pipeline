@@ -16,11 +16,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (b.action === "mode") {
     if (b.mode !== "ask" && b.mode !== "auto") return NextResponse.json({ error: "Pick ask or auto." }, { status: 400 });
     await setPushMode(b.mode);
-    if (b.deploy) startDeploy(params.id);
+    if (b.deploy) startDeploy(params.id, req.nextUrl.origin);
     return NextResponse.json(await githubStatus(params.id));
   }
   if (b.action === "deploy") {
-    return NextResponse.json({ started: startDeploy(params.id) });
+    return NextResponse.json({ started: startDeploy(params.id, req.nextUrl.origin) });
   }
   return NextResponse.json({ error: "Unknown action." }, { status: 400 });
 }

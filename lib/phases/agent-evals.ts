@@ -387,3 +387,38 @@ export function gate(s: EvalSummary, baseline: EvalSummary | null, budgets: { la
   }
   return checks;
 }
+
+/**
+ * When the grader itself couldn't run (no API credits, a rejected key, rate limits), a run's "failures"
+ * say nothing about the agent. Returns a plain "what to do" when at least half the runs hit that.
+ */
+/** Where each model provider's owner adds credits / checks quota (the agent's model grades the live check). */
+const BILLING: Record<string, { name: string; where: string }> = {
+  anthropic: { name: "Anthropic", where: "console.anthropic.com → Plans & Billing" },
+  openai: { name: "OpenAI", where: "platform.openai.com → Settings → Billing" },
+  google_genai: { name: "Google AI", where: "aistudio.google.com → Billing" },
+  google_vertexai: { name: "Google Cloud", where: "console.cloud.google.com → Billing" },
+  mistralai: { name: "Mistral", where: "console.mistral.ai → Billing" },
+  groq: { name: "Groq", where: "console.groq.com → Settings → Billing" },
+  bedrock_converse: { name: "AWS Bedrock", where: "the AWS console (Bedrock model access and billing)" },
+};
+
+/**
+ * Grading itself failed for most runs (the grader is the agent's own model: `model` is its
+ * "provider:model" id), so the result says nothing about the agent. Returns what to do, or null.
+ */
+export function gradingProblem(s: EvalSummary, model?: string): string | null {
+  const bad = s.failing_cases.filter((c) => /^judge failed/i.test(c.reason));
+  const total = s.overall.total || 1;
+  const failedRuns = bad.reduce((a, c) => a + (c.trials - c.passed_trials), 0);
+  if (!bad.length || failedRuns < total / 2) return null;
+  const why = bad.map((c) => c.reason).join(" ");
+  const provider = (model ?? "").split(":")[0];
+  const bill = BILLING[provider] ?? { name: provider ? `the ${provider} model provider` : "the model provider", where: "that provider's billing page" };
+  if (/credit balance is too low|insufficient_quota|exceeded your current quota|billing|payment required|\b402\b|out of credits|RESOURCE_EXHAUSTED.*quota/i.test(why))
+    return `Your ${bill.name} account is out of credits or quota (the agent's model grades the check): add credits at ${bill.where}. The next release is checked again automatically.`;
+  if (/\b401\b|\b403\b|invalid x-api-key|authentication|invalid api key|incorrect api key|permission denied|API_KEY_INVALID/i.test(why))
+    return `The agent's ${bill.name} API key was rejected: update it in Engineering's keys table. The next release is checked again automatically.`;
+  if (/\b429\b|rate.?limit|overloaded|\b529\b|\b503\b/i.test(why)) return `${bill.name} is rate-limiting or overloaded: wait a minute. The next release is checked again automatically.`;
+  return `The grader couldn't score the runs (${bad[0].reason.replace(/^judge failed:\s*/i, "").slice(0, 120)}). The next release is checked again automatically.`;
+}

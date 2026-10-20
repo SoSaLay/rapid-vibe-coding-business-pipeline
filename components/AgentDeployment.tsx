@@ -10,6 +10,8 @@ import { StageStart } from "./StageStart";
 
 interface Status {
   state: DeployState;
+  /** Release id → what changed since the release before it. */
+  notes?: Record<string, string>;
   host: "agentcore" | "railway";
   login: string;
   db: "supabase" | "neon";
@@ -140,18 +142,23 @@ export function LatestChanges({ projectId, autoflow, github, onUpdated }: {
       </Card>
     );
   }
-  if (autoflow?.running && autoflow.phase === "engineering") {
-    return (
-      <Card tone="info">
-        <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-accent" />
-        <span>Building your latest changes…</span>
-      </Card>
-    );
-  }
+  // While Engineering rebuilds, Deployment shows nothing here: the sidebar shows Engineering working.
+  if (autoflow?.running && autoflow.phase === "engineering") return null;
   const n = github?.unpushed ?? 0;
   if (!n) {
     if (autoflow?.stage === "deployed") return <Card tone="ok"><span>✓ Changes deployed</span>{runLink}</Card>;
-    if (autoflow?.stage === "failed" && autoflow.error) return <Card tone="bad"><span title={autoflow.error}>{autoflow.message}</span>{runLink}</Card>;
+    if (autoflow?.stage === "failed" && autoflow.error) {
+      return (
+        <Card tone="bad">
+          <span className="font-semibold">{autoflow.message}</span>
+          <span className="max-w-sm text-xs text-fg/80">{autoflow.error}</span>
+          <span className="flex items-center gap-3">
+            {runLink}
+            <button className="btn-ghost text-sm" disabled={sending} onClick={() => post({ action: "deploy" })}>Try again</button>
+          </span>
+        </Card>
+      );
+    }
     return github?.built ? <Card tone="ok"><span>✓ No new changes to deploy</span></Card> : null;
   }
   const changes = `${n} new change${n === 1 ? "" : "s"}`;
@@ -211,16 +218,119 @@ function TestDeployButton({ label, disabled, onClick }: { label: string; disable
   );
 }
 
-/** 🔒 / 🔓 with a one-line hover note on what unlocks it. */
-function Lock({ open, why }: { open: boolean; why: string }) {
+/** A failed step, named for the person reading the technical output. */
+function actionName(path: string, body: any): string {
+  if (path === "release") return "Deploy for testing";
+  if (path === "check") return "Check of the live testing agent";
+  if (path === "promote") return body?.action === "rollback" ? "Roll back" : body?.release ? "Redeploy of an earlier version" : "Go live";
+  if (path === "database") return "Agent database setup";
+  if (path === "settings") return "Saving settings";
+  if (path === "prepare") return "Packaging the agent";
+  return "Last step";
+}
+
+/** Subheadings inside Deployment watchlogs, in their own color so they read as separate parts. */
+function WatchHeading({ children }: { children: React.ReactNode }) {
+  return <div className="text-sm font-semibold uppercase tracking-wider text-accent2">{children}</div>;
+}
+
+/** The last 10 releases; ↻ (with a confirm) makes a passed version live again. */
+function ReleaseTable({ history, notes, passed, liveId, busy, onRedeploy }: {
+  history: DeployState["history"];
+  notes: Record<string, string>;
+  passed: (id: string) => boolean;
+  liveId?: string;
+  busy: boolean;
+  onRedeploy: (id: string) => void;
+}) {
+  const [confirm, setConfirm] = useState<string | null>(null);
+  const rows = [...history].reverse().slice(0, 10);
   return (
-    <span tabIndex={open ? undefined : 0} className="group relative shrink-0 cursor-default text-base outline-none" aria-label={open ? "Unlocked" : `Locked: ${why}`}>
-      {open ? "🔓" : "🔒"}
-      {!open && (
-        <span role="tooltip" className="pointer-events-none absolute bottom-7 right-0 z-30 hidden w-64 rounded-lg border border-edge bg-panel p-2.5 text-xs leading-relaxed text-fg shadow-xl group-hover:block group-focus:block">
-          {why}
-        </span>
-      )}
+    <div className="overflow-x-auto rounded-xl border border-edge">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="bg-panel text-left text-[11px] uppercase tracking-wider text-muted">
+            <th className="px-3 py-2 font-semibold">Version</th>
+            <th className="px-3 py-2 font-semibold">Where</th>
+            <th className="px-3 py-2 font-semibold">When</th>
+            <th className="px-3 py-2 font-semibold">Checks</th>
+            <th className="bg-accent/20 px-3 py-2 text-center font-semibold text-accent">Redeploy</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((h, i) => {
+            const ok = passed(h.id);
+            const isLive = h.env === "production" && h.id === liveId;
+            const label = h.version ? `v${h.version}` : h.id;
+            return (
+              <tr key={h.id + h.at + i} className="border-t border-edge bg-ink/40 align-top">
+                <td className="px-3 py-2">
+                  <div className="font-medium text-fg">{label}</div>
+                  {notes[h.id] && <div className="max-w-xs truncate text-xs text-muted" title={notes[h.id]}>{notes[h.id]}</div>}
+                </td>
+                <td className="px-3 py-2 text-fg/90">
+                  {h.env === "staging" ? "Testing" : "Production"}
+                  {isLive && <span className="ml-2 rounded-full bg-ok/20 px-2 py-0.5 text-[11px] font-semibold text-ok">Live</span>}
+                  {!h.ok && <span className="ml-2 text-xs text-bad">failed</span>}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-xs text-muted">{new Date(h.at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</td>
+                <td className="px-3 py-2 text-xs">{!h.ok ? <span className="text-muted">—</span> : ok ? <span className="text-ok">✓ Passed</span> : <span className="text-muted">Not passed</span>}</td>
+                <td className="bg-accent/10 px-3 py-2 text-center">
+                  {isLive ? (
+                    <span className="text-xs text-muted">Live now</span>
+                  ) : !(h.ok && ok && h.version) ? (
+                    <span className="group relative inline-block">
+                      <button className="cursor-not-allowed rounded-md bg-accent/30 px-2.5 py-1 text-sm font-semibold text-white/70 opacity-50" disabled aria-label="Can't redeploy this version">↻</button>
+                      <span role="tooltip" className="pointer-events-none absolute bottom-9 right-0 z-30 hidden w-56 rounded-lg border border-edge bg-panel p-2 text-left text-xs text-fg shadow-xl group-hover:block">
+                        {!h.ok ? "This release failed, so it can't go live." : !h.version ? "This release has no stored version to switch to." : "Only versions that passed their checks can go live."}
+                      </span>
+                    </span>
+                  ) : (
+                    confirm === h.id ? (
+                      <span className="flex items-center justify-end gap-2 whitespace-nowrap text-xs">
+                        <span className="text-fg">Make {label} live again?</span>
+                        <button className="rounded-md bg-ok px-2 py-1 font-semibold text-onbright" disabled={busy} onClick={() => { setConfirm(null); onRedeploy(h.id); }}>Yes</button>
+                        <button className="text-muted underline" onClick={() => setConfirm(null)}>Cancel</button>
+                      </span>
+                    ) : (
+                      <button
+                        className="rounded-md bg-accent px-2.5 py-1 text-sm font-semibold text-white shadow transition-transform hover:scale-105 disabled:opacity-40"
+                        disabled={busy}
+                        title={`Redeploy ${label} to production`}
+                        aria-label={`Redeploy ${label} to production`}
+                        onClick={() => setConfirm(h.id)}
+                      >
+                        ↻
+                      </button>
+                    )
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** 🔒 with a one-line hover note on what unlocks it; once unlocked it disappears (its space stays, so rows line up). */
+function Lock({ open, why, working = false }: { open: boolean; why: string; working?: boolean }) {
+  // While the row is doing something, a spinner takes the lock's place.
+  if (working) {
+    return (
+      <span className="flex w-5 shrink-0 justify-center" aria-label="Working">
+        <span className="h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+      </span>
+    );
+  }
+  if (open) return <span className="w-5 shrink-0" aria-hidden />;
+  return (
+    <span tabIndex={0} className="group relative w-5 shrink-0 cursor-default text-base outline-none" aria-label={`Locked: ${why}`}>
+      🔒
+      <span role="tooltip" className="pointer-events-none absolute bottom-7 left-0 z-30 hidden w-64 rounded-lg border border-edge bg-panel p-2.5 text-xs leading-relaxed text-fg shadow-xl group-hover:block group-focus:block">
+        {why}
+      </span>
     </span>
   );
 }
@@ -264,10 +374,16 @@ export function AgentDeployment({
 }) {
   const autoRan = useRef(false);
   const autoKey = useRef<string | null>(null);
+  // Quick start is shown by default; the other column's heading switches to traditional setup.
+  const [dbMode, setDbMode] = useState<"quick" | "api">("quick");
   const [st, setSt] = useState<Status | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [log, setLog] = useState<string | null>(null);
+  /** The last failure, in one plain line, and who needs to act. */
+  const [plain, setPlain] = useState<{ who: "you" | "agent" | "pipeline"; line: string } | null>(null);
+  /** Which action the last failure came from, and when (shown at the top of the technical output). */
+  const [failedAction, setFailedAction] = useState<{ what: string; at: string } | null>(null);
   const [dbUrl, setDbUrl] = useState("");
   const [jwks, setJwks] = useState("");
   const [urls, setUrls] = useState<{ staging?: string; production?: string }>({});
@@ -280,6 +396,8 @@ export function AgentDeployment({
     }
   }
   useEffect(() => { load(); }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A background release (GitHub) records its version and checks it: pick that up as it happens.
+  useEffect(() => { if (autoflow) load(); }, [autoflow?.stage, autoflow?.message]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function post(path: string, body: any, label: string) {
     setBusy(label);
@@ -292,9 +410,32 @@ export function AgentDeployment({
         body: JSON.stringify(body ?? {}),
       });
       const d = await res.json().catch(() => ({}));
+      // Every outcome, success or failure, becomes the most recent entry in Technical output.
+      const event: Record<string, unknown> = { what: actionName(path, body), ok: res.ok, at: new Date().toISOString() };
+      const record = (e: Record<string, unknown>) =>
+        fetch(`/api/projects/${projectId}/deploy/event`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(e) }).catch(() => {});
       if (!res.ok) {
-        setError(d.error || d.db?.error || "That step failed.");
-        setLog(d.log || d.output || d.release?.log || d.db?.error || null);
+        const err = d.error || d.db?.error || "That step failed.";
+        const raw = d.log || d.output || d.release?.log || d.db?.error || null;
+        setError(err);
+        setLog(raw);
+        Object.assign(event, { error: err, log: raw ?? undefined });
+        await record(event);
+        fetch(`/api/projects/${projectId}/deploy/explain`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ error: err, log: raw ?? "" }),
+        })
+          .then((r) => r.json())
+          .then(async (x) => {
+            if (!x.line) return;
+            await record({ ...event, plain: x });
+            await load();
+          })
+          .catch(() => {});
+      } else if (path !== "settings" && path !== "check") {
+        // A finished check reports its own pass/fail (from the saved check), so it isn't recorded as an action.
+        await record(event);
       }
       await load();
       onUpdated();
@@ -302,6 +443,66 @@ export function AgentDeployment({
       setError(e?.message || "Request failed.");
     }
     setBusy(null);
+  }
+
+  /**
+   * Quick start: sign in to the provider through its MCP server (popup, first time only),
+   * then create the database and set it up.
+   */
+  async function quickStart() {
+    if (!st) return;
+    const provider = st.db;
+    const create = async (): Promise<any> =>
+      fetch(`/api/projects/${projectId}/deploy/quickstart`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider }),
+      }).then((r) => r.json()).catch(() => ({ error: "Couldn't reach the pipeline." }));
+    setError(null);
+    setBusy(`Connecting to ${provider === "neon" ? "Neon" : "Supabase"}…`);
+    let d = await create();
+    if (d.signIn) {
+      setBusy("Sign in in the window that just opened…");
+      const win = window.open(d.signIn, "mcp-signin", "width=520,height=720");
+      if (!win) {
+        setBusy(null);
+        setError("Your browser blocked the sign-in window. Allow pop-ups for this page and try again.");
+        return;
+      }
+      const ok = await new Promise<boolean>((resolve) => {
+        const onMsg = (e: MessageEvent) => {
+          if (e.origin !== location.origin || e.data?.type !== "mcp-auth") return;
+          window.removeEventListener("message", onMsg);
+          clearInterval(t);
+          resolve(!!e.data.ok);
+        };
+        window.addEventListener("message", onMsg);
+        const t = setInterval(() => {
+          if (win.closed) {
+            clearInterval(t);
+            window.removeEventListener("message", onMsg);
+            resolve(false);
+          }
+        }, 800);
+      });
+      if (!ok) {
+        // The window may have closed right after a successful sign-in: check before giving up.
+        const again = await fetch(`/api/mcp-auth/start?provider=${provider}`).then((r) => r.json()).catch(() => ({}));
+        if (!again.signedIn) {
+          setBusy(null);
+          setError("Sign-in didn't finish. Try Quick start again.");
+          return;
+        }
+      }
+      setBusy(provider === "supabase" ? "Creating your Supabase database (a minute or two)…" : "Creating your Neon database…");
+      d = await create();
+    } else {
+      setBusy(provider === "supabase" ? "Creating your Supabase database (a minute or two)…" : "Creating your Neon database…");
+    }
+    setBusy(null);
+    if (d.error || d.db?.error) setError(d.error || d.db?.error);
+    await load();
+    onUpdated();
   }
 
   /** Save a database provider's key (used for every agent), then reload. */
@@ -350,6 +551,13 @@ export function AgentDeployment({
   const order: (keyof typeof done)[] = ["db", "login"];
   // The database (and login, when people log in) are all the owner sets up; the rest happens on its own.
   const setupDone = done.db && done.login;
+  // Technical output: the newest of the last recorded action and the last check of the current testing copy.
+  const ev = s.last_event ?? null;
+  const checkEntry = checkedThis && s.check ? { kind: "check" as const, at: s.check.at, what: `Check of ${stage?.release.version ? `v${stage.release.version}` : "the latest version"} on the live testing agent` } : null;
+  const evEntry = ev ? { kind: "event" as const, at: ev.at, what: ev.what } : null;
+  const newest = checkEntry && evEntry ? (checkEntry.at >= evEntry.at ? checkEntry : evEntry) : checkEntry ?? evEntry;
+  // The live testing agent's last check failed: which rules, in plain words.
+  const failedCheck = checkedThis && s.check && !s.check.passed ? s.check.gate.filter((g) => !g.ok).map((g) => g.label.replace(/ on the live version| holds/gi, "")).join(", ") : "";
   const stateOf = (k: keyof typeof done): "done" | "todo" | "locked" | "skipped" => {
     if (k === "login" && !loginNeeded) return "skipped";
     if (done[k]) return "done";
@@ -394,6 +602,37 @@ export function AgentDeployment({
               disabled={!!busy}
               onPick={(db) => post("settings", { db }, "Saving…")}
             />
+            {/* Two ways in: click a column heading to see its steps. */}
+            <div className="overflow-hidden rounded-xl border border-edge">
+              <div className="grid grid-cols-2 divide-x divide-edge bg-panel text-sm font-semibold">
+                {([
+                  ["quick", "⚡ Quick start AI (MCPs)"],
+                  ["api", "Traditional API setup"],
+                ] as const).map(([id, label]) => (
+                  <button
+                    key={id}
+                    className={`px-3 py-2.5 text-center transition-colors ${dbMode === id ? "bg-accent/15 text-fg" : "text-muted hover:text-fg"}`}
+                    onClick={() => setDbMode(id)}
+                    aria-pressed={dbMode === id}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {dbMode === "quick" && (
+                <div className="space-y-3 border-t border-edge px-4 py-3">
+                  <Steps
+                    items={[
+                      "Click Start: a sign-in window opens.",
+                      `Sign in to ${st.db === "neon" ? "Neon" : "Supabase"} and approve (first time only).`,
+                      "AI creates your agent database through the official MCP server and sets it up.",
+                    ]}
+                  />
+                  <button className="btn-primary text-sm" disabled={!!busy} onClick={quickStart}>Start</button>
+                </div>
+              )}
+              {dbMode === "api" && (
+                <div className="space-y-3 border-t border-edge px-4 py-3">
             {st.db === "neon" ? (
               <>
                 {st.neonConnected ? (
@@ -464,6 +703,9 @@ export function AgentDeployment({
                 Save &amp; set up
               </button>
             </div>
+                </div>
+              )}
+            </div>
           </Step>
 
           <Step n={2} state={stateOf("login")} title={railway ? "Agent login & web address" : "Agent login"}>
@@ -520,6 +762,7 @@ export function AgentDeployment({
         {/* What the steps unlock: a checked test copy, then going live. */}
         <div className="card mt-4 divide-y divide-edge text-sm">
           <div className="flex items-center gap-4 px-4 py-3">
+            <Lock open={setupDone} working={!!busy && /Releasing|Checking/.test(busy)} why="Set up the agent database (and login, if needed) above to unlock." />
             <span className="w-52 shrink-0 font-medium text-fg">Deploy agent for testing</span>
             <span className="min-w-0 flex-1">
               {busy && /Releasing|Checking/.test(busy) ? (
@@ -528,24 +771,30 @@ export function AgentDeployment({
                 <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
                   <TestDeployButton label="🧪 Redeploy" disabled={!!busy || !st.hostConnected} onClick={() => post("release", {}, "Releasing a test copy (a few minutes)…")} />
                   {targetLink(stage.target) ? (
-                    <a className="text-accent underline" href={targetLink(stage.target)!} target="_blank" rel="noreferrer">Check the test copy ↗</a>
+                    <a className="text-accent underline" href={targetLink(stage.target)!} target="_blank" rel="noreferrer">Live testing agent ↗</a>
                   ) : (
                     <span className="text-fg/90">Released ({stage.release.id})</span>
-                  )}
-                  {checkedThis && s.check && (
-                    <span className={`text-xs ${s.check.passed ? "text-ok" : "text-bad"}`}>{s.check.passed ? "✓ Passed its checks" : "✗ Failed its checks"}</span>
-                  )}
-                  {checkedThis && s.check && !s.check.passed && !busy && (
-                    <button className="text-xs text-accent underline" onClick={() => post("check", {}, "Checking the test copy…")}>Check again</button>
                   )}
                 </span>
               ) : (
                 <TestDeployButton label="🧪 Deploy" disabled={!setupDone || !!busy || !st.hostConnected} onClick={() => post("release", {}, "Releasing a test copy (a few minutes)…")} />
               )}
             </span>
-            <Lock open={setupDone} why="Set up the agent database (and login, if needed) above to unlock." />
           </div>
           <div className="flex items-center gap-4 px-4 py-3">
+            <Lock
+              open={done.check || done.live}
+              working={!!busy && /Going live|Rolling back/.test(busy)}
+              why={
+                !setupDone
+                  ? "Set up the agent database (and login, if needed) above first."
+                  : checkedThis && s.check?.inconclusive
+                    ? `The last check couldn't score the testing copy: ${s.check.inconclusive}`
+                    : checkedThis && s.check && !s.check.passed
+                    ? "The testing copy failed its checks: fix them in Evaluations, then check again."
+                    : "Unlocks once the agent is deployed for testing and passes its checks."
+              }
+            />
             <span className="w-52 shrink-0 font-medium text-fg">Deploy agent for production</span>
             <span className="min-w-0 flex-1">
               {live ? (
@@ -572,35 +821,74 @@ export function AgentDeployment({
                 </button>
               )}
             </span>
-            <Lock
-              open={done.check || done.live}
-              why={
-                !setupDone
-                  ? "Set up the agent database (and login, if needed) above first."
-                  : checkedThis && s.check && !s.check.passed
-                    ? "The testing copy failed its checks: fix them in Evaluations, then check again."
-                    : "Unlocks once the agent is deployed for testing and passes its checks."
-              }
-            />
           </div>
         </div>
-        {busy && !/Releasing|Checking/.test(busy) && <StageLoading text={busy} size="sm" />}
-        {error && <p className="mt-3 text-sm text-bad">{error}</p>}
-        {log && <pre className="mt-2 max-h-60 overflow-auto rounded-lg border border-edge bg-ink p-3 text-[11px] text-fg/80 whitespace-pre-wrap">{log}</pre>}
+        {busy && !/Releasing|Checking|Going live|Rolling back/.test(busy) && <StageLoading text={busy} size="sm" />}
       </DocSection>
 
 
-      {s.history.length > 0 && (
-        <DocSection title="Release history">
-          <ul className="space-y-1 text-sm">
-            {[...s.history].reverse().map((h, i) => (
-              <li key={h.id + h.at + i}>
-                <span className={h.ok ? "text-ok" : "text-bad"}>{h.ok ? "✓" : "✗"}</span> <code className="text-fg">{h.id}</code>{" "}
-                <span className="text-xs text-muted">→ {h.env}{h.version ? ` (v${h.version})` : ""} · {new Date(h.at).toLocaleString()}</span>
-              </li>
-            ))}
-          </ul>
-        </DocSection>
+      {(ev || checkedThis || s.history.length > 0) && (
+        <section className="mt-10 border-t border-edge pt-8">
+          {(ev || checkedThis || busy) && (
+            <div className="mb-12">
+              <WatchHeading>Technical output</WatchHeading>
+              <div className="mt-3 rounded-lg border border-edge bg-ink p-3 font-mono text-[12px] leading-relaxed">
+                <p className="mb-1 text-[11px] text-muted"># A plain-language explanation of what went wrong and who needs to fix it.</p>
+                {busy && <p className="mb-2 flex items-center gap-2 text-accent"><span className="h-2 w-2 animate-pulse rounded-full bg-accent" />{busy}</p>}
+                {newest && (
+                  <p className="mb-2 border-b border-edge pb-2 text-[11px] text-muted">
+                    $ most recent · {newest.what} · {new Date(newest.at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                  </p>
+                )}
+                {newest?.kind === "check" &&
+                  (s.check!.inconclusive ? (
+                    <p className="text-warn">
+                      <span className="font-semibold">You need to: </span>
+                      {s.check!.inconclusive} <span className="text-muted">(The agent wasn't at fault: its answers couldn't be graded, so this check doesn't count.)</span>
+                    </p>
+                  ) : s.check!.passed ? (
+                    <p className="text-ok">✓ Success: the live testing agent passed its checks. Nothing to fix; it's ready to go live.</p>
+                  ) : (
+                    <p className="text-fg">
+                      <span className="font-semibold text-bad">Live testing agent: </span>
+                      failed its checks ({failedCheck}). Fix it in Evaluations; the next release is checked automatically.
+                    </p>
+                  ))}
+                {newest?.kind === "event" &&
+                  (ev!.ok ? (
+                    <p className="text-ok">✓ Success: {ev!.what} finished. Nothing to fix.</p>
+                  ) : ev!.plain ? (
+                    <p className={ev!.plain.who === "you" ? "text-warn" : ev!.plain.who === "agent" ? "text-fg" : "text-accent"}>
+                      <span className="font-semibold">{ev!.plain.who === "you" ? "You need to: " : ev!.plain.who === "agent" ? "Agent code: " : "Pipeline issue (not something you did): "}</span>
+                      {ev!.plain.line}
+                    </p>
+                  ) : (
+                    <p className="text-bad">{ev!.error ?? "That step failed."}</p>
+                  ))}
+                {newest?.kind === "event" && !ev!.ok && ev!.log && (
+                  <details className="mt-2">
+                    <summary className="cursor-pointer text-[11px] text-muted">Show raw output</summary>
+                    <pre className="mt-2 max-h-60 overflow-auto whitespace-pre-wrap text-[11px] text-fg/70">{ev!.log}</pre>
+                  </details>
+                )}
+              </div>
+            </div>
+          )}
+          {s.history.length > 0 && (
+            <div>
+              <WatchHeading>Release history</WatchHeading>
+              <p className="mb-4 mt-1 text-xs text-muted">A list of all versions released. ↻ lets you quickly restore a previous version that passed its checks.</p>
+              <ReleaseTable
+                history={s.history}
+                notes={st.notes ?? {}}
+                passed={(id) => s.checks?.[id] === true || (s.check?.release === id && s.check.passed) || s.history.some((h) => h.id === id && h.env === "production" && h.ok)}
+                liveId={live?.release.id}
+                busy={!!busy}
+                onRedeploy={(id) => post("promote", { action: "promote", release: id }, "Going live…")}
+              />
+            </div>
+          )}
+        </section>
       )}
 
 

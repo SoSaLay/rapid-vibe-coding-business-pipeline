@@ -3,9 +3,10 @@ import { promises as fs } from "fs";
 import path from "path";
 import { loadBuild } from "@/lib/agent/build-context";
 import { chosenHost, deployEnv, getDeploy, hostCredentials, saveDeploy } from "@/lib/agent/deploy";
-import { summarize } from "@/lib/phases/agent-evals";
+import { gradingProblem, summarize } from "@/lib/phases/agent-evals";
 import { getEvals } from "@/lib/agent/evals-state";
 import { sh, uvBin } from "@/lib/agent/proc";
+import { syncGithubRelease } from "@/lib/agent/autoflow";
 
 /**
  * Canary check: run the eval dataset (1 try each) against the DEPLOYED staging version, in its eval mode
@@ -13,7 +14,8 @@ import { sh, uvBin } from "@/lib/agent/proc";
  */
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await loadBuild(params.id);
-  const s = await getDeploy(params.id);
+  // A GitHub release since the last one on record: check that one (and show it as the version checked).
+  const s = await syncGithubRelease(params.id).catch(() => getDeploy(params.id));
   const stage = s.staging ?? (s.host === "railway" ? s.production : undefined);
   if (!ctx.design || !stage) return NextResponse.json({ error: "Release to staging first." }, { status: 400 });
   const host = await chosenHost(params.id);
@@ -37,7 +39,9 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       detail: `${p(summary.suites.regression.rate)} live vs ${baseline ? p(baseline.suites.regression.rate) : "—"} at baseline.`,
     },
   ];
-  const check = { release: stage.release.id, at: new Date().toISOString(), passed: gate.every((g) => g.ok), summary, gate };
-  await saveDeploy(params.id, { ...s, check });
+  // Grading itself failed (credits, key, rate limit): the result says nothing about the agent.
+  const inconclusive = gradingProblem(summary, ctx.design.model.selected) ?? undefined;
+  const check = { release: stage.release.id, at: new Date().toISOString(), passed: !inconclusive && gate.every((g) => g.ok), summary, gate, inconclusive };
+  await saveDeploy(params.id, { ...s, check, checks: { ...(s.checks ?? {}), [check.release]: check.passed } });
   return NextResponse.json({ check });
 }

@@ -24,6 +24,7 @@ import { credentialsAdapter } from "./registry";
 import type { AgentDesign } from "./design";
 import { sh, uvBin } from "./proc";
 import { awsEnv } from "./aws";
+import { serverlessDatabaseUrl } from "./db-provision";
 
 export type HostId = "agentcore" | "railway";
 export type DeployEnv = "staging" | "production";
@@ -55,7 +56,11 @@ export interface DeployState {
   staging?: { release: Release; target: Target };
   production?: { release: Release; target: Target };
   history: Release[];
-  check?: { release: string; at: string; passed: boolean; summary: any; gate: { label: string; ok: boolean; detail: string }[] };
+  check?: { release: string; at: string; passed: boolean; summary: any; gate: { label: string; ok: boolean; detail: string }[]; inconclusive?: string };
+  /** The most recent deployment action and how it went (kept so Technical output survives reloads). */
+  last_event?: { what: string; ok: boolean; at: string; error?: string; log?: string; plain?: { who: "you" | "agent" | "pipeline"; line: string } };
+  /** Every release's last check result (release id → passed), so any passed version can be made live again. */
+  checks?: Record<string, boolean>;
   approvals: { release: string; at: string; by: string }[];
 }
 
@@ -146,6 +151,8 @@ export async function deployEnv(args: { projectId: string; design: AgentDesign; 
     AUTH_MODE: mode,
     EVAL_KEY: own.EVAL_KEY,
   };
+  // The deployed agent runs as many short-lived copies: use the database's transaction pooler.
+  if (out.DATABASE_URL) out.DATABASE_URL = serverlessDatabaseUrl(out.DATABASE_URL);
   // On AgentCore, AWS IAM already guards the endpoint; HTTP hosts need the agent's own key.
   if (mode === "machine-key" && host === "railway") out.AGENT_API_KEY = own.AGENT_API_KEY;
   else delete out.AGENT_API_KEY;

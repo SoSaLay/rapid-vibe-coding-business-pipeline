@@ -6,6 +6,7 @@ import { completePhase, getProject, latestArtifact, saveArtifact } from "@/lib/s
 
 /**
  * Body: { action: "promote" } — owner approval: production → the checked staging release.
+ *       { action: "promote", release: id } — production → that earlier version (it must have passed its checks).
  *       { action: "rollback" } — production → the release before the current one.
  * The first successful promotion records the deploy-manifest and completes the stage.
  */
@@ -23,6 +24,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const promoted = s.history.filter((h) => h.ok && h.env === "production" && h.id !== live);
     release = promoted[promoted.length - 1];
     if (!release) return NextResponse.json({ error: "There's no earlier production release to roll back to." }, { status: 400 });
+  } else if (typeof body.release === "string") {
+    // Redeploy an earlier version: only one that passed its checks (or was live before).
+    const chosen = [...s.history].reverse().find((h) => h.id === body.release && h.ok);
+    if (!chosen) return NextResponse.json({ error: "That version isn't available." }, { status: 404 });
+    const passed = s.checks?.[chosen.id] === true || s.check?.release === chosen.id && s.check.passed || s.history.some((h) => h.id === chosen.id && h.env === "production" && h.ok);
+    if (!passed) return NextResponse.json({ error: "Only versions that passed their checks can go live." }, { status: 400 });
+    release = chosen;
   } else {
     // Railway without a staging environment ships straight to production; approving then just signs it off.
     const candidate = s.staging?.release ?? (host === "railway" ? s.production?.release : undefined);

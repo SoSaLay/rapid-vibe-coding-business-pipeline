@@ -233,7 +233,7 @@ export interface ProjectSettings {
   /** Agent pipeline: expected runs per month, for the monthly cost estimate. */
   agentRunsPerMonth?: number;
   /** Agent pipeline: the agent's private GitHub repo and what was last pushed (lib/agent/github.ts). */
-  agentGithub?: { owner: string; repo: string; pushed_sha?: string; pushed_at?: string; secret_hashes?: Record<string, string> };
+  agentGithub?: { owner: string; repo: string; pushed_sha?: string; pushed_at?: string; secret_hashes?: Record<string, string>; ci?: string };
 }
 
 function settingsPath(id: string) {

@@ -16,7 +16,7 @@ import { readConnectorConfig, saveConnectorConfig } from "../connectors/config";
 import { getProjectSettings, saveProjectSettings } from "../store";
 import { loadBuild } from "./build-context";
 import { agentEnv } from "./env";
-import { awsEnv } from "./aws";
+import { ciAccess } from "./ci-access";
 import { chosenHost, hostCredentials } from "./deploy";
 import { credentialsAdapter } from "./registry";
 import { sh } from "./proc";
@@ -26,6 +26,8 @@ export type PushMode = "ask" | "auto";
 interface RepoState {
   owner: string;
   repo: string;
+  /** The host GitHub was given deploy access to (set once by the CI access slot). */
+  ci?: string;
   pushed_sha?: string;
   pushed_at?: string;
   /** sha256 of each secret value last sent, so unchanged secrets aren't re-sent. */
@@ -99,11 +101,8 @@ async function workflowSecrets(projectId: string): Promise<Record<string, string
   if (host === "railway") {
     const h = await hostCredentials("railway");
     if (h?.RAILWAY_TOKEN_STAGING) out.RAILWAY_TOKEN_STAGING = h.RAILWAY_TOKEN_STAGING;
-  } else {
-    // GitHub can't use this Mac's AWS CLI sign-in: only pasted access keys can go to GitHub.
-    const a = await awsEnv();
-    if (a?.AWS_ACCESS_KEY_ID) Object.assign(out, { AWS_ACCESS_KEY_ID: a.AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY: a.AWS_SECRET_ACCESS_KEY });
   }
+  // AWS access for GitHub comes from the CI access slot (a keyless deploy role), set up by pushAgent.
   return out;
 }
 
@@ -134,21 +133,33 @@ export async function pushAgent(projectId: string): Promise<{ ok: boolean; url?:
     return { ok: false, error: `GitHub error ${exists.status} reading the repo.` };
   }
 
-  const before = await githubStatus(projectId);
-  const auth = Buffer.from(`x-access-token:${token}`).toString("base64");
-  const push = await sh(
-    "git",
-    ["-c", `http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}`, "push", `https://github.com/${repo.owner}/${repo.repo}.git`, "HEAD:refs/heads/main"],
-    { cwd: ctx.dir, timeoutMs: 3 * 60_000 },
-  );
-  if (!push.ok) return { ok: false, error: `Push failed: ${push.out.replaceAll(token, "***").replaceAll(auth, "***").slice(-600)}` };
-  const head = (await sh("git", ["rev-parse", "HEAD"], { cwd: ctx.dir })).out.trim();
+  // AWS's deploy tool drops a large build bundle in .bedrock_agentcore/: never send it (GitHub caps files at 100 MB).
+  const gi = await sh("sh", ["-c", "grep -qx '.bedrock_agentcore/' .gitignore 2>/dev/null || printf '.bedrock_agentcore/\\n' >> .gitignore"], { cwd: ctx.dir });
+  const tracked = (await sh("git", ["ls-files", ".bedrock_agentcore"], { cwd: ctx.dir })).out.trim();
+  if (gi.ok && tracked) {
+    await sh("git", ["rm", "-r", "--cached", "-q", ".bedrock_agentcore"], { cwd: ctx.dir });
+    await sh("git", ["add", ".gitignore"], { cwd: ctx.dir });
+    await sh("git", ["commit", "-q", "-m", "chore: keep AWS build bundles out of git"], { cwd: ctx.dir });
+  }
 
-  // Secrets for the workflows, via the GitHub CLI (it does the required encryption). Only changed values are sent.
+  // Before pushing (the push starts the workflow): give GitHub access to the host, then the secrets it reads.
   let note: string | undefined;
-  const secrets = await workflowSecrets(projectId);
-  const hashes = { ...(repo.secret_hashes ?? {}) };
+  const slug = repo.repo;
+  const host = await chosenHost(projectId);
   const haveGh = (await sh("gh", ["--version"], { cwd: ctx.dir, timeoutMs: 10_000 })).ok;
+  // GitHub may sign workflows with an immutable-ID identity ("repo:owner@id/name@id"): trust that form too.
+  const subjects = [`repo:${repo.owner}/${repo.repo}`];
+  const custom: any = await gh(token, `/repos/${repo.owner}/${repo.repo}/actions/oidc/customization/sub`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  if (custom?.sub_claim_prefix && !subjects.includes(custom.sub_claim_prefix)) subjects.push(custom.sub_claim_prefix);
+  const ci = repo.ci === host ? { vars: {}, secrets: {} } : await ciAccess(host).ensure({ owner: repo.owner, repo: repo.repo, slug, subjects });
+  if (ci.note) note = ci.note;
+  if (haveGh) {
+    for (const [k, v] of Object.entries(ci.vars)) {
+      await sh("gh", ["variable", "set", k, "--body", v, "--repo", `${repo.owner}/${repo.repo}`], { cwd: ctx.dir, env: { GH_TOKEN: token }, timeoutMs: 60_000 });
+    }
+  }
+  const secrets = { ...(await workflowSecrets(projectId)), ...ci.secrets };
+  const hashes = { ...(repo.secret_hashes ?? {}) };
   if (Object.keys(secrets).length && !haveGh) note = "Install the GitHub CLI (gh) so the pipeline can set the repo's secrets.";
   for (const [k, v] of Object.entries(secrets)) {
     const h = createHash("sha256").update(v).digest("hex");
@@ -160,15 +171,18 @@ export async function pushAgent(projectId: string): Promise<{ ok: boolean; url?:
     });
     if (r.ok) hashes[k] = h;
   }
-  if (haveGh && (await chosenHost(projectId)) === "agentcore") {
-    // The release job reads the region from a repo variable.
-    const region = (await awsEnv())?.AWS_REGION || "us-east-1";
-    await sh("gh", ["variable", "set", "AWS_REGION", "--body", region, "--repo", `${repo.owner}/${repo.repo}`], { cwd: ctx.dir, env: { GH_TOKEN: token }, timeoutMs: 60_000 });
-  }
-  if ((await chosenHost(projectId)) === "agentcore" && !secrets.AWS_ACCESS_KEY_ID) {
-    note = "Code is on GitHub. For GitHub to release to AWS by itself, add AWS access keys in onboarding (your Mac's AWS sign-in stays on your Mac).";
-  }
+  const ciDone = haveGh && !ci.note ? host : repo.ci;
 
-  await saveRepoState(projectId, { ...repo, pushed_sha: head, pushed_at: new Date().toISOString(), secret_hashes: hashes });
+  const before = await githubStatus(projectId);
+  const auth = Buffer.from(`x-access-token:${token}`).toString("base64");
+  const push = await sh(
+    "git",
+    ["-c", `http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}`, "push", `https://github.com/${repo.owner}/${repo.repo}.git`, "HEAD:refs/heads/main"],
+    { cwd: ctx.dir, timeoutMs: 3 * 60_000 },
+  );
+  if (!push.ok) return { ok: false, error: `Push failed: ${push.out.replaceAll(token, "***").replaceAll(auth, "***").slice(-600)}` };
+  const head = (await sh("git", ["rev-parse", "HEAD"], { cwd: ctx.dir })).out.trim();
+
+  await saveRepoState(projectId, { ...repo, pushed_sha: head, pushed_at: new Date().toISOString(), secret_hashes: hashes, ci: ciDone });
   return { ok: true, url: `https://github.com/${repo.owner}/${repo.repo}`, pushed: before.unpushed, note };
 }

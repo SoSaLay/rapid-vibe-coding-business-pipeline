@@ -203,8 +203,10 @@ def pool():
     if _pool is None and DATABASE_URL:
         from psycopg_pool import ConnectionPool
 
-        # prepare_threshold=0 keeps it working behind transaction poolers (Supabase, Neon).
-        _pool = ConnectionPool(DATABASE_URL, kwargs={"autocommit": True, "prepare_threshold": 0}, min_size=1, max_size=5, open=True)
+        # Many short-lived copies of the agent run at once (one per session), so each holds few
+        # connections; prepare_threshold=None turns prepared statements off, which transaction
+        # poolers (Supabase port 6543, Neon's pooler) require.
+        _pool = ConnectionPool(DATABASE_URL, kwargs={"autocommit": True, "prepare_threshold": None}, min_size=0, max_size=2, open=True)
     return _pool
 
 
@@ -268,10 +270,14 @@ def set_control(disabled: bool | None = None, tool: str | None = None, tool_on: 
 
 def log_run(row: dict) -> int | None:
     if not DATABASE_URL:
-        out = _ROOT / ".results" / "runs.jsonl"
-        out.parent.mkdir(exist_ok=True)
-        with out.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(row, default=str) + "\\n")
+        # No database: keep a local run log where the folder is writable (hosted runtimes may be read-only).
+        try:
+            out = _ROOT / ".results" / "runs.jsonl"
+            out.parent.mkdir(exist_ok=True)
+            with out.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(row, default=str) + "\\n")
+        except OSError:
+            pass
         return None
     cols = ["agent", "release", "user_id", "thread_id", "status", "ok", "handed_off", "input", "output", "calls",
             "tool_calls", "tool_errors", "input_tokens", "output_tokens", "latency_s", "error"]
@@ -884,12 +890,16 @@ function runbook(title: string, design: AgentDesign): string {
 function ciWorkflow(host: "agentcore" | "railway"): string {
   const deploy =
     host === "agentcore"
-      ? `      - uses: aws-actions/configure-aws-credentials@v4
+      ? `      # Keyless when the pipeline set up a deploy role (vars.AWS_ROLE_ARN); access keys otherwise.
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: \${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: \${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: \${{ vars.AWS_ROLE_ARN }}
+          aws-access-key-id: \${{ vars.AWS_ROLE_ARN == '' && secrets.AWS_ACCESS_KEY_ID || '' }}
+          aws-secret-access-key: \${{ vars.AWS_ROLE_ARN == '' && secrets.AWS_SECRET_ACCESS_KEY || '' }}
           aws-region: \${{ vars.AWS_REGION }}
       - run: git rev-parse --short HEAD > RELEASE
+      # The AgentCore config holds the developer machine's folder paths: point them at this checkout.
+      - run: sed -i -E "s#^([[:space:]]*entrypoint:).*#\\1 $GITHUB_WORKSPACE/agentcore_app.py#; s#^([[:space:]]*source_path:).*#\\1 $GITHUB_WORKSPACE#" .bedrock_agentcore.yaml
       - run: uv export --no-dev --no-hashes -o requirements.txt
       - run: uv run agentcore deploy --auto-update-on-conflict`
       : `      - run: git rev-parse --short HEAD > RELEASE
@@ -925,6 +935,9 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     environment: staging
+    permissions:
+      id-token: write   # lets GitHub sign in to AWS with the deploy role (no stored keys)
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
