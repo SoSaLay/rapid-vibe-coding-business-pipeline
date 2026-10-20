@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { tracked } from "@/lib/agent/activity";
 import { promises as fs } from "fs";
 import path from "path";
 import { loadBuild, saveBuild } from "@/lib/agent/build-context";
@@ -8,7 +9,7 @@ import { modelKeyEnv } from "@/lib/agent/design";
 import { CHECK_SUMMARY_VERSION, readExampleResults, summarizeChecks } from "@/lib/phases/agent-engineering";
 
 /** Step 3: tool checks + the example tasks, in dry run (write tools never execute). */
-export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+async function handlePost(_req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await loadBuild(params.id);
   if (!ctx.build?.install?.ok || !ctx.design) return NextResponse.json({ error: "Install the agent first." }, { status: 400 });
   const env = await agentEnv(params.id, ctx.design, ctx.slug);
@@ -30,3 +31,5 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   await saveBuild(params.id, ctx.phase, build);
   return NextResponse.json({ build });
 }
+
+export const POST = tracked("engineering", "Running the tests", handlePost);

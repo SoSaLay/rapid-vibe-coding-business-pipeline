@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { attributed } from "@/lib/agent/activity";
 import { getPhaseState, savePhaseState, saveArtifact, completePhase, getProject } from "@/lib/store";
 import { designBlockers, type AgentDesign } from "@/lib/agent/design";
 import { startAutoflow } from "@/lib/agent/autoflow";
 
 /** Lock the design. Engineering builds only the approved version. */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+async function handlePost(req: NextRequest, { params }: { params: { id: string } }) {
   const state = await getPhaseState<{ design: AgentDesign; spec_version?: number }>(params.id, "agent-design");
   if (!state?.design) return NextResponse.json({ error: "Generate the design first." }, { status: 400 });
   const blockers = designBlockers(state.design);
@@ -27,3 +28,5 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (autoflow) startAutoflow(params.id, req.nextUrl.origin, artifact.version);
   return NextResponse.json({ artifact, project, autoflow }, { status: 201 });
 }
+
+export const POST = attributed(handlePost);

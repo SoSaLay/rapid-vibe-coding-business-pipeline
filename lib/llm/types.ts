@@ -18,6 +18,8 @@ export interface LlmCompleteJsonArgs {
   effort?: "low" | "medium" | "high";
   /** Use this model instead of the provider's default (e.g. the coding model). */
   model?: string;
+  /** "small": a short, simple job (a one-line explanation, a plain-words summary) — the provider's cheap, fast model. */
+  tier?: "small";
 }
 
 export interface LlmProvider {

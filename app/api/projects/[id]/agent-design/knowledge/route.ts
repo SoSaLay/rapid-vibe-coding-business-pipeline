@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { attributed } from "@/lib/agent/activity";
 import crypto from "crypto";
 import { getPhaseState, savePhaseState } from "@/lib/store";
 import type { AgentDesign, KnowledgeMode } from "@/lib/agent/design";
@@ -6,7 +7,7 @@ import type { AgentDesign, KnowledgeMode } from "@/lib/agent/design";
 const MODES = new Set<KnowledgeMode>(["none", "skills", "rag"]);
 
 /** Body: { mode } · { add: { title, url } | { title, text } } · { remove: id }. Reopens the design for approval. */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+async function handlePost(req: NextRequest, { params }: { params: { id: string } }) {
   const b = await req.json().catch(() => ({}));
   const state = await getPhaseState<{ design: AgentDesign; approved?: boolean }>(params.id, "agent-design");
   if (!state?.design) return NextResponse.json({ error: "Generate the design first." }, { status: 400 });
@@ -33,3 +34,5 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   await savePhaseState(params.id, "agent-design", next);
   return NextResponse.json(next);
 }
+
+export const POST = attributed(handlePost);

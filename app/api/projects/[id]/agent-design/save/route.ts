@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { attributed } from "@/lib/agent/activity";
 import { getPhaseState, savePhaseState } from "@/lib/store";
 import type { AgentDesign } from "@/lib/agent/design";
 
 /** Save the user's edits to the draft design. Editing an approved design reopens it for approval. */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+async function handlePost(req: NextRequest, { params }: { params: { id: string } }) {
   const body = await req.json().catch(() => ({}));
   const design = body?.design as AgentDesign | undefined;
   if (!design || !Array.isArray(design.tools) || !design.model?.selected) {
@@ -14,3 +15,5 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   await savePhaseState(params.id, "agent-design", state);
   return NextResponse.json(state);
 }
+
+export const POST = attributed(handlePost);

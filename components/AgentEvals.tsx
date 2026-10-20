@@ -9,6 +9,7 @@ import type { EvalSummary, EvalCase } from "@/lib/phases/agent-evals";
 import { Doc, DocSection, DocP, DocMuted, DocFacts } from "./doc/Doc";
 import { StopButton, useStopper } from "./StopButton";
 import { StageStart } from "./StageStart";
+import { SpendMeter } from "./SpendMeter";
 
 const CATEGORY_LABEL: Record<string, string> = {
   routine: "Routine (your examples)",
@@ -47,6 +48,8 @@ export function AgentEvals({
   const [log, setLog] = useState<string | null>(null);
   const [override, setOverride] = useState("");
   const [cases, setCases] = useState<EvalCase[] | null>(null);
+  /** A run paused by the monthly testing budget, waiting for "Run anyway". */
+  const [overBudget, setOverBudget] = useState<{ path: string; body: any; label: string } | null>(null);
   const stopper = useStopper();
   const router = useRouter();
   const autoRan = useRef(false);
@@ -58,7 +61,7 @@ export function AgentEvals({
     autoRan.current = true;
     (async () => {
       if (!cases && !(await post("dataset", {}, "Writing test cases…"))) return;
-      await post("run", { trials: 3 }, RUN_LABEL);
+      await post("run", {}, RUN_LABEL);
     })();
   }, [autostart, hasSecurity, loaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -74,6 +77,7 @@ export function AgentEvals({
     let ok = false;
     setBusy(label);
     setError(null);
+    setOverBudget(null);
     setLog(null);
     try {
       const res = await fetch(`/api/projects/${projectId}/evals/${path}`, {
@@ -85,6 +89,7 @@ export function AgentEvals({
       const d = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(d.error || "Request failed.");
+        if (d.over_budget) setOverBudget({ path, body, label });
         if (d.output) setLog(d.output);
       } else {
         ok = true;
@@ -99,7 +104,7 @@ export function AgentEvals({
 
   /** New test cases are only useful once they've run: write them, then run them. */
   async function newTests() {
-    if (await post("dataset", {}, "Writing test cases…")) await post("run", { trials: 3 }, RUN_LABEL);
+    if (await post("dataset", {}, "Writing test cases…")) await post("run", {}, RUN_LABEL);
   }
 
   if (!hasSecurity) return <StageStart label="Start Evaluations" locked="Finish Engineering & Development first (including its safety checklist)." onStart={() => {}} />;
@@ -111,7 +116,7 @@ export function AgentEvals({
 
   async function startAll() {
     if (!cases) await post("dataset", {}, "Writing test cases…");
-    await post("run", { trials: 3 }, "Running the evaluations (a few minutes)…");
+    await post("run", {}, "Running the evaluations (a few minutes)…");
   }
   if (loaded && !cases && runs.length === 0) {
     return <StageStart label="Start Evaluations" busy={busy} error={error} onStart={startAll} onStop={() => { stopper.stop(); setBusy(null); }} />;
@@ -144,13 +149,31 @@ export function AgentEvals({
             <button
               className={`${Object.keys(state?.fixes ?? {}).length ? "btn-primary" : "btn-ghost"} flex shrink-0 items-center gap-1.5 text-sm`}
               disabled={!!busy}
-              onClick={() => post("run", { trials: 3 }, RUN_LABEL)}
-              title="Runs this version's test cases again against your agent as it is now"
+              onClick={() =>
+                Object.keys(state?.fixes ?? {}).length
+                  ? post("run", { retest: true }, "Re-testing what was fixed (plus the regression cases)…")
+                  : post("run", {}, RUN_LABEL)
+              }
+              title={
+                Object.keys(state?.fixes ?? {}).length
+                  ? "Runs only the cases the fixes touched, plus the regression cases; the rest keep their last results"
+                  : "Runs this version's test cases once each against your agent as it is now"
+              }
             >
               <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor" aria-hidden>
                 <path d="M8 5v14l11-7z" />
               </svg>
-              Re-run tests
+              {Object.keys(state?.fixes ?? {}).length ? "Re-test the fixes" : "Re-run tests"}
+            </button>
+          )}
+          {cases && (
+            <button
+              className="btn-ghost shrink-0 text-sm"
+              disabled={!!busy}
+              onClick={() => post("run", { trials: 3 }, "Running every case 3 times to check consistency (a few minutes)…")}
+              title="Runs every case 3 times to see whether the agent gets it right every time (3× the credits). Worth it before going live."
+            >
+              Consistency check (3×)
             </button>
           )}
           <button
@@ -181,10 +204,19 @@ export function AgentEvals({
         )}
       </section>
 
+      <div className="mb-8">
+        <SpendMeter projectId={projectId} refreshKey={`${runs.length}-${busy}`} />
+      </div>
+
       {(busy || error || log) && (
         <section className="doc-section">
           {busy && <StageLoading text={busy} onStop={() => { stopper.stop(); setBusy(null); }} />}
           {error && <p className="mt-3 text-sm text-bad">{error}</p>}
+          {overBudget && (
+            <button className="btn-ghost mt-2 text-sm" onClick={() => post(overBudget.path, { ...overBudget.body, force: true }, overBudget.label)}>
+              Run anyway
+            </button>
+          )}
           {log && <pre className="mt-3 max-h-60 overflow-auto rounded-lg border border-edge bg-ink p-3 text-[11px] text-fg/80 whitespace-pre-wrap">{log}</pre>}
         </section>
       )}
@@ -428,7 +460,7 @@ function FixRow({ projectId, target, canFix, fixed, onFixed, cells }: {
         {cells}
         <span className="w-24 shrink-0 text-right">
           {fixed ? (
-            <span className="text-xs font-medium text-ok">Fixed</span>
+            <span className="text-xs font-medium text-warn" title="The code was changed, but it hasn't been tested since">Fixed · untested</span>
           ) : canFix && stage === "idle" ? (
             <button className="rounded-lg bg-bad px-3 py-1 text-xs font-semibold text-white hover:opacity-90" onClick={explain}>
               Fix it
@@ -438,7 +470,7 @@ function FixRow({ projectId, target, canFix, fixed, onFixed, cells }: {
           ) : null}
         </span>
       </div>
-      {fixed && <p className="px-4 pb-2.5 text-xs text-ok">{fixed} Re-run the tests to check it.</p>}
+      {fixed && <p className="px-4 pb-2.5 text-xs text-warn">{fixed} Not tested yet: the next release&apos;s live check (or Re-run tests) shows whether it worked, and Fix it comes back if it didn&apos;t.</p>}
       {stage === "proposed" && p && (
         <div className="space-y-2 border-t border-edge px-4 py-3 text-sm">
           <p className="text-fg/90">{p.explanation}</p>
@@ -492,7 +524,7 @@ function CaseTable({ projectId, runs, currentVersion, currentCounts, fixes, onFi
         <button className={arrow} disabled={at <= 0} onClick={() => setV(versions[at - 1])} aria-label="Previous version">‹</button>
         <div className="text-center">
           <div className="text-sm font-semibold text-fg">Version {v}{v === currentVersion ? " (current)" : ""}</div>
-          <div className="text-xs text-muted">{total} cases · {when ? `run ${when}` : "not run yet"}</div>
+          <div className="text-xs text-muted">{total} cases · {when ? `${run?.source === "live" ? `live check of the testing agent (release ${run.release})` : "run"} ${when}` : "not run yet"}</div>
         </div>
         <button className={arrow} disabled={at >= versions.length - 1} onClick={() => setV(versions[at + 1])} aria-label="Next version">›</button>
       </div>

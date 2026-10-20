@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { tracked } from "@/lib/agent/activity";
 import { promises as fs } from "fs";
 import path from "path";
 import { loadBuild, saveBuild, toolsSignature } from "@/lib/agent/build-context";
@@ -13,7 +14,7 @@ import { deployFiles } from "@/lib/agent/adapters/deploy-files";
  * Re-render from the stored code (no model rewrite), reinstall, and hand over to Evaluations.
  * A change to the tools themselves returns 409: that needs the full Build step.
  */
-export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+async function handlePost(_req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await loadBuild(params.id);
   if (!ctx.design || !ctx.spec || !ctx.build) return NextResponse.json({ error: "Build the agent first." }, { status: 400 });
   if (!ctx.build.logic) return NextResponse.json({ error: "This build predates light updates. Rebuild once; later changes can be light." }, { status: 409 });
@@ -45,3 +46,5 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: e?.message || "Light update failed." }, { status: 500 });
   }
 }
+
+export const POST = tracked("engineering", "Updating the code", handlePost);

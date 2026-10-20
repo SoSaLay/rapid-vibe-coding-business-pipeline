@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { attributed } from "@/lib/agent/activity";
 import { latestArtifact, saveArtifact } from "@/lib/store";
 
 /** Save the owner's edits to the spec as a new version; later stages always read the latest. */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+async function handlePost(req: NextRequest, { params }: { params: { id: string } }) {
   const body = await req.json().catch(() => ({}));
   const prev = await latestArtifact(params.id, "product-spec");
   if (!prev) return NextResponse.json({ error: "No spec yet." }, { status: 400 });
@@ -19,3 +20,5 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   });
   return NextResponse.json({ artifact }, { status: 201 });
 }
+
+export const POST = attributed(handlePost);

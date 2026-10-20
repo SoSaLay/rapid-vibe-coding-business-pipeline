@@ -25,6 +25,8 @@ export interface Incident {
   status: "open" | "resolved";
   resolved_at?: string;
   run_ids: number[];
+  /** "Fix it with AI": what the AI changed in the agent for this incident. */
+  ai_fix?: { summary: string; at: string; fixed: boolean };
 }
 
 export interface OpsState {
@@ -34,6 +36,8 @@ export interface OpsState {
   incidents: Incident[];
   last_alert?: { at: string; alerts: string[] };
   cases_added: { run_id: number; case_id: string; at: string }[];
+  /** "Take a snapshot" history: the numbers for the chosen period, newest first. */
+  snapshots?: { at: string; days: number; runs: number; success_rate: number | null; cost: number | null; open_incidents: number; cases_added: number }[];
   /** Audit trail of "forget this user" requests: counts only, never the deleted content. */
   forgotten?: { user: string; at: string; removed: Record<string, number> }[];
 }

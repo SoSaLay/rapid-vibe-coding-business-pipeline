@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { attributed } from "@/lib/agent/activity";
 import { getPhaseState, savePhaseState } from "@/lib/store";
 import type { AgentDesign, SkillDef } from "@/lib/agent/design";
 import { importSkill, plainSkillSummaries, skillSlug, writeSkill } from "@/lib/agent/skills";
@@ -12,7 +13,7 @@ import { importSkill, plainSkillSummaries, skillSlug, writeSkill } from "@/lib/a
  *   edit { name, description, instructions } · toggle { name } · remove { name } · approve-review { name }
  * Any change reopens the design for approval (skills are part of what Engineering builds).
  */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+async function handlePost(req: NextRequest, { params }: { params: { id: string } }) {
   const b = await req.json().catch(() => ({}));
   const state = await getPhaseState<{ design: AgentDesign; approved?: boolean }>(params.id, "agent-design");
   if (!state?.design) return NextResponse.json({ error: "Generate the design first." }, { status: 400 });
@@ -77,3 +78,5 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   await savePhaseState(params.id, "agent-design", next);
   return NextResponse.json(next);
 }
+
+export const POST = attributed(handlePost);

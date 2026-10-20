@@ -17,7 +17,7 @@ import { Engineering } from "@/components/Engineering";
 import { AgentDesign } from "@/components/AgentDesign";
 import { AgentEngineering } from "@/components/AgentEngineering";
 import { AgentEvals } from "@/components/AgentEvals";
-import { AgentDeployment, LatestChanges } from "@/components/AgentDeployment";
+import { AgentDeployment } from "@/components/AgentDeployment";
 import { AgentOperations } from "@/components/AgentOperations";
 import { QA } from "@/components/QA";
 import { Deployment } from "@/components/Deployment";
@@ -80,13 +80,21 @@ export default function ProjectWorkspace() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  // While a background flow is carrying an agent change through, keep every page and the sidebar current.
-  const flowRunning = !!(data?.phaseState as any)?.autoflow?.running;
+  // While work runs in the background (the auto-flow, or any long job: evaluations, test cases, checks,
+  // builds, fixes), keep every page and the sidebar current. Agents are also checked now and then, so work
+  // started elsewhere shows up; and a page that starts a job says so right away ("pipeline:busy").
+  const flowRunning = !!(data?.phaseState as any)?.autoflow?.running || ((data?.phaseState as any)?.activity ?? []).length > 0;
+  const isAgent = data?.project?.kind === "agent";
   useEffect(() => {
-    if (!flowRunning) return;
-    const t = setInterval(refresh, 4000);
+    if (!flowRunning && !isAgent) return;
+    const t = setInterval(refresh, flowRunning ? 3000 : 15000);
     return () => clearInterval(t);
-  }, [flowRunning, refresh]);
+  }, [flowRunning, isAgent, refresh]);
+  useEffect(() => {
+    const onBusy = () => setTimeout(refresh, 700);
+    window.addEventListener("pipeline:busy", onBusy);
+    return () => window.removeEventListener("pipeline:busy", onBusy);
+  }, [refresh]);
 
   // Reset transient UI when the route changes via soft nav (phase or doc↔artifact).
   useEffect(() => { setShowIdea(false); setShowIterate(false); setNavOpen(false); window.scrollTo({ top: 0 }); }, [activeSlug, artifactMode, artifactSlug]);
@@ -121,8 +129,9 @@ export default function ProjectWorkspace() {
   const flow = (phaseState as any)?.autoflow;
   const gh = (phaseState as any)?.github;
   const liveStages: Record<string, "working" | "attention"> = {};
+  for (const a of ((phaseState as any)?.activity ?? []) as { phase: string }[]) liveStages[a.phase] = "working";
   if (flow?.running && flow.phase) liveStages[flow.phase] = "working";
-  else if (gh?.unpushed > 0 && project.phase_status.deployment && project.phase_status.deployment !== "locked") liveStages.deployment = "attention";
+  else if (!liveStages.deployment && gh?.unpushed > 0 && project.phase_status.deployment && project.phase_status.deployment !== "locked") liveStages.deployment = "attention";
   const phases = phasesFor(project.kind);
   const phaseIndex = phases.findIndex((p) => p.id === activeSlug);
   const phaseDef = phaseIndex >= 0 ? phases[phaseIndex] : null;
@@ -195,6 +204,8 @@ export default function ProjectWorkspace() {
               manifest={buildManifest?.payload ?? null}
               security={(phaseState as any)?.security?.report ?? null}
               autoflow={(phaseState as any)?.autoflow ?? null}
+              activity={(phaseState as any)?.activity ?? []}
+              githubUrl={(phaseState as any)?.github?.url ?? null}
               autostart={autostart}
               onUpdated={refresh}
             />
@@ -308,15 +319,6 @@ export default function ProjectWorkspace() {
                         <div className="wp-eyebrow">{activeSlug === "iteration" ? "↻ Action" : `Stage ${phaseIndex + 1}`}</div>
                         <h2 className="wp-title mt-1.5">{phaseDef.name}</h2>
                       </div>
-                      {/* Agents' Deployment: new changes and deploying them, on the title line. */}
-                      {project.kind === "agent" && activeSlug === "deployment" && (
-                        <LatestChanges
-                          projectId={project.id}
-                          autoflow={(phaseState as any)?.autoflow ?? null}
-                          github={(phaseState as any)?.github ?? null}
-                          onUpdated={refresh}
-                        />
-                      )}
                     </div>
                     {activeSlug === "product-owner" ? (
                       // Define the Problem / Define the Job is where the raw idea lives now (there is no capture stage).
@@ -333,7 +335,7 @@ export default function ProjectWorkspace() {
                           </p>
                         )}
                       </>
-                    ) : activeSlug === "operations" ? (
+                    ) : activeSlug === "operations" && project.kind !== "agent" ? (
                       <>
                         <button
                           onClick={() => setShowIterate((v) => !v)}

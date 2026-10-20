@@ -9,6 +9,9 @@ export interface EvalRun {
   gate: GateCheck[];
   passed: boolean;
   unit: { ok: boolean; passed: number; failed: number };
+  /** "live": the deployed testing agent's check (regression + attack cases only), for this release. */
+  source?: "local" | "live";
+  release?: string;
 }
 
 export interface EvalsState {

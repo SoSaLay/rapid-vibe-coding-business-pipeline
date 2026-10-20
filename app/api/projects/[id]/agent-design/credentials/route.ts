@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { attributed } from "@/lib/agent/activity";
 import { getPhaseState } from "@/lib/store";
 import type { AgentBuildState } from "@/lib/agent/build-context";
 import { credentialsAdapter } from "@/lib/agent/registry";
@@ -50,10 +51,12 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 }
 
 /** Body: { values: { ENV_NAME: "value" } } — empty string clears one. */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+async function handlePost(req: NextRequest, { params }: { params: { id: string } }) {
   const body = await req.json().catch(() => ({}));
   const values = body?.values && typeof body.values === "object" ? (body.values as Record<string, string>) : {};
   const clean = Object.fromEntries(Object.entries(values).filter(([, v]) => typeof v === "string").map(([k, v]) => [k, v.trim()]));
   await (await credentialsAdapter(params.id)).save(params.id, clean);
   return NextResponse.json(await status(params.id));
 }
+
+export const POST = attributed(handlePost);

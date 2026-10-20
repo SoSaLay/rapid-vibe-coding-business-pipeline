@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { tracked } from "@/lib/agent/activity";
 import { loadBuild } from "@/lib/agent/build-context";
-import { chosenHost, deployEnv, getDeploy, hostCredentials, saveDeploy, type Release } from "@/lib/agent/deploy";
+import { chosenHost, deployEnv, getDeploy, hostCredentials, releaseFailures, saveDeploy, type Release } from "@/lib/agent/deploy";
 import { runtimeAdapter } from "@/lib/agent/adapters/runtime";
 import { completePhase, getProject, latestArtifact, saveArtifact } from "@/lib/store";
 
@@ -8,9 +9,11 @@ import { completePhase, getProject, latestArtifact, saveArtifact } from "@/lib/s
  * Body: { action: "promote" } — owner approval: production → the checked staging release.
  *       { action: "promote", release: id } — production → that earlier version (it must have passed its checks).
  *       { action: "rollback" } — production → the release before the current one.
+ *       Add override: "<reason>" to go live with a version that hasn't passed its checks (the owner's call,
+ *       after seeing what failed); the reason and the failures are kept with the release.
  * The first successful promotion records the deploy-manifest and completes the stage.
  */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+async function handlePost(req: NextRequest, { params }: { params: { id: string } }) {
   const body = await req.json().catch(() => ({}));
   const ctx = await loadBuild(params.id);
   const s = await getDeploy(params.id);
@@ -18,7 +21,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const creds = await hostCredentials(host);
   if (!ctx.design || !creds) return NextResponse.json({ error: "Host not connected." }, { status: 400 });
 
+  const reason = typeof body.override === "string" ? body.override.trim() : "";
   let release: Release | undefined;
+  let override: Release["override"];
   if (body.action === "rollback") {
     const live = s.production?.release.id;
     const promoted = s.history.filter((h) => h.ok && h.env === "production" && h.id !== live);
@@ -28,16 +33,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // Redeploy an earlier version: only one that passed its checks (or was live before).
     const chosen = [...s.history].reverse().find((h) => h.id === body.release && h.ok);
     if (!chosen) return NextResponse.json({ error: "That version isn't available." }, { status: 404 });
-    const passed = s.checks?.[chosen.id] === true || s.check?.release === chosen.id && s.check.passed || s.history.some((h) => h.id === chosen.id && h.env === "production" && h.ok);
-    if (!passed) return NextResponse.json({ error: "Only versions that passed their checks can go live." }, { status: 400 });
+    const failures = releaseFailures(s, chosen.id);
+    if (failures.length && !reason) return NextResponse.json({ error: "This version hasn't passed its checks.", failures }, { status: 400 });
+    if (failures.length) override = { reason, failures };
     release = chosen;
   } else {
     // Railway without a staging environment ships straight to production; approving then just signs it off.
     const candidate = s.staging?.release ?? (host === "railway" ? s.production?.release : undefined);
     if (!candidate) return NextResponse.json({ error: "Release to staging first." }, { status: 400 });
-    if (s.check?.release !== candidate.id || !s.check.passed) {
-      return NextResponse.json({ error: "Run the live check on this staging release first; it must pass." }, { status: 400 });
-    }
+    const failures = releaseFailures(s, candidate.id);
+    if (failures.length && !reason) return NextResponse.json({ error: "This version hasn't passed its checks.", failures }, { status: 400 });
+    if (failures.length) override = { reason, failures };
     release = candidate;
   }
 
@@ -46,11 +52,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const r = alreadyLive
     ? { ok: true, log: "Already live in production; approval recorded.", target: s.production!.target, version: release.version }
     : await runtimeAdapter(host).promote({ dir: ctx.dir, slug: ctx.slug, release, agentEnv, creds, urls: s.railway_urls });
-  const entry: Release = { ...release, env: "production", at: new Date().toISOString(), ok: r.ok, log: r.log.slice(-3000), version: r.version ?? release.version };
+  const entry: Release = { ...release, env: "production", at: new Date().toISOString(), ok: r.ok, log: r.log.slice(-3000), version: r.version ?? release.version, ...(override ? { override } : {}) };
   const next = { ...s, history: [...s.history, entry].slice(-30) };
   if (r.ok && r.target) {
     next.production = { release: entry, target: r.target };
-    next.approvals = [...(s.approvals ?? []), { release: release.id, at: entry.at, by: body.action === "rollback" ? "owner (rollback)" : "owner" }];
+    next.approvals = [...(s.approvals ?? []), { release: release.id, at: entry.at, by: body.action === "rollback" ? "owner (rollback)" : override ? "owner (went live anyway)" : "owner", ...(override ? { override } : {}) }];
   }
   await saveDeploy(params.id, next);
   if (!r.ok) return NextResponse.json({ error: "Production update failed.", log: r.log.slice(-3000) }, { status: 500 });
@@ -89,3 +95,5 @@ function deferredDetail(id: string, login?: string) {
   if (id === "tool-authz") return "Each tool call checks the caller's roles (TOOL_ROLES), plus the kill switch and a per-run tool-call cap.";
   return "Configured.";
 }
+
+export const POST = tracked("deployment", "Going live", handlePost);

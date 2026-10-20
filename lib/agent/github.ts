@@ -17,7 +17,10 @@ import { getProjectSettings, saveProjectSettings } from "../store";
 import { loadBuild } from "./build-context";
 import { agentEnv } from "./env";
 import { ciAccess } from "./ci-access";
-import { chosenHost, hostCredentials } from "./deploy";
+import { chosenHost, deployEnv, getDeploy, hostCredentials } from "./deploy";
+import { deployFiles } from "./adapters/deploy-files";
+import { promises as fs } from "fs";
+import path from "path";
 import { credentialsAdapter } from "./registry";
 import { sh } from "./proc";
 
@@ -102,6 +105,11 @@ async function workflowSecrets(projectId: string): Promise<Record<string, string
     const h = await hostCredentials("railway");
     if (h?.RAILWAY_TOKEN_STAGING) out.RAILWAY_TOKEN_STAGING = h.RAILWAY_TOKEN_STAGING;
   }
+  // AgentCore: each deploy replaces the runtime's settings, so the workflow sends them (KEY=value lines).
+  if (host === "agentcore") {
+    const run = await deployEnv({ projectId, design: ctx.design, slug: ctx.slug, host });
+    out.AGENT_RUNTIME_ENV = Object.entries(run).filter(([, v]) => v && !/[\r\n]/.test(v)).map(([k, v]) => `${k}=${v}`).join("\n");
+  }
   // AWS access for GitHub comes from the CI access slot (a keyless deploy role), set up by pushAgent.
   return out;
 }
@@ -140,6 +148,20 @@ export async function pushAgent(projectId: string): Promise<{ ok: boolean; url?:
     await sh("git", ["rm", "-r", "--cached", "-q", ".bedrock_agentcore"], { cwd: ctx.dir });
     await sh("git", ["add", ".gitignore"], { cwd: ctx.dir });
     await sh("git", ["commit", "-q", "-m", "chore: keep AWS build bundles out of git"], { cwd: ctx.dir });
+  }
+
+  // Keep the release workflow current (agents packaged before a workflow fix get it on their next push).
+  const dep = await getDeploy(projectId);
+  if (dep.prepared_at && ctx.design) {
+    const wf = deployFiles({ title: ctx.title, design: ctx.design, host: dep.host ?? "agentcore" }).find((f) => f.path === ".github/workflows/agent-ci.yml");
+    const file = path.join(ctx.dir, ".github/workflows/agent-ci.yml");
+    const cur = await fs.readFile(file, "utf8").catch(() => "");
+    if (wf && cur !== wf.content) {
+      await fs.mkdir(path.dirname(file), { recursive: true });
+      await fs.writeFile(file, wf.content);
+      await sh("git", ["add", ".github/workflows/agent-ci.yml"], { cwd: ctx.dir });
+      await sh("git", ["commit", "-q", "-m", "ci: send the agent's settings with each release"], { cwd: ctx.dir });
+    }
   }
 
   // Before pushing (the push starts the workflow): give GitHub access to the host, then the secrets it reads.

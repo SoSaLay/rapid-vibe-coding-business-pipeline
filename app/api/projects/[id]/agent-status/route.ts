@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getPhaseState, latestArtifact } from "@/lib/store";
 import { loadBuild } from "@/lib/agent/build-context";
 import { getEvals } from "@/lib/agent/evals-state";
-import { getDeploy } from "@/lib/agent/deploy";
+import { chosenHost, getDeploy } from "@/lib/agent/deploy";
 import type { AgentDesign } from "@/lib/agent/design";
 
 /**
@@ -32,6 +32,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   else if (evalAt > liveAt && lastRun?.passed) next = { step: "Release", page: "deployment", why: "A passing version isn't live yet." };
 
   return NextResponse.json({
+    host: await chosenHost(params.id),
+    login: design?.login?.selected ?? "machine-key",
     model: design?.model.selected,
     skills: (design?.skills ?? []).filter((s) => s.enabled).map((s) => s.name),
     knowledge: design?.knowledge?.mode ?? "none",
@@ -40,6 +42,17 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     memory: design?.memory.selected,
     live: deploy.production ? { release: deploy.production.release.id, at: deploy.production.release.at } : null,
     evaluated: lastRun ? { at: lastRun.at, passed: lastRun.passed, dataset: lastRun.summary.dataset_version } : null,
+    // What failed in testing (the latest Evaluations run, or the live check of a release), for Failures to fix.
+    eval_failures:
+      lastRun && !lastRun.passed
+        ? {
+            at: lastRun.at,
+            source: lastRun.source ?? "local",
+            release: lastRun.release ?? null,
+            rules: lastRun.gate.filter((g) => !g.ok).map((g) => `${g.label}: ${g.detail}`),
+            cases: lastRun.summary.failing_cases.slice(0, 20),
+          }
+        : null,
     recorded_eval: !!qa,
     next,
   });

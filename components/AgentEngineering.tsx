@@ -45,9 +45,15 @@ export function AgentEngineering({
   manifest,
   security,
   autoflow = null,
+  activity = [],
+  githubUrl = null,
   autostart = false,
   onUpdated,
 }: {
+  /** Long jobs running for this agent right now (any stage); Engineering shows its own. */
+  activity?: { phase: string; label: string }[];
+  /** The agent's GitHub repo, once it has one. */
+  githubUrl?: string | null;
   security: SecurityReport | null;
   /** The background flow carrying a design change through (null = none). */
   autoflow?: { running: boolean; stage: string; phase: string | null; message: string; error?: string } | null;
@@ -208,6 +214,10 @@ export function AgentEngineering({
   return (
     <Doc>
       {flowBusy && <StageLoading text={autoflow!.message || "Building the latest changes you made in Agent Design…"} />}
+      {/* Work started elsewhere (Operations' Fix it, Evaluations, the safety checklist…) still shows here. */}
+      {!flowBusy && !busy && activity.some((a) => a.phase === "engineering") && (
+        <StageLoading text={`${activity.find((a) => a.phase === "engineering")!.label}…`} />
+      )}
       {autoflow && !autoflow.running && autoflow.stage === "failed" && autoflow.error && build.design_version !== designVersion && (
         <p className="mb-4 rounded-lg border border-bad/40 bg-bad/10 px-4 py-3 text-sm text-bad">Building your latest change failed: {autoflow.error}</p>
       )}
@@ -230,7 +240,7 @@ export function AgentEngineering({
         {log && <pre className="mt-3 max-h-60 overflow-auto rounded-lg border border-edge bg-ink p-3 text-[11px] text-fg/80 whitespace-pre-wrap">{log}</pre>}
       </section>
 
-      {!stale && <Codebase projectId={projectId} build={build} />}
+      {!stale && <Codebase projectId={projectId} build={build} githubUrl={githubUrl} />}
 
       {!stale && <AgentKeys projectId={projectId} refreshKey={String(build.design_version)} />}
 
@@ -529,7 +539,7 @@ const EDITORS = [
 ] as const;
 
 /** "Your codebase": where it lives, and one click to open it in an editor (or get the editor if it's missing). */
-function Codebase({ projectId, build }: { projectId: string; build: Build }) {
+function Codebase({ projectId, build, githubUrl }: { projectId: string; build: Build; githubUrl: string | null }) {
   const [msg, setMsg] = useState<string | null>(null);
   const [have, setHave] = useState<Record<string, boolean> | null>(null);
   const url = `/api/projects/${projectId}/agent-build/open`;
@@ -565,6 +575,15 @@ function Codebase({ projectId, build }: { projectId: string; build: Build }) {
               Open in {e.label}
             </button>
           ),
+        )}
+        {githubUrl ? (
+          <a href={githubUrl} target="_blank" rel="noreferrer" className="btn-ghost text-sm">
+            Open on GitHub ↗
+          </a>
+        ) : (
+          <button className="btn-ghost text-sm" disabled title="Available once the agent is on GitHub (Deployment releases it there)">
+            Open on GitHub
+          </button>
         )}
       </div>
       {msg && <p className="mt-2 text-sm text-bad">{msg}</p>}

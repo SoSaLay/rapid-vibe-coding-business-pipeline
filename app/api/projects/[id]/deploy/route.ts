@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { chosenHost, getDeploy, hostCredentials } from "@/lib/agent/deploy";
+import { chosenHost, getDeploy, hostCredentials, releaseFailures } from "@/lib/agent/deploy";
 import { credentialsAdapter } from "@/lib/agent/registry";
 import { loadBuild } from "@/lib/agent/build-context";
 import { promises as fs } from "fs";
@@ -39,9 +39,12 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
           ? "Deployment setup updated (no agent changes)"
           : "Same code as the previous release";
   }
+  const candidate = state.staging?.release.id;
   return NextResponse.json({
     notes,
     state,
+    // What stands between the testing agent and going live (empty = passed), for "Go live anyway".
+    failures: candidate ? releaseFailures(state, candidate) : [],
     host,
     login: ctx.design?.login?.selected ?? "machine-key",
     db: (await getProjectSettings(params.id)).agentStack?.["state-db"] === "neon" ? "neon" : "supabase",

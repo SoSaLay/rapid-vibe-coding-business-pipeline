@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { attributed } from "@/lib/agent/activity";
 import { ideaTypeContext } from "@/lib/idea-types";
 import { latestArtifact, savePhaseState, getPhaseState, getProject } from "@/lib/store";
 import { generatePOTurn, selectFrameworks, PODialogue } from "@/lib/phases/product-owner";
 
-export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+async function handlePost(_req: NextRequest, { params }: { params: { id: string } }) {
   const existing = await getPhaseState<PODialogue>(params.id, "product-owner");
   if (existing && existing.turns.length > 0) return NextResponse.json({ dialogue: existing });
 
@@ -35,3 +36,5 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: e?.message || "Product Owner failed to start." }, { status: 500 });
   }
 }
+
+export const POST = attributed(handlePost);

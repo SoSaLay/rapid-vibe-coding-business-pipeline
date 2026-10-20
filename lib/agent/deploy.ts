@@ -46,6 +46,8 @@ export interface Release {
   version?: string;
   ok: boolean;
   log?: string;
+  /** Went live without passing its checks: the owner's reason and what had failed. */
+  override?: { reason: string; failures: string[] };
 }
 
 export interface DeployState {
@@ -61,7 +63,18 @@ export interface DeployState {
   last_event?: { what: string; ok: boolean; at: string; error?: string; log?: string; plain?: { who: "you" | "agent" | "pipeline"; line: string } };
   /** Every release's last check result (release id → passed), so any passed version can be made live again. */
   checks?: Record<string, boolean>;
-  approvals: { release: string; at: string; by: string }[];
+  approvals: { release: string; at: string; by: string; override?: { reason: string; failures: string[] } }[];
+}
+
+/** Why a release hasn't earned going live: its check's failed rules, a check that couldn't grade, or no check. Empty = passed. */
+export function releaseFailures(s: DeployState, releaseId: string): string[] {
+  if (s.check?.release === releaseId) {
+    if (s.check.inconclusive) return [`The live check couldn't grade it: ${s.check.inconclusive}`];
+    return s.check.gate.filter((g) => !g.ok).map((g) => `${g.label}: ${g.detail}`);
+  }
+  if (s.checks?.[releaseId] === true || s.history.some((h) => h.id === releaseId && h.env === "production" && h.ok && !h.override)) return [];
+  if (s.checks?.[releaseId] === false) return ["It failed its live check."];
+  return ["It hasn't been checked on the testing agent yet."];
 }
 
 export async function getDeploy(projectId: string): Promise<DeployState> {

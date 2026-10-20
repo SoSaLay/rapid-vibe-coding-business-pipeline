@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { attributed } from "@/lib/agent/activity";
 import { ideaTypeContext } from "@/lib/idea-types";
 import { latestArtifact, savePhaseState, getPhaseState, getProject } from "@/lib/store";
 import { generatePOTurn, PODialogue } from "@/lib/phases/product-owner";
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+async function handlePost(req: NextRequest, { params }: { params: { id: string } }) {
   const body = await req.json().catch(() => ({}));
   const text = (body.text || "").trim();
   if (!text) return NextResponse.json({ error: "Answer is empty." }, { status: 400 });
@@ -31,3 +32,5 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: e?.message || "Product Owner failed to respond." }, { status: 500 });
   }
 }
+
+export const POST = attributed(handlePost);

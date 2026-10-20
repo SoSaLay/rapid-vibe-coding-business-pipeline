@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { tracked } from "@/lib/agent/activity";
 import { promises as fs } from "fs";
 import path from "path";
 import { loadBuild, saveBuild, toolsSignature } from "@/lib/agent/build-context";
@@ -7,7 +8,7 @@ import { agentEnv, renderDotEnv } from "@/lib/agent/env";
 import { envVarsUsed, generateLogic, writeCodebase } from "@/lib/phases/agent-engineering";
 
 /** Step 1: write the codebase from the APPROVED design. */
-export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+async function handlePost(_req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await loadBuild(params.id);
   if (!ctx.design) return NextResponse.json({ error: "Approve the Agent Design first." }, { status: 400 });
   if (!ctx.spec) return NextResponse.json({ error: "No job definition found." }, { status: 400 });
@@ -34,3 +35,5 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: e?.message || "Failed to write the code." }, { status: 500 });
   }
 }
+
+export const POST = tracked("engineering", "Writing the agent's code", handlePost);

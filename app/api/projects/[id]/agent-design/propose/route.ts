@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { attributed } from "@/lib/agent/activity";
 import { latestArtifact, savePhaseState, getProject } from "@/lib/store";
 import { generateAgentDesign } from "@/lib/phases/agent-design";
 
 /** Generate the recommended design (a draft the user edits before approving). */
-export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+async function handlePost(_req: NextRequest, { params }: { params: { id: string } }) {
   const spec = await latestArtifact(params.id, "product-spec");
   if (!spec) return NextResponse.json({ error: "Finish Define the Job first." }, { status: 400 });
   try {
@@ -16,3 +17,5 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: e?.message || "Failed to design the agent." }, { status: 500 });
   }
 }
+
+export const POST = attributed(handlePost);

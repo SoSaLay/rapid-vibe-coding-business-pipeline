@@ -84,7 +84,8 @@ export const openaiProvider: LlmProvider = {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: args.model || model(),
+        // tier "small": OPENAI_SMALL_MODEL when set (else the default model).
+        model: args.model || (args.tier === "small" && process.env.OPENAI_SMALL_MODEL?.trim()) || model(),
         messages: [
           { role: "system", content: args.system },
           ...args.messages.map((m) => ({ role: m.role, content: m.content })),

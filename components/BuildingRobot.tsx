@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { StopButton } from "./StopButton";
 
 /**
@@ -93,6 +94,10 @@ export function BuildingRobot({ className = "" }: { className?: string }) {
 
 /** The one "working on it" look for every stage: the building robot, the step's text, and Stop when it can be stopped. */
 export function StageLoading({ text, onStop, size = "lg" }: { text: string; onStop?: () => void; size?: "lg" | "sm" }) {
+  // Tell the page work started, so the sidebar shows the stage as working right away.
+  useEffect(() => {
+    window.dispatchEvent(new Event("pipeline:busy"));
+  }, [text]);
   return (
     <div className="flex w-full flex-col items-center gap-3 py-6 text-center">
       <BuildingRobot className={size === "lg" ? "h-48 w-48" : "h-32 w-32"} />

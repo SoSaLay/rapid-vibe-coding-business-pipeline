@@ -15,9 +15,29 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { LlmCompleteJsonArgs, LlmProvider } from "./types";
 import { readConnectorConfig, saveConnectorConfig } from "../connectors/config";
+import { currentProject } from "../agent/activity";
+import { usageCostUsd } from "../agent/pricing";
+import { recordSpend } from "../agent/spend";
+
+/** Bill a call to the project the current request works for (the "Pipeline AI" line in Engineering). */
+function recordUsage(model: string, usage: any) {
+  const project = currentProject();
+  if (!project || !usage) return;
+  const read = usage.cache_read_input_tokens ?? 0;
+  const write = usage.cache_creation_input_tokens ?? 0;
+  const usd = usageCostUsd(`anthropic:${model}`, {
+    input_tokens: (usage.input_tokens ?? 0) + read + write,
+    output_tokens: usage.output_tokens ?? 0,
+    cache_read: read,
+    cache_write: write,
+  });
+  recordSpend(project, "pipeline AI", usd).catch(() => {});
+}
 
 const ID = "ai-anthropic";
 const MODEL = "claude-opus-4-8";
+/** Short, simple jobs (tier: "small"): many times cheaper than the default model. */
+const SMALL_MODEL = "claude-haiku-5-5";
 
 /**
  * Output budget scales with effort. Adaptive thinking spends tokens from this
@@ -68,18 +88,22 @@ export const anthropicProvider: LlmProvider = {
     if (!client) throw new Error("Claude is not connected. Add your Anthropic API key.");
 
     const effort = args.effort ?? "high";
+    const small = args.tier === "small" && !args.model;
 
     const response = await client.messages.create({
-      model: args.model || MODEL,
+      model: args.model || (small ? SMALL_MODEL : MODEL),
       max_tokens: MAX_TOKENS_BY_EFFORT[effort],
-      thinking: { type: "adaptive" },
+      // The small model answers directly: no extended thinking or effort setting.
+      ...(small ? {} : { thinking: { type: "adaptive" } }),
       system: [{ type: "text", text: args.system, cache_control: { type: "ephemeral" } }],
       output_config: {
-        effort,
+        ...(small ? {} : { effort }),
         format: { type: "json_schema", schema: args.schema as any },
       },
       messages: args.messages.map((m) => ({ role: m.role, content: m.content })),
     } as any);
+
+    recordUsage(args.model || (small ? SMALL_MODEL : MODEL), (response as any).usage);
 
     const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === "text");
     if (!textBlock) throw new Error("No response from Claude.");

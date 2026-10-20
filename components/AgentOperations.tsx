@@ -2,7 +2,7 @@
 
 import { StageLoading } from "./BuildingRobot";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { OpsState } from "@/lib/agent/ops";
 import Link from "next/link";
 import { Doc, DocSection, DocP, DocMuted, DocFacts } from "./doc/Doc";
@@ -21,6 +21,15 @@ const pct = (x: number | null | undefined) => (x === null || x === undefined ? "
 const sec = (x: number | null | undefined) => (x === null || x === undefined ? "—" : `${Number(x).toFixed(1)}s`);
 
 /** Agent pipeline — stage 7. Monitor, stop, fix, record. Reads the agent's own run log. */
+type OpsTab = "info" | "kill" | "failures" | "memory" | "reviews";
+const OPS_TABS: [OpsTab, string][] = [
+  ["info", "Agent operations"],
+  ["kill", "Kill switch"],
+  ["failures", "Failures"],
+  ["memory", "Manage memory"],
+  ["reviews", "Reviews"],
+];
+
 export function AgentOperations({ projectId, live, completed, onUpdated }: { projectId: string; live: boolean; completed: boolean; onUpdated: () => void }) {
   const [d, setD] = useState<OpsResp | null>(null);
   const [days, setDays] = useState(7);
@@ -28,32 +37,62 @@ export function AgentOperations({ projectId, live, completed, onUpdated }: { pro
   const [error, setError] = useState<string | null>(null);
   const [expected, setExpected] = useState<Record<number, string>>({});
   const [inc, setInc] = useState({ title: "", severity: "medium", whatHappened: "", approvals: "", correctiveAction: "" });
-  const [settings, setSettings] = useState({ owner: "", oncall: "", min_success: "", max_p95_s: "", max_cost_per_run: "", max_thumbs_down: "" });
+  const [tab, setTab] = useState<OpsTab>("info");
+  const [addingIncident, setAddingIncident] = useState(false);
+  const [snapDays, setSnapDays] = useState(7);
+  /** "Create custom test cases": the owner's brief (null = closed). */
+  const [custom, setCustom] = useState<string | null>(null);
+  /** Stops "Create new test cases" (nothing is saved once stopped). */
+  const writing = useRef<AbortController | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
   async function load(n = days) {
     const r = await fetch(`/api/projects/${projectId}/ops?days=${n}`).then((x) => x.json()).catch(() => null);
-    if (r) {
-      setD(r);
-      const o = r.ops ?? {};
-      const t = o.thresholds ?? {};
-      setSettings({
-        owner: o.owner ?? "",
-        oncall: o.oncall ?? "",
-        min_success: t.min_success ?? "",
-        max_p95_s: t.max_p95_s ?? "",
-        max_cost_per_run: t.max_cost_per_run ?? "",
-        max_thumbs_down: t.max_thumbs_down ?? "",
-      });
-    }
+    if (r) setD(r);
   }
   useEffect(() => { load(); }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** A new version of the test cases: automatic, or from the owner's brief. */
+  async function writeCases(guidance?: string) {
+    setBusy("Writing new test cases…");
+    setError(null);
+    setNote(null);
+    writing.current = new AbortController();
+    const r = await fetch(`/api/projects/${projectId}/evals/dataset`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(guidance ? { guidance } : {}),
+      signal: writing.current.signal,
+    })
+      .then((x) => x.json())
+      .catch((e) => (e?.name === "AbortError" ? { stopped: true } : null));
+    writing.current = null;
+    setBusy(null);
+    if (r?.stopped) setNote("Stopped. Your test cases weren't changed.");
+    else if (r?.dataset) {
+      setNote(`Test cases version ${r.dataset.version} is ready (${r.dataset.cases.length} cases); earlier versions are kept. Run them in Evaluations.`);
+      setCustom(null);
+    } else setError(r?.error || "Couldn't write new test cases.");
+  }
 
   async function act(body: any, label: string, msg?: (r: any) => string) {
     setBusy(label);
     setError(null);
     setNote(null);
-    const res = await fetch(`/api/projects/${projectId}/ops/action`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    // Stoppable (Stop next to the spinner): nothing is saved once stopped.
+    writing.current = new AbortController();
+    const res = await fetch(`/api/projects/${projectId}/ops/action`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: writing.current.signal,
+    }).catch((e) => (e?.name === "AbortError" ? null : Promise.reject(e)));
+    writing.current = null;
+    if (!res) {
+      setNote("Stopped. Nothing was saved.");
+      setBusy(null);
+      return;
+    }
     const r = await res.json().catch(() => ({}));
     if (!res.ok) setError(r.error || "That didn't work.");
     else if (msg) setNote(msg(r));
@@ -73,213 +112,324 @@ export function AgentOperations({ projectId, live, completed, onUpdated }: { pro
     <Doc>
       {!live && <div className="card mb-6 p-3 text-sm text-muted">Not live in production yet. These numbers come from staging and local runs.</div>}
 
-      <AgentConsole projectId={projectId} />
-
-      <DocSection title="How it's doing">
-        <div className="mb-3 flex gap-2">
-          {[1, 7, 30].map((n) => (
-            <button key={n} className={`rounded-md border px-3 py-1 text-xs ${days === n ? "border-accent/60 text-fg" : "border-edge text-muted"}`} onClick={() => { setDays(n); load(n); }}>
-              {n === 1 ? "24h" : `${n} days`}
+      <div className="mb-8 overflow-hidden rounded-xl border border-edge">
+        <div className="flex divide-x divide-edge overflow-x-auto bg-ink/40 text-xs font-semibold">
+          {OPS_TABS.map(([id, label]) => (
+            <button
+              key={id}
+              className={`flex-1 whitespace-nowrap px-3 py-2.5 ${tab === id ? "bg-accent/15 text-fg" : "text-muted hover:text-fg"}`}
+              onClick={() => setTab(id)}
+              aria-pressed={tab === id}
+            >
+              {label}
+              {id === "failures" && (d.failures ?? []).length + open.length > 0 && (
+                <span className="ml-1.5 rounded-full bg-bad px-1.5 text-[10px] text-white">{(d.failures ?? []).length + open.length}</span>
+              )}
             </button>
           ))}
         </div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {[
-            ["Runs", String(s.runs ?? 0)],
-            ["Finished without hand-off", pct(s.success_rate)],
-            ["Task done (scored)", s.scored ? pct(s.judged_completed / s.scored) : "—"],
-            ["Policy problems", String(s.policy_violations ?? 0)],
-            ["Speed p50 / p95", `${sec(s.latency_p50)} / ${sec(s.latency_p95)}`],
-            ["Cost", s.cost !== undefined ? `$${Number(s.cost).toFixed(2)}` : "—"],
-            ["Cost per run", s.cost_per_run ? `$${Number(s.cost_per_run).toFixed(4)}` : "—"],
-            ["👍 / 👎", `${s.thumbs_up ?? 0} / ${s.thumbs_down ?? 0}`],
-            ["Hand-offs", String(s.handoffs ?? 0)],
-            ["Runs with a tool error", String(s.tool_error_runs ?? 0)],
-            ["Waiting for approval", String(s.awaiting_approval ?? 0)],
-            ["Tool calls per run", s.avg_tool_calls !== undefined ? Number(s.avg_tool_calls).toFixed(1) : "—"],
-          ].map(([label, value]) => (
-            <div key={label} className="rounded-lg border border-edge p-3">
-              <div className="text-[11px] uppercase tracking-wider text-muted">{label}</div>
-              <div className="mt-1 text-lg font-semibold text-fg">{value}</div>
+      </div>
+
+      {tab === "info" && (
+        <>
+          <DocSection title="How it's doing">
+            <div className="mb-3 flex gap-2">
+              {[1, 7, 30].map((n) => (
+                <button key={n} className={`rounded-md border px-3 py-1 text-xs ${days === n ? "border-accent/60 text-fg" : "border-edge text-muted"}`} onClick={() => { setDays(n); load(n); }}>
+                  {n === 1 ? "24h" : `${n} days`}
+                </button>
+              ))}
             </div>
-          ))}
-        </div>
-        {(s.tools ?? []).length > 0 && (
-          <>
-            <div className="mt-5 text-xs font-semibold uppercase tracking-wider text-muted">Tools</div>
-            <ul className="mt-2 space-y-1 text-sm">
-              {s.tools.map((t: any) => (
-                <li key={t.tool} className="flex justify-between gap-3">
-                  <code className="text-fg">{t.tool}</code>
-                  <span className={t.errors ? "text-warn" : "text-muted"}>{t.calls} calls · {t.errors} errors</span>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {[
+                ["Runs", String(s.runs ?? 0)],
+                ["Finished without hand-off", pct(s.success_rate)],
+                ["Task done (scored)", s.scored ? pct(s.judged_completed / s.scored) : "—"],
+                ["Policy problems", String(s.policy_violations ?? 0)],
+                ["Speed p50 / p95", `${sec(s.latency_p50)} / ${sec(s.latency_p95)}`],
+                ["Cost", s.cost !== undefined ? `$${Number(s.cost).toFixed(2)}` : "—"],
+                ["Cost per run", s.cost_per_run ? `$${Number(s.cost_per_run).toFixed(4)}` : "—"],
+                ["👍 / 👎", `${s.thumbs_up ?? 0} / ${s.thumbs_down ?? 0}`],
+                ["Hand-offs", String(s.handoffs ?? 0)],
+                ["Runs with a tool error", String(s.tool_error_runs ?? 0)],
+                ["Waiting for approval", String(s.awaiting_approval ?? 0)],
+                ["Tool calls per run", s.avg_tool_calls !== undefined ? Number(s.avg_tool_calls).toFixed(1) : "—"],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-lg border border-edge p-3">
+                  <div className="text-[11px] uppercase tracking-wider text-muted">{label}</div>
+                  <div className="mt-1 text-lg font-semibold text-fg">{value}</div>
+                </div>
+              ))}
+            </div>
+            {(s.tools ?? []).length > 0 && (
+              <>
+                <div className="mt-5 text-xs font-semibold uppercase tracking-wider text-muted">Tools</div>
+                <ul className="mt-2 space-y-1 text-sm">
+                  {s.tools.map((t: any) => (
+                    <li key={t.tool} className="flex justify-between gap-3">
+                      <code className="text-fg">{t.tool}</code>
+                      <span className={t.errors ? "text-warn" : "text-muted"}>{t.calls} calls · {t.errors} errors</span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button className="btn-ghost text-sm" disabled={!!busy} onClick={() => act({ action: "online-eval", sample: 20 }, "Scoring recent runs…", (r) => `Scored ${r.scored} run(s).`)}>
+                Score recent runs (online eval)
+              </button>
+              <button className="btn-ghost text-sm" disabled={!!busy} onClick={() => act({ action: "alert" }, "Checking alerts…", (r) => (r.result?.alerts?.length ? `${r.result.alerts.length} alert(s).` : "No alerts."))}>
+                Check alerts now
+              </button>
+            </div>
+            {d.ops.last_alert && (
+              <DocMuted className="mt-2">
+                Last check {new Date(d.ops.last_alert.at).toLocaleString()}: {d.ops.last_alert.alerts.length ? d.ops.last_alert.alerts.join(" ") : "all clear"}
+              </DocMuted>
+            )}
+          </DocSection>
+          <AgentConsole projectId={projectId} />
+        </>
+      )}
+
+      {tab === "kill" && (
+        <>
+          <DocSection title="Kill switch">
+            <DocP>Takes effect within about 10 seconds. No redeploy needed.</DocP>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className={`rounded-full px-3 py-1 text-sm font-semibold text-onbright ${ctl.disabled ? "bg-bad" : "bg-ok"}`}>{ctl.disabled ? "Agent is OFF" : "Agent is on"}</span>
+              <button className={ctl.disabled ? "btn-primary" : "btn-ghost border-bad/40 text-bad"} disabled={!!busy} onClick={() => act({ action: "kill", disabled: !ctl.disabled }, "Switching…")}>
+                {ctl.disabled ? "Turn the agent back on" : "Turn the agent off"}
+              </button>
+            </div>
+            <ul className="mt-3 space-y-1 text-sm">
+              {(d.tools ?? []).map((t) => {
+                const off = ctl.disabled_tools.includes(t);
+                return (
+                  <li key={t} className="flex items-center justify-between gap-3">
+                    <code className={off ? "text-bad line-through" : "text-fg"}>{t}</code>
+                    <button className="text-xs text-accent underline" disabled={!!busy} onClick={() => act({ action: "tool", name: t, on: off }, "Switching…")}>
+                      {off ? "Turn on" : "Turn off"}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </DocSection>
+        </>
+      )}
+
+      {tab === "failures" && (
+        <>
+          <DocSection title="Failures to fix">
+            <TestingFailures projectId={projectId} />
+            <ul className="mt-3 space-y-3">
+              {(d.failures ?? []).map((f: any) => {
+                const added = d.ops.cases_added.some((c) => c.run_id === Number(f.id));
+                return (
+                  <li key={f.id} className="rounded-lg border border-edge p-3 text-sm">
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                      <span>Run {f.id}</span>
+                      <span>{new Date(f.at).toLocaleString()}</span>
+                      <span>{f.status}</span>
+                      {f.feedback === -1 && <span className="text-bad">👎 {f.feedback_note}</span>}
+                    </div>
+                    <div className="mt-1 text-fg">{String(f.input ?? "").slice(0, 300)}</div>
+                    {f.eval_score?.reason && <DocMuted>{f.eval_score.reason}</DocMuted>}
+                    {f.error && <DocMuted>Error: {f.error}</DocMuted>}
+                    {added ? (
+                      <p className="mt-2 text-xs text-ok">Added to the test cases.</p>
+                    ) : (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <input
+                          className="input h-8 min-w-0 flex-1 text-xs"
+                          placeholder="What should it have done?"
+                          value={expected[f.id] ?? ""}
+                          onChange={(e) => setExpected({ ...expected, [f.id]: e.target.value })}
+                        />
+                        <button className="btn-ghost text-xs" disabled={!!busy || !expected[f.id]?.trim()} onClick={() => act({ action: "add-case", runId: f.id, expected: expected[f.id] }, "Adding…", (r) => `Added ${r.case} (dataset v${r.dataset_version}). Re-run Evaluations next.`)}>
+                          Add to test cases
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </DocSection>
+          <DocSection title="Incidents">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <DocMuted className="!mt-0">Something went wrong with the live agent? Add it here, and AI can fix your agent for it.</DocMuted>
+              {!addingIncident && (
+                <button className="btn-primary flex items-center gap-1.5 text-sm" onClick={() => setAddingIncident(true)}>
+                  <span className="text-base leading-none">+</span> Add a new incident
+                </button>
+              )}
+            </div>
+            {open.length > 0 && <p className="mb-2 text-sm text-bad">{open.length} open</p>}
+            <ul className="space-y-2 text-sm">
+              {d.ops.incidents.map((i) => (
+                <li key={i.id} className="rounded-lg border border-edge p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-onbright ${i.status === "open" ? "bg-bad" : "bg-ok"}`}>{i.status}</span>
+                    <span className="text-xs text-muted">{i.severity} · {new Date(i.opened_at).toLocaleString()}</span>
+                    <span className="font-medium text-fg">{i.title}</span>
+                  </div>
+                  {i.what_happened && <DocMuted>What happened: {i.what_happened}</DocMuted>}
+                  {i.approvals && <DocMuted>Approvals: {i.approvals}</DocMuted>}
+                  {i.corrective_action && <DocMuted>Your fix idea: {i.corrective_action}</DocMuted>}
+                  {i.ai_fix && (
+                    <p className={`mt-1 text-xs ${i.ai_fix.fixed ? "text-ok" : "text-warn"}`}>
+                      {i.ai_fix.fixed ? "AI fix applied: " : "AI couldn't fix it: "}
+                      {i.ai_fix.summary}
+                      {i.ai_fix.fixed && " It's being re-tested, then deployed for testing."}
+                    </p>
+                  )}
+                  {i.status === "open" && (
+                    <div className="mt-2 flex flex-wrap items-center gap-3">
+                      {!i.ai_fix?.fixed && (
+                        <button
+                          className="rounded-lg bg-bad px-3 py-1 text-xs font-semibold text-white hover:opacity-90"
+                          disabled={!!busy}
+                          onClick={() => {
+                            if (confirm("The AI will change your agent's code to fix this incident, then re-test it and deploy it for testing. Go ahead?"))
+                              act({ action: "fix-incident", id: i.id }, "Fixing your agent for this incident…", (r) => (r.fixed ? `Fixed: ${r.summary}` : r.summary));
+                          }}
+                        >
+                          Fix it with AI
+                        </button>
+                      )}
+                      <button className="text-xs text-accent underline" disabled={!!busy} onClick={() => act({ action: "resolve", id: i.id }, "Resolving…")}>Mark resolved</button>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
-          </>
-        )}
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button className="btn-ghost text-sm" disabled={!!busy} onClick={() => act({ action: "online-eval", sample: 20 }, "Scoring recent runs…", (r) => `Scored ${r.scored} run(s).`)}>
-            Score recent runs (online eval)
-          </button>
-          <button className="btn-ghost text-sm" disabled={!!busy} onClick={() => act({ action: "alert" }, "Checking alerts…", (r) => (r.result?.alerts?.length ? `${r.result.alerts.length} alert(s).` : "No alerts."))}>
-            Check alerts now
-          </button>
-        </div>
-        {d.ops.last_alert && (
-          <DocMuted className="mt-2">
-            Last check {new Date(d.ops.last_alert.at).toLocaleString()}: {d.ops.last_alert.alerts.length ? d.ops.last_alert.alerts.join(" ") : "all clear"}
-          </DocMuted>
-        )}
-      </DocSection>
-
-      <DocSection title="Kill switch">
-        <DocP>Takes effect within about 10 seconds. No redeploy needed.</DocP>
-        <div className="flex flex-wrap items-center gap-3">
-          <span className={`rounded-full px-3 py-1 text-sm font-semibold text-onbright ${ctl.disabled ? "bg-bad" : "bg-ok"}`}>{ctl.disabled ? "Agent is OFF" : "Agent is on"}</span>
-          <button className={ctl.disabled ? "btn-primary" : "btn-ghost border-bad/40 text-bad"} disabled={!!busy} onClick={() => act({ action: "kill", disabled: !ctl.disabled }, "Switching…")}>
-            {ctl.disabled ? "Turn the agent back on" : "Turn the agent off"}
-          </button>
-        </div>
-        <ul className="mt-3 space-y-1 text-sm">
-          {(d.tools ?? []).map((t) => {
-            const off = ctl.disabled_tools.includes(t);
-            return (
-              <li key={t} className="flex items-center justify-between gap-3">
-                <code className={off ? "text-bad line-through" : "text-fg"}>{t}</code>
-                <button className="text-xs text-accent underline" disabled={!!busy} onClick={() => act({ action: "tool", name: t, on: off }, "Switching…")}>
-                  {off ? "Turn on" : "Turn off"}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </DocSection>
-
-      <DocSection title="Failures to fix">
-        <DocMuted>
-          Failed, handed-off, thumbs-down or low-scored runs (personal data already removed). Write what should have happened and it
-          becomes a permanent test case. Then re-run Evaluations and release through Deployment.
-        </DocMuted>
-        <ul className="mt-3 space-y-3">
-          {(d.failures ?? []).map((f: any) => {
-            const added = d.ops.cases_added.some((c) => c.run_id === Number(f.id));
-            return (
-              <li key={f.id} className="rounded-lg border border-edge p-3 text-sm">
-                <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
-                  <span>Run {f.id}</span>
-                  <span>{new Date(f.at).toLocaleString()}</span>
-                  <span>{f.status}</span>
-                  {f.feedback === -1 && <span className="text-bad">👎 {f.feedback_note}</span>}
+            {addingIncident && (
+              <div className="mt-3 space-y-2 rounded-lg border border-accent/40 bg-accent/5 p-3">
+                <div className="text-sm font-semibold text-fg">New incident</div>
+                <input className="input h-9 w-full" placeholder="What went wrong, in a few words" value={inc.title} onChange={(e) => setInc({ ...inc, title: e.target.value })} />
+                <select className="input h-9" value={inc.severity} onChange={(e) => setInc({ ...inc, severity: e.target.value })}>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select>
+                <textarea className="input w-full" rows={3} placeholder="What happened (the more detail, the better the AI fix)" value={inc.whatHappened} onChange={(e) => setInc({ ...inc, whatHappened: e.target.value })} />
+                <textarea className="input w-full" rows={2} placeholder="Your idea for a fix (optional)" value={inc.correctiveAction} onChange={(e) => setInc({ ...inc, correctiveAction: e.target.value })} />
+                <div className="flex gap-2">
+                  <button
+                    className="btn-primary text-sm"
+                    disabled={!!busy || !inc.title.trim()}
+                    onClick={() =>
+                      act({ action: "incident", ...inc }, "Saving…").then(() => {
+                        setInc({ title: "", severity: "medium", whatHappened: "", approvals: "", correctiveAction: "" });
+                        setAddingIncident(false);
+                      })
+                    }
+                  >
+                    Add incident
+                  </button>
+                  <button className="btn-ghost text-sm" onClick={() => setAddingIncident(false)}>Cancel</button>
                 </div>
-                <div className="mt-1 text-fg">{String(f.input ?? "").slice(0, 300)}</div>
-                {f.eval_score?.reason && <DocMuted>{f.eval_score.reason}</DocMuted>}
-                {f.error && <DocMuted>Error: {f.error}</DocMuted>}
-                {added ? (
-                  <p className="mt-2 text-xs text-ok">Added to the test cases.</p>
-                ) : (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <input
-                      className="input h-8 min-w-0 flex-1 text-xs"
-                      placeholder="What should it have done?"
-                      value={expected[f.id] ?? ""}
-                      onChange={(e) => setExpected({ ...expected, [f.id]: e.target.value })}
-                    />
-                    <button className="btn-ghost text-xs" disabled={!!busy || !expected[f.id]?.trim()} onClick={() => act({ action: "add-case", runId: f.id, expected: expected[f.id] }, "Adding…", (r) => `Added ${r.case} (dataset v${r.dataset_version}). Re-run Evaluations next.`)}>
-                      Add to test cases
-                    </button>
-                  </div>
-                )}
-              </li>
-            );
-          })}
-          {(d.failures ?? []).length === 0 && <DocMuted>Nothing failing.</DocMuted>}
-        </ul>
-      </DocSection>
-
-      <UserMemory projectId={projectId} />
-
-      <DocSection title="Incidents">
-        {open.length > 0 && <p className="mb-2 text-sm text-bad">{open.length} open</p>}
-        <ul className="space-y-2 text-sm">
-          {d.ops.incidents.map((i) => (
-            <li key={i.id} className="rounded-lg border border-edge p-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-onbright ${i.status === "open" ? "bg-bad" : "bg-ok"}`}>{i.status}</span>
-                <span className="text-xs text-muted">{i.severity} · {new Date(i.opened_at).toLocaleString()}</span>
-                <span className="font-medium text-fg">{i.title}</span>
               </div>
-              {i.what_happened && <DocMuted>What happened: {i.what_happened}</DocMuted>}
-              {i.approvals && <DocMuted>Approvals: {i.approvals}</DocMuted>}
-              {i.corrective_action && <DocMuted>Fix: {i.corrective_action}</DocMuted>}
-              {i.status === "open" && (
-                <button className="mt-1 text-xs text-accent underline" disabled={!!busy} onClick={() => act({ action: "resolve", id: i.id }, "Resolving…")}>Mark resolved</button>
-              )}
-            </li>
-          ))}
-        </ul>
-        <details className="mt-3">
-          <summary className="cursor-pointer text-sm font-medium text-fg">Record an incident</summary>
-          <div className="mt-2 space-y-2">
-            <input className="input h-9 w-full" placeholder="Title" value={inc.title} onChange={(e) => setInc({ ...inc, title: e.target.value })} />
-            <select className="input h-9" value={inc.severity} onChange={(e) => setInc({ ...inc, severity: e.target.value })}>
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-            </select>
-            <textarea className="input w-full" rows={2} placeholder="What happened" value={inc.whatHappened} onChange={(e) => setInc({ ...inc, whatHappened: e.target.value })} />
-            <input className="input h-9 w-full" placeholder="Who approved what (e.g. rollback)" value={inc.approvals} onChange={(e) => setInc({ ...inc, approvals: e.target.value })} />
-            <textarea className="input w-full" rows={2} placeholder="Corrective action" value={inc.correctiveAction} onChange={(e) => setInc({ ...inc, correctiveAction: e.target.value })} />
-            <button className="btn-ghost" disabled={!!busy || !inc.title.trim()} onClick={() => act({ action: "incident", ...inc }, "Saving…").then(() => setInc({ title: "", severity: "medium", whatHappened: "", approvals: "", correctiveAction: "" }))}>
-              Save incident
-            </button>
-          </div>
-        </details>
-        <DocMuted className="mt-2">The runbook (RUNBOOK.md in the agent&apos;s repo) has the step-by-step: stop it, roll back, fix it, record it.</DocMuted>
-      </DocSection>
+            )}
+          </DocSection>
+        </>
+      )}
 
-      <DocSection title="Ownership & alerts">
-        <div className="grid gap-2 sm:grid-cols-2">
-          <input className="input h-9" placeholder="Owner" value={settings.owner} onChange={(e) => setSettings({ ...settings, owner: e.target.value })} />
-          <input className="input h-9" placeholder="On call (who and how to reach them)" value={settings.oncall} onChange={(e) => setSettings({ ...settings, oncall: e.target.value })} />
-          <input className="input h-9" placeholder="Alert below success rate (default 0.85)" value={settings.min_success} onChange={(e) => setSettings({ ...settings, min_success: e.target.value })} />
-          <input className="input h-9" placeholder="Alert above p95 seconds (default 60)" value={settings.max_p95_s} onChange={(e) => setSettings({ ...settings, max_p95_s: e.target.value })} />
-          <input className="input h-9" placeholder="Alert above cost per run $ (default 1)" value={settings.max_cost_per_run} onChange={(e) => setSettings({ ...settings, max_cost_per_run: e.target.value })} />
-          <input className="input h-9" placeholder="Alert at 👎 per day (default 3)" value={settings.max_thumbs_down} onChange={(e) => setSettings({ ...settings, max_thumbs_down: e.target.value })} />
-        </div>
-        <button
-          className="btn-ghost mt-3"
-          disabled={!!busy}
-          onClick={() =>
-            act(
-              {
-                action: "settings",
-                owner: settings.owner,
-                oncall: settings.oncall,
-                thresholds: { min_success: settings.min_success, max_p95_s: settings.max_p95_s, max_cost_per_run: settings.max_cost_per_run, max_thumbs_down: settings.max_thumbs_down },
-              },
-              "Saving…",
-              () => "Saved."
-            )
-          }
-        >
-          Save
-        </button>
-        <DocMuted className="mt-2">
-          Once the repo is on GitHub, the agent-ops workflow checks these every hour. When a threshold is crossed the run fails, and GitHub
-          emails you about failed runs. No extra service, and it works even when this app is closed.
-        </DocMuted>
-      </DocSection>
+      {tab === "memory" && <UserMemory projectId={projectId} />}
 
-      <DocSection title="Review">
-        <DocFacts items={[{ label: "Test cases added from production", value: String(d.ops.cases_added.length) }, { label: "Open incidents", value: String(open.length) }]} />
-        {completed ? (
-          <p className="text-sm text-ok">Reviewed. Use ↻ Iterate to start the next cycle.</p>
-        ) : (
-          <button className="btn-primary mt-2" disabled={!!busy || !live} onClick={() => act({ action: "review" }, "Recording…")}>Record ops review</button>
-        )}
-      </DocSection>
+      {tab === "reviews" && (
+        <>
+          <DocSection title="Take a snapshot">
+            <DocMuted className="!mt-0">Save how the agent did over a period: runs, success rate, cost, open incidents and new test cases. Snapshots build a history you can compare.</DocMuted>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {[1, 7, 30, 90].map((n) => (
+                <button
+                  key={n}
+                  className={`rounded-md border px-3 py-1 text-xs ${snapDays === n ? "border-accent/60 text-fg" : "border-edge text-muted"}`}
+                  onClick={() => setSnapDays(n)}
+                >
+                  {n === 1 ? "24h" : `${n} days`}
+                </button>
+              ))}
+              <button className="btn-primary ml-1 text-sm" disabled={!!busy || !live} onClick={() => act({ action: "snapshot", days: snapDays }, "Taking a snapshot…", () => "Snapshot saved.")}>
+                📸 Take a snapshot
+              </button>
+            </div>
+            {!live && <DocMuted className="mt-2">Available once the agent is live in production.</DocMuted>}
+            {(d.ops.snapshots ?? []).length > 0 && (
+              <div className="mt-4 overflow-x-auto rounded-xl border border-edge">
+                <table className="w-full text-sm">
+                  <thead className="bg-panel text-left text-[11px] uppercase tracking-wider text-muted">
+                    <tr>
+                      <th className="px-3 py-2">Taken</th>
+                      <th className="px-3 py-2">Period</th>
+                      <th className="px-3 py-2">Runs</th>
+                      <th className="px-3 py-2">Success</th>
+                      <th className="px-3 py-2">Cost</th>
+                      <th className="px-3 py-2">Open incidents</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(d.ops.snapshots ?? []).slice(0, 10).map((sn) => (
+                      <tr key={sn.at} className="border-t border-edge">
+                        <td className="px-3 py-2 text-fg/90">{new Date(sn.at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</td>
+                        <td className="px-3 py-2 text-fg/90">{sn.days === 1 ? "24h" : `${sn.days} days`}</td>
+                        <td className="px-3 py-2 text-fg/90">{sn.runs}</td>
+                        <td className="px-3 py-2 text-fg/90">{pct(sn.success_rate)}</td>
+                        <td className="px-3 py-2 text-fg/90">{sn.cost === null ? "—" : `$${sn.cost.toFixed(2)}`}</td>
+                        <td className="px-3 py-2 text-fg/90">{sn.open_incidents}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </DocSection>
+          <DocSection title="Create new test cases">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                className="btn-primary text-sm"
+                disabled={!!busy}
+                onClick={() => writeCases()}
+                title="AI re-reads your agent, its open incidents and latest failures, and writes the next version of the test cases"
+              >
+                ✍️ Create new test cases automatically
+              </button>
+              <button className="btn-ghost text-sm" disabled={!!busy} onClick={() => setCustom(custom === null ? "" : null)}>
+                Create custom test cases
+              </button>
+              <Link className="ml-1 text-sm text-accent underline" href={`/project/${projectId}/qa#test-cases`}>Open Evaluations →</Link>
+            </div>
+            {custom !== null && (
+              <div className="mt-3 space-y-2 rounded-lg border border-accent/40 bg-accent/5 p-3">
+                <textarea
+                  className="input w-full text-sm"
+                  rows={3}
+                  placeholder="What should the new test cases check? e.g. orders with 10+ rows, a store that's out of stock, or the incident from last week"
+                  value={custom}
+                  onChange={(e) => setCustom(e.target.value)}
+                />
+                <div className="flex gap-2">
+                  <button className="btn-primary text-sm" disabled={!!busy || custom.trim().length < 5} onClick={() => writeCases(custom.trim())}>
+                    Create these test cases
+                  </button>
+                  <button className="btn-ghost text-sm" onClick={() => setCustom(null)}>Cancel</button>
+                </div>
+              </div>
+            )}
+          </DocSection>
+        </>
+      )}
 
-      {busy && <StageLoading text={busy} size="sm" />}
+      {busy && (
+        <StageLoading
+          text={busy}
+          size="sm"
+          onStop={/^(Writing new test cases|Taking a snapshot)/.test(busy) ? () => writing.current?.abort() : undefined}
+        />
+      )}
       {note && <p className="text-sm text-ok">{note}</p>}
       {error && <p className="text-sm text-bad">{error}</p>}
     </Doc>
@@ -287,10 +437,18 @@ export function AgentOperations({ projectId, live, completed, onUpdated }: { pro
 }
 
 const KNOWLEDGE_NAME: Record<string, string> = { none: "None", skills: "Built into skills", rag: "Document search" };
+const HOST_LABEL: Record<string, string> = { agentcore: "Amazon Bedrock AgentCore", railway: "Railway" };
+/** Who uses it, in plain words. */
+const LOGIN_LABEL: Record<string, string> = {
+  "machine-key": "No one. It does its work and returns the result.",
+  "supabase-auth": "People who log in (free to use)",
+  "neon-auth": "People who log in (free to use)",
+  clerk: "Paying users who log in",
+};
 
 /**
- * Agent console: what the agent runs today and how to change it. Light changes (skills, knowledge, model,
- * limits) go Design → Apply → Evaluations → Release; new tools take the full Build path.
+ * Agent information: where the agent runs, who uses it, and what it runs today (model, skills, knowledge,
+ * tools, live release, last evaluation).
  */
 function AgentConsole({ projectId }: { projectId: string }) {
   const [st, setSt] = useState<any>(null);
@@ -298,11 +456,12 @@ function AgentConsole({ projectId }: { projectId: string }) {
     fetch(`/api/projects/${projectId}/agent-status`).then((r) => r.json()).then(setSt).catch(() => {});
   }, [projectId]);
   if (!st) return null;
-  const base = `/project/${projectId}`;
   return (
-    <DocSection title="Your agent">
+    <DocSection title="Agent information">
       <DocFacts
         items={[
+          { label: "Host", value: HOST_LABEL[st.host] ?? st.host },
+          { label: "Who uses it", value: LOGIN_LABEL[st.login] ?? st.login },
           { label: "Model", value: st.model },
           { label: "Skills", value: st.skills.join(", ") || "None" },
           { label: "Knowledge", value: `${KNOWLEDGE_NAME[st.knowledge] ?? st.knowledge}${st.knowledge === "rag" ? ` (${st.knowledge_sources} sources)` : ""}` },
@@ -311,27 +470,52 @@ function AgentConsole({ projectId }: { projectId: string }) {
           { label: "Last evaluation", value: st.evaluated ? `${st.evaluated.passed ? "passed" : "failed"} · ${new Date(st.evaluated.at).toLocaleDateString()} · dataset v${st.evaluated.dataset}` : "Never" },
         ]}
       />
-      {st.next ? (
-        <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-accent/40 bg-accent/5 p-3 text-sm">
-          <span className="text-fg">
-            <span className="font-semibold">Next: {st.next.step}.</span> {st.next.why}
-          </span>
-          <Link className="btn-primary ml-auto text-sm" href={`${base}/${st.next.page}`}>Go →</Link>
+    </DocSection>
+  );
+}
+
+/**
+ * Failures to fix, from testing: what failed in the latest Evaluations run or live check (with a way to
+ * fix it), plus the next step when design, build, evaluations and release are out of step.
+ */
+function TestingFailures({ projectId }: { projectId: string }) {
+  const [st, setSt] = useState<any>(null);
+  useEffect(() => {
+    fetch(`/api/projects/${projectId}/agent-status`).then((r) => r.json()).then(setSt).catch(() => {});
+  }, [projectId]);
+  if (!st) return null;
+  const f = st.eval_failures;
+  const next = st.next as { step: string; page: string; why: string } | null;
+  return (
+    <div>
+      <div className="text-xs font-semibold uppercase tracking-wider text-muted">From testing</div>
+      {f ? (
+        <div className="mt-2 rounded-lg border border-bad/40 bg-bad/5 p-3 text-sm">
+          <p className="font-semibold text-fg">
+            The latest {f.source === "live" ? `live check${f.release ? ` (release ${f.release})` : ""}` : "evaluation"} didn&apos;t pass:{" "}
+            <span className="font-normal text-fg/80">{f.rules.join(" · ")}</span>
+          </p>
+          <ul className="mt-2 space-y-2">
+            {f.cases.map((c: any) => (
+              <li key={c.case} className="border-t border-edge pt-2">
+                <span className="font-medium text-fg">{c.case}</span>{" "}
+                <span className="text-xs text-muted">({c.category} · passed {c.passed_trials}/{c.trials})</span>
+                <p className="mt-0.5 text-xs text-fg/80">{String(c.reason).slice(0, 260)}{String(c.reason).length > 260 ? "…" : ""}</p>
+              </li>
+            ))}
+          </ul>
+          <Link className="btn-primary mt-3 inline-block text-sm" href={`/project/${projectId}/qa#test-cases`}>Fix it in Evaluations →</Link>
         </div>
       ) : (
-        <DocMuted className="mt-3">Everything is in step: what's live is what you designed and evaluated.</DocMuted>
+        <DocMuted className="mt-1">Nothing failing in testing.</DocMuted>
       )}
-      <div className="mt-3 flex flex-wrap gap-2 text-sm">
-        <Link className="btn-ghost" href={`${base}/agent-design`}>Add a skill</Link>
-        <Link className="btn-ghost" href={`${base}/agent-design`}>Change the model</Link>
-        <Link className="btn-ghost" href={`${base}/agent-design`}>Change knowledge</Link>
-        <Link className="btn-ghost" href={`${base}/agent-design`}>Add or change a tool</Link>
-      </div>
-      <DocMuted className="mt-2">
-        Skills, knowledge, model and limits are light changes: approve → apply (no code rewrite) → Evaluations → release. A new or
-        changed tool rewrites code, so it goes through the full build. Either way, the evaluation gate decides what reaches production.
-      </DocMuted>
-    </DocSection>
+      {next && !f && (
+        <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-accent/40 bg-accent/5 p-3 text-sm">
+          <span className="text-fg"><span className="font-semibold">Next: {next.step}.</span> {next.why}</span>
+          <Link className="btn-primary ml-auto text-sm" href={`/project/${projectId}/${next.page}`}>Go →</Link>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -382,7 +566,7 @@ function UserMemory({ projectId }: { projectId: string }) {
   useEffect(() => { find(); }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <DocSection title="User memory">
+    <DocSection title="Manage memory">
       <DocMuted>What the agent remembers about each person. If someone asks to be forgotten, erase it here. That removes their memories, saved conversations and run-log entries for this agent.</DocMuted>
       <div className="mt-3 flex flex-wrap gap-2">
         <input className="input h-9 min-w-0 flex-1" placeholder="Find a user id" value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && find()} />

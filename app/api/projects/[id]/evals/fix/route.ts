@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { tracked } from "@/lib/agent/activity";
 import { applyEvalFix, applyEvalFixes, explainEvalFix, explainEvalFixes, type EvalFixTarget } from "@/lib/agent/eval-fix";
 import { startAutoflow } from "@/lib/agent/autoflow";
 
@@ -14,7 +15,7 @@ const parse = (t: any): EvalFixTarget | null =>
  * target = { kind: "category", category } | { kind: "gate", index }.
  * explain → { explanation, plan, fixable }; apply → { fixed, summary }; explain-all → { items }; apply-all → { results }.
  */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+async function handlePost(req: NextRequest, { params }: { params: { id: string } }) {
   const b = await req.json().catch(() => ({}));
   if (b.step === "explain-all" || b.step === "apply-all") {
     const targets = (Array.isArray(b.targets) ? b.targets : []).map(parse).filter(Boolean) as EvalFixTarget[];
@@ -46,3 +47,5 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: e?.message || "That didn't work." }, { status: 400 });
   }
 }
+
+export const POST = tracked("qa", "Fixing a failing evaluation", handlePost);

@@ -1,18 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
+import { attributed } from "@/lib/agent/activity";
 import crypto from "crypto";
 import { loadBuild } from "@/lib/agent/build-context";
 import { addProductionCase, getOps, opsEnv, runOps, saveOps, type Incident } from "@/lib/agent/ops";
 import { getEvals, saveEvals } from "@/lib/agent/evals-state";
 import { completePhase, getProject, saveArtifact } from "@/lib/store";
+import { changeAgent } from "@/lib/agent/fix";
+import { startAutoflow } from "@/lib/agent/autoflow";
+import { beginActivity } from "@/lib/agent/activity";
 
 /**
  * One endpoint for the Operations page's actions. Body: { action, ... }
  *   kill { disabled }              · tool { name, on }          · online-eval { sample }      · alert
  *   settings { owner, oncall, thresholds }         · add-case { runId, expected }
  *   incident { title, severity, whatHappened, approvals, correctiveAction, runIds } · resolve { id }
- *   review                          — records the ops-report and completes the stage
+ *   snapshot { days }               — records the ops-report for that period (review = 7 days) and completes the stage
+ *   fix-incident { id }             — AI changes the agent to fix what the incident describes, then re-tests and redeploys
  */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+async function handlePost(req: NextRequest, { params }: { params: { id: string } }) {
   const b = await req.json().catch(() => ({}));
   const ctx = await loadBuild(params.id);
   if (!ctx.design) return NextResponse.json({ error: "No agent design." }, { status: 400 });
@@ -54,6 +59,26 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ ops: next });
   }
 
+  if (b.action === "fix-incident") {
+    const inc = ops.incidents.find((i) => i.id === b.id);
+    if (!inc) return NextResponse.json({ error: "Incident not found." }, { status: 404 });
+    const issue =
+      `PRODUCTION INCIDENT (${inc.severity}): ${inc.title}\nWhat happened: ${inc.what_happened || "(not described)"}` +
+      (inc.corrective_action ? `\nThe owner's idea for a fix: ${inc.corrective_action}` : "");
+    const end = beginActivity(params.id, "engineering", "Fixing your agent for an incident");
+    try {
+      const r = await changeAgent({ projectId: params.id, issue, details: inc.corrective_action, kind: "quality", keepTests: false });
+      const next = { ...ops, incidents: ops.incidents.map((i) => (i.id === inc.id ? { ...i, ai_fix: { summary: r.summary, at: new Date().toISOString(), fixed: r.fixed } } : i)) };
+      await saveOps(params.id, next);
+      // The code changed: Engineering re-tests and re-reviews it, then Deployment (as with Evaluations' Fix it).
+      if (r.fixed) startAutoflow(params.id, req.nextUrl.origin, r.version ?? undefined, { codeReady: true });
+      return NextResponse.json({ ops: next, ...r });
+    } catch (e: any) {
+      return NextResponse.json({ error: e?.message || "The AI couldn't fix this one." }, { status: 400 });
+    } finally {
+      end();
+    }
+  }
   if (b.action === "resolve") {
     const next = {
       ...ops,
@@ -122,10 +147,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     await saveOps(params.id, next);
     return NextResponse.json({ ops: next, case: caseId, dataset_version: dataset.version });
   }
-  if (b.action === "review") {
+  if (b.action === "review" || b.action === "snapshot") {
     const meta = await getProject(params.id);
     if (meta?.phase_status.deployment !== "complete") return NextResponse.json({ error: "Go live in Deployment first." }, { status: 400 });
-    const stats = await runOps(ctx.dir, env, ["deploy.ops", "stats", "--days", "7"]);
+    const days = [1, 7, 30, 90].includes(Number(b.days)) ? Number(b.days) : 7;
+    const stats = await runOps(ctx.dir, env, ["deploy.ops", "stats", "--days", String(days)]);
+    // Stopped by the owner: save nothing.
+    if (req.signal?.aborted) return NextResponse.json({ error: "Stopped." }, { status: 499 });
     const artifact = await saveArtifact({
       projectId: params.id,
       phase: "operations",
@@ -135,7 +163,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         reviewed_at: new Date().toISOString(),
         owner: ops.owner,
         oncall: ops.oncall,
-        stats_7d: stats.json,
+        period_days: days,
+        stats: stats.json,
         incidents: ops.incidents,
         cases_added: ops.cases_added,
         last_alert: ops.last_alert,
@@ -143,7 +172,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       inputs: ["deploy-manifest"],
     });
     if (meta.phase_status.operations !== "complete") await completePhase(params.id, "operations");
-    return NextResponse.json({ artifact });
+    const st: any = stats.json ?? {};
+    const snap = {
+      at: new Date().toISOString(),
+      days,
+      runs: Number(st.runs ?? 0),
+      success_rate: typeof st.success_rate === "number" ? st.success_rate : null,
+      cost: typeof st.cost === "number" ? st.cost : null,
+      open_incidents: ops.incidents.filter((i) => i.status === "open").length,
+      cases_added: ops.cases_added.length,
+    };
+    await saveOps(params.id, { ...ops, snapshots: [snap, ...(ops.snapshots ?? [])].slice(0, 50) });
+    return NextResponse.json({ artifact, snapshot: snap });
   }
   return NextResponse.json({ error: "Unknown action." }, { status: 400 });
 }
+
+export const POST = attributed(handlePost);

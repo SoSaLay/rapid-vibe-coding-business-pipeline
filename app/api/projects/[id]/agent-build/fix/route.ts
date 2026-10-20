@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { tracked } from "@/lib/agent/activity";
 import { fixSafetyIssue, type FixTarget } from "@/lib/agent/fix";
 
 /** Body: { target: { kind: "check", id } | { kind: "threat", index }, details? } — the AI fixes one safety issue in the agent. */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+async function handlePost(req: NextRequest, { params }: { params: { id: string } }) {
   const b = await req.json().catch(() => ({}));
   const t = b.target;
   const target: FixTarget | null =
@@ -15,3 +16,5 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: e?.message || "The fix didn't work." }, { status: 400 });
   }
 }
+
+export const POST = tracked("engineering", "Fixing a safety issue", handlePost);

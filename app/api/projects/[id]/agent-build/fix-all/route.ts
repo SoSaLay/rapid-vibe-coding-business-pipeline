@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { tracked } from "@/lib/agent/activity";
 import { getPhaseState } from "@/lib/store";
 import { fixSafetyIssue, type FixTarget } from "@/lib/agent/fix";
 import type { SecurityReport } from "@/lib/phases/agent-security";
 
 /** Fix every red item on the safety checklist, one after another (each fix builds on the last). */
-export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+async function handlePost(_req: NextRequest, { params }: { params: { id: string } }) {
   const report = (await getPhaseState<{ report?: SecurityReport }>(params.id, "security"))?.report;
   if (!report) return NextResponse.json({ error: "Run the safety review first." }, { status: 400 });
   const targets: FixTarget[] = [
@@ -26,3 +27,5 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   }
   return NextResponse.json({ results });
 }
+
+export const POST = tracked("engineering", "Fixing safety issues", handlePost);

@@ -14,9 +14,9 @@ export async function runAndSaveSafetyReview(projectId: string): Promise<Securit
   for (const extra of ["agent/prompt.py", "agent/tools.py", "agent/graph.py", ".gitignore"]) {
     if (!(extra in files)) files[extra] = await fs.readFile(path.join(ctx.dir, extra), "utf8").catch(() => "");
   }
-  const report = await runSecurityReview({ design: ctx.design, spec: ctx.spec, files });
-  report.design_version = ctx.build.design_version;
   const prev = (await getPhaseState<{ report?: SecurityReport }>(projectId, "security"))?.report;
+  const report = await runSecurityReview({ design: ctx.design, spec: ctx.spec, files, previous: prev });
+  report.design_version = ctx.build.design_version;
   for (const c of report.checks) {
     const old = prev?.checks.find((p) => p.id === c.id);
     if (c.status === "fail" && old?.status === "exception") Object.assign(c, { status: "exception", exception_note: old.exception_note });

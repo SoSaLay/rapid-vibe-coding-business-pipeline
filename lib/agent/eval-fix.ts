@@ -58,6 +58,7 @@ export async function explainEvalFix(projectId: string, target: EvalFixTarget, s
       "You explain to a non-technical owner why their AI agent fails some tests, and what you'd change. Plain words, no code, no snake_case names. " +
       "Levers you can use: require approval on a tool, add instruction rules, rewrite a tool's code, lower the step limit, switch the model.",
     effort: "low",
+    tier: "small",
     schema: {
       type: "object",
       additionalProperties: false,

@@ -234,7 +234,15 @@ def _rules() -> str:
 
 
 def build(checkpointer=None):
-    middleware = []
+    middleware = []${design.model.selected.startsWith("anthropic:") ? `
+    # Prompt caching: the instructions and tool list are the same on every step, so Anthropic bills them
+    # at about a tenth of the price after the first call (cuts most of each run's input cost).
+    try:
+        from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
+
+        middleware.append(AnthropicPromptCachingMiddleware(ttl="5m", unsupported_model_behavior="ignore"))
+    except ImportError:  # older langchain-anthropic: run without caching
+        pass` : ""}
     approve = [*APPROVAL_REQUIRED${(design.mcp_servers ?? []).length ? ", *MCP_APPROVAL" : ""}]
     if approve:
         middleware.append(HumanInTheLoopMiddleware(interrupt_on={name: True for name in approve}))
@@ -329,11 +337,12 @@ def grade(task: str, expected: str, actual) -> Verdict:
 
     from agent.graph import MODEL
 
-    judge = init_chat_model(MODEL).with_structured_output(Verdict)
+    judge = init_chat_model(os.getenv("EVAL_JUDGE_MODEL", MODEL)).with_structured_output(Verdict)
     return judge.invoke(
         "Grade an AI agent's run. Pass only if the actual result achieves what the expected outcome describes "
         "(wording can differ). Write tools ran in dry-run mode, so '[dry run] would ...' counts as doing it, and "
-        "read tools returned test data.\\n\\n"
+        "read tools returned test data. This is a test run with no one to click approve: every approval step counts "
+        "as shown and approved, so actions after it are not 'before approval'.\\n\\n"
         f"TASK:\\n{task}\\n\\nEXPECTED:\\n{expected}\\n\\nACTUAL:\\n{json.dumps(actual, default=str)[:6000]}"
     )
 

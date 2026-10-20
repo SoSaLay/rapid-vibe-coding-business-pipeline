@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { attributed } from "@/lib/agent/activity";
 import { activeProvider } from "@/lib/llm/registry";
 
 /**
  * Turn a failed deployment step's raw output into one plain line that says who needs to act.
  * Body: { error, log } → { who: "you" | "agent" | "pipeline", line }.
  */
-export async function POST(req: NextRequest) {
+async function handlePost(req: NextRequest) {
   const b = await req.json().catch(() => ({}));
   const error = String(b.error ?? "").slice(0, 500);
   const log = String(b.log ?? "").slice(-6000);
@@ -18,6 +19,7 @@ export async function POST(req: NextRequest) {
         "'agent' = the agent's own code failed on its task (fixable with Fix it); 'pipeline' = the builder app set something up wrong " +
         "(bad config it generated, a bug, a connection/pool setting) — not the owner's fault. For 'you', say exactly what to do.",
       effort: "low",
+      tier: "small",
       schema: {
         type: "object",
         additionalProperties: false,
@@ -31,3 +33,5 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: e?.message || "Couldn't explain it." }, { status: 500 });
   }
 }
+
+export const POST = attributed(handlePost);

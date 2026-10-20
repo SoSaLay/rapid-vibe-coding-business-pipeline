@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { attributed } from "@/lib/agent/activity";
 import { ideaTypeContext } from "@/lib/idea-types";
 import { latestArtifact, savePhaseState, getPhaseState, saveArtifact, completePhase, getProject } from "@/lib/store";
 import { synthesizeSpec, PODialogue } from "@/lib/phases/product-owner";
 
-export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+async function handlePost(_req: NextRequest, { params }: { params: { id: string } }) {
   const dialogue = await getPhaseState<PODialogue>(params.id, "product-owner");
   const rawIdea = await latestArtifact(params.id, "raw-idea");
   if (!rawIdea) return NextResponse.json({ error: "No raw idea found." }, { status: 400 });
@@ -31,3 +32,5 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: e?.message || "Failed to synthesize spec." }, { status: 500 });
   }
 }
+
+export const POST = attributed(handlePost);

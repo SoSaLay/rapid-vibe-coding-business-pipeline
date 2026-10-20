@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getProject, listArtifacts, getPhaseState, deleteProject } from "@/lib/store";
 import { PODialogue } from "@/lib/phases/product-owner";
 import { getAutoflow, isAutoflowRunning } from "@/lib/agent/autoflow";
+import { activities } from "@/lib/agent/activity";
 import { githubStatus } from "@/lib/agent/github";
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -42,6 +43,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       security,
       autoflow,
       github,
+      // Long jobs running right now (evaluations, test cases, checks, builds, fixes), by stage.
+      activity: activities(params.id),
     },
   });
 }

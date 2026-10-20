@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { tracked } from "@/lib/agent/activity";
 import { execFile } from "child_process";
 import os from "os";
 import path from "path";
@@ -23,7 +24,7 @@ function compile(dir: string): Promise<{ ok: boolean; output: string }> {
 }
 
 /** Step 2: install Python + packages, then check the agent loads. One automatic repair if it doesn't. */
-export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+async function handlePost(_req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await loadBuild(params.id);
   if (!ctx.build || !ctx.design || !ctx.spec) return NextResponse.json({ error: "Write the code first." }, { status: 400 });
   if (!(await uvAvailable())) {
@@ -50,3 +51,5 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   await saveBuild(params.id, ctx.phase, build);
   return NextResponse.json({ build }, { status: check.ok ? 200 : 422 });
 }
+
+export const POST = tracked("engineering", "Installing", handlePost);

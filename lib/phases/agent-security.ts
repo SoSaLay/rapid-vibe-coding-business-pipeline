@@ -8,6 +8,7 @@
  * exception before Evaluations unlocks.
  */
 
+import { createHash } from "crypto";
 import { activeProvider } from "../llm/registry";
 import type { AgentDesign } from "../agent/design";
 import { specToAgentText } from "./agent-design";
@@ -35,6 +36,9 @@ export interface SecurityReport {
   ran_at: string;
   /** The design version the reviewed build came from (a newer build needs a new review). */
   design_version?: number;
+  /** Fingerprint of what the threat model read (job, tools, prompt, tool code): unchanged → reuse it, no AI call. */
+  threat_input_hash?: string;
+  unapproved_consequential_tools?: string[];
 }
 
 const THREAT_SCHEMA = {
@@ -84,24 +88,27 @@ export async function runSecurityReview(args: {
   design: AgentDesign;
   spec: Record<string, any>;
   files: Record<string, string>;
+  /** The last report: its threat model is reused when nothing it read has changed. */
+  previous?: SecurityReport;
 }): Promise<SecurityReport> {
-  const { design, spec, files } = args;
+  const { design, spec, files, previous } = args;
   const tools = design.tools.filter((t) => t.enabled);
-  const tm = await activeProvider().completeJson<ThreatModel & { unapproved_consequential_tools: string[] }>({
-    system:
-      "You are an AI-agent security reviewer. Threat-model prompt injection and tool misuse for THIS agent. Be concrete and brief; " +
-      "name the actual sources and tools. Judge controls against the design and code you're given, not best intentions.",
-    effort: "high", // a big agent's threat model can outgrow the medium output cap
-    schema: THREAT_SCHEMA,
-    messages: [
-      {
-        role: "user",
-        content:
-          `JOB:\n${specToAgentText(spec)}\n\nTOOLS:\n${tools.map((t) => `- ${t.name} (${t.side_effect}, approval: ${t.requires_approval}, permission: ${t.permission}): ${t.description}`).join("\n")}\n\n` +
-          `SYSTEM PROMPT:\n${files["agent/prompt.py"] ?? ""}\n\nTOOL CODE:\n${(files["agent/tools.py"] ?? "").slice(0, 20000)}`,
-      },
-    ],
-  });
+  const threatInput =
+    `JOB:\n${specToAgentText(spec)}\n\nTOOLS:\n${tools.map((t) => `- ${t.name} (${t.side_effect}, approval: ${t.requires_approval}, permission: ${t.permission}): ${t.description}`).join("\n")}\n\n` +
+    `SYSTEM PROMPT:\n${files["agent/prompt.py"] ?? ""}\n\nTOOL CODE:\n${(files["agent/tools.py"] ?? "").slice(0, 20000)}`;
+  const hash = createHash("sha256").update(threatInput).digest("hex");
+  // The threat model is the slow part (one long AI call): skip it when its inputs are the same as last time.
+  const tm: ThreatModel & { unapproved_consequential_tools: string[] } =
+    previous?.threat_input_hash === hash
+      ? { ...previous.threat_model, unapproved_consequential_tools: previous.unapproved_consequential_tools ?? [] }
+      : await activeProvider().completeJson<ThreatModel & { unapproved_consequential_tools: string[] }>({
+          system:
+            "You are an AI-agent security reviewer. Threat-model prompt injection and tool misuse for THIS agent. Be concrete and brief; " +
+            "name the actual sources and tools. Judge controls against the design and code you're given, not best intentions.",
+          effort: "high", // a big agent's threat model can outgrow the medium output cap
+          schema: THREAT_SCHEMA,
+          messages: [{ role: "user", content: threatInput }],
+        });
 
   const all = Object.entries(files);
   const prompt = files["agent/prompt.py"] ?? "";
@@ -181,7 +188,13 @@ export async function runSecurityReview(args: {
     },
   ];
 
-  return { threat_model: { entry_points: tm.entry_points ?? [], tool_misuse: tm.tool_misuse ?? [] }, checks, ran_at: new Date().toISOString() };
+  return {
+    threat_model: { entry_points: tm.entry_points ?? [], tool_misuse: tm.tool_misuse ?? [] },
+    checks,
+    ran_at: new Date().toISOString(),
+    threat_input_hash: hash,
+    unapproved_consequential_tools: tm.unapproved_consequential_tools ?? [],
+  };
 }
 
 /** Gate: nothing left failing (deferred and owner-signed exceptions are fine). */

@@ -7,9 +7,12 @@ import Link from "next/link";
 import type { DeployState } from "@/lib/agent/deploy";
 import { Doc, DocSection, DocP, DocMuted, DocFacts } from "./doc/Doc";
 import { StageStart } from "./StageStart";
+import { SpendMeter } from "./SpendMeter";
 
 interface Status {
   state: DeployState;
+  /** Why the testing agent hasn't earned going live (empty = passed its checks). */
+  failures?: string[];
   /** Release id → what changed since the release before it. */
   notes?: Record<string, string>;
   host: "agentcore" | "railway";
@@ -23,15 +26,6 @@ interface Status {
   prepared: boolean;
   workspace: string;
 }
-
-const HOST_LABEL = { agentcore: "Amazon Bedrock AgentCore", railway: "Railway" };
-/** Who uses it, in plain words. */
-const LOGIN_LABEL: Record<string, string> = {
-  "machine-key": "No one. It does its work and returns the result.",
-  "supabase-auth": "People who log in (free to use)",
-  "neon-auth": "People who log in (free to use)",
-  clerk: "Paying users who log in",
-};
 
 /**
  * One deployment step as a toggle: status outside (✓ done, its number, or "Not needed"), and inside
@@ -114,96 +108,102 @@ function ProviderKey({ steps, placeholder, disabled, onSave }: { steps: React.Re
   );
 }
 
+/** The deploy table's columns: lock · step · status · live links. */
+const DEPLOY_GRID = "grid grid-cols-[1.25rem_12.5rem_minmax(0,1fr)_11rem] items-center gap-4 px-4";
+
+type Autoflow = { running: boolean; stage: string; phase: string | null; message: string; error?: string; run_url?: string } | null;
+type Github = { built: boolean; connected: boolean; mode: "ask" | "auto" | null; unpushed: number; url?: string | null } | null;
+
 /**
- * In the Deployment title row (right side): new changes to the agent and getting them live. Deploying = push to
- * GitHub, where the agent's workflow re-runs the tests and evals and releases a test copy.
+ * The "Deploy agent for testing" row's action: one place for new changes and getting them onto the
+ * testing agent. With GitHub connected, deploying = push to GitHub, whose workflow runs the unit tests
+ * and releases the testing agent; the pipeline then checks it. Without GitHub, it deploys from here.
  */
-export function LatestChanges({ projectId, autoflow, github, onUpdated }: {
+function TestingAction({ projectId, autoflow, github, deployed, localDeploy, onUpdated }: {
   projectId: string;
-  autoflow: { running: boolean; stage: string; phase: string | null; message: string; error?: string; run_url?: string } | null;
-  github: { built: boolean; connected: boolean; mode: "ask" | "auto" | null; unpushed: number; url?: string | null } | null;
+  autoflow: Autoflow;
+  github: Github;
+  /** A testing agent exists already. */
+  deployed: boolean;
+  /** Deploy straight from this machine (no GitHub, or the first deploy). Null when that isn't possible. */
+  localDeploy: { label: string; onClick: () => void; disabled: boolean } | null;
   onUpdated: () => void;
 }) {
   const [sending, setSending] = useState(false);
-  const post = async (body: Record<string, unknown>) => {
+  const send = async (body: Record<string, unknown>) => {
     setSending(true);
     await fetch(`/api/projects/${projectId}/github`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => {});
     setSending(false);
     onUpdated();
   };
-  const runLink = autoflow?.run_url ? <a className="text-accent underline" href={autoflow.run_url} target="_blank" rel="noreferrer">Open on GitHub ↗</a> : null;
+  const row = (main: React.ReactNode, extra?: React.ReactNode) => (
+    <span className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1.5">
+      {main}
+      {extra}
+    </span>
+  );
 
+  // Working: Engineering rebuilding, or GitHub releasing.
+  if (autoflow?.running && autoflow.phase === "engineering") {
+    return row(<span className="flex items-center gap-2 text-muted"><span className="h-2 w-2 animate-pulse rounded-full bg-accent" />Engineering is building your latest changes…</span>);
+  }
   if (autoflow?.running && autoflow.phase === "deployment") {
-    return (
-      <Card tone="info">
-        <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-accent" />
-        <span>{autoflow.message}</span>
-        {runLink}
-      </Card>
-    );
+    return row(<span className="flex items-center gap-2 text-fg/90"><span className="h-2 w-2 animate-pulse rounded-full bg-accent" />{autoflow.message}</span>);
   }
-  // While Engineering rebuilds, Deployment shows nothing here: the sidebar shows Engineering working.
-  if (autoflow?.running && autoflow.phase === "engineering") return null;
+
   const n = github?.unpushed ?? 0;
-  if (!n) {
-    if (autoflow?.stage === "deployed") return <Card tone="ok"><span>✓ Changes deployed</span>{runLink}</Card>;
-    if (autoflow?.stage === "failed" && autoflow.error) {
-      return (
-        <Card tone="bad">
-          <span className="font-semibold">{autoflow.message}</span>
-          <span className="max-w-sm text-xs text-fg/80">{autoflow.error}</span>
-          <span className="flex items-center gap-3">
-            {runLink}
-            <button className="btn-ghost text-sm" disabled={sending} onClick={() => post({ action: "deploy" })}>Try again</button>
-          </span>
-        </Card>
-      );
-    }
-    return github?.built ? <Card tone="ok"><span>✓ No new changes to deploy</span></Card> : null;
-  }
-  const changes = `${n} new change${n === 1 ? "" : "s"}`;
-  if (!github?.connected) {
-    return (
-      <Card tone="warn">
-        <span>
-          <span className="font-semibold">You have {changes} to your agent.</span> Connect GitHub in onboarding to deploy them.
+  const failed = autoflow?.stage === "failed" && autoflow.error ? (
+    <span className="basis-full text-xs text-bad">Last try failed: {autoflow.error}</span>
+  ) : null;
+
+  // New changes waiting.
+  if (n > 0 && github?.connected) {
+    return row(
+      <span className="flex flex-wrap items-center gap-2">
+        <span className="flex items-center gap-2 font-semibold text-warn">
+          <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-warn" />
+          {n} new change{n === 1 ? "" : "s"}
         </span>
-        <Link className="btn-ghost text-sm" href={`/project/${projectId}`}>Open onboarding</Link>
-      </Card>
-    );
-  }
-  return (
-    <Card tone="warn">
-      <span>
-        <span className="font-semibold">You have {changes} to your agent.</span>
-        {autoflow?.stage === "failed" && autoflow.error && <span className="block text-bad">Last try failed: {autoflow.error}</span>}
-      </span>
-      <div className="flex flex-wrap gap-2">
-        {github.mode !== "auto" && (
-          <button className="btn-ghost text-sm" disabled={sending} onClick={() => post({ action: "mode", mode: "auto", deploy: true })}>
+        <button
+          className="rounded-lg bg-warn px-3 py-1.5 text-sm whitespace-nowrap font-semibold text-onbright hover:opacity-90"
+          disabled={sending}
+          onClick={() => send(github.mode === null ? { action: "mode", mode: "ask", deploy: true } : { action: "deploy" })}
+          title="Push your changes to GitHub; it releases the testing agent and the pipeline checks it"
+        >
+          Deploy now
+        </button>
+        {github.mode === "auto" ? (
+          <button className="btn-ghost text-sm whitespace-nowrap" disabled={sending} onClick={() => send({ action: "mode", mode: "ask" })} title="New changes wait here for Deploy now">
+            Ask me every time
+          </button>
+        ) : (
+          <button className="btn-ghost text-sm whitespace-nowrap" disabled={sending} onClick={() => send({ action: "mode", mode: "auto", deploy: true })} title="Deploys now, and every future change on its own">
             Always deploy automatically
           </button>
         )}
-        <button
-          className="btn-ghost text-sm"
-          disabled={sending}
-          onClick={() => post(github.mode === null ? { action: "mode", mode: "ask", deploy: true } : { action: "deploy" })}
-        >
-          Push &amp; deploy now
-        </button>
-      </div>
-    </Card>
-  );
-}
+      </span>,
+      failed,
+    );
+  }
+  if (n > 0 && localDeploy) {
+    return row(
+      <button className="animate-pulse rounded-lg bg-warn px-4 py-1.5 text-sm font-semibold text-onbright hover:animate-none hover:opacity-90" disabled={localDeploy.disabled} onClick={localDeploy.onClick}>
+        🟡 You have {n} new change{n === 1 ? "" : "s"}. Deploy?
+      </button>,
+      <Link className="text-xs text-muted underline" href={`/project/${projectId}`}>Connect GitHub for automatic releases</Link>,
+    );
+  }
 
-function Card({ tone, children }: { tone: "warn" | "bad" | "info" | "ok"; children: React.ReactNode }) {
-  const cls = {
-    warn: "border-warn/50 bg-warn/10 text-fg",
-    bad: "border-bad/50 bg-bad/10 text-bad",
-    info: "border-accent/40 bg-accent/10 text-fg",
-    ok: "border-ok/40 bg-ok/10 text-ok opacity-80",
-  }[tone];
-  return <div className={`ml-auto flex flex-col items-end gap-2 rounded-xl border px-4 py-3 text-right text-sm ${cls}`}>{children}</div>;
+  // Nothing new.
+  if (failed && github?.connected) {
+    return row(
+      <button className="btn-ghost text-sm" disabled={sending} onClick={() => send({ action: "deploy" })}>Try again</button>,
+      failed,
+    );
+  }
+  if (localDeploy && !github?.connected) return row(<TestDeployButton label={localDeploy.label} disabled={localDeploy.disabled} onClick={localDeploy.onClick} />);
+  if (!deployed && localDeploy) return row(<TestDeployButton label={localDeploy.label} disabled={localDeploy.disabled} onClick={localDeploy.onClick} />);
+  return row(<span className="text-sm text-muted">✓ Latest changes deployed</span>);
 }
 
 function TestDeployButton({ label, disabled, onClick }: { label: string; disabled: boolean; onClick: () => void }) {
@@ -265,7 +265,18 @@ function ReleaseTable({ history, notes, passed, liveId, busy, onRedeploy }: {
             return (
               <tr key={h.id + h.at + i} className="border-t border-edge bg-ink/40 align-top">
                 <td className="px-3 py-2">
-                  <div className="font-medium text-fg">{label}</div>
+                  <div className="font-medium text-fg">
+                    {label}
+                    {h.override && (
+                      <span
+                        className="ml-2 rounded bg-warn/15 px-1.5 py-0.5 text-[11px] font-medium text-warn"
+                        title={`Went live without passing its checks.\nReason: ${h.override.reason}\nFailed: ${h.override.failures.join(" · ")}`}
+                      >
+                        ⚠ live with override
+                      </span>
+                    )}
+                  </div>
+                  {h.override && <div className="max-w-xs text-xs text-warn/90">Reason: {h.override.reason}</div>}
                   {notes[h.id] && <div className="max-w-xs truncate text-xs text-muted" title={notes[h.id]}>{notes[h.id]}</div>}
                 </td>
                 <td className="px-3 py-2 text-fg/90">
@@ -340,7 +351,7 @@ function targetLink(t: { url?: string; arn?: string; region?: string }): string 
   if (t.url) return t.url;
   if (t.arn) {
     const region = t.region || t.arn.split(":")[3] || "us-east-1";
-    return `https://${region}.console.aws.amazon.com/bedrock-agentcore/home?region=${region}`;
+    return `https://${region}.console.aws.amazon.com/bedrock-agentcore/playground?region=${region}`; // the runtime playground: type a prompt, see the output
   }
   return null;
 }
@@ -367,8 +378,8 @@ export function AgentDeployment({
   projectId: string;
   hasEvals: boolean;
   completed: boolean;
-  autoflow?: { running: boolean; stage: string; phase: string | null; message: string; error?: string; run_url?: string } | null;
-  github?: { built: boolean; connected: boolean; mode: "ask" | "auto" | null; unpushed: number; url?: string | null } | null;
+  autoflow?: Autoflow;
+  github?: Github;
   autostart?: boolean;
   onUpdated: () => void;
 }) {
@@ -387,6 +398,8 @@ export function AgentDeployment({
   const [dbUrl, setDbUrl] = useState("");
   const [jwks, setJwks] = useState("");
   const [urls, setUrls] = useState<{ staging?: string; production?: string }>({});
+  /** "Go live anyway": the open warning and the owner's reason. */
+  const [anyway, setAnyway] = useState<string | null>(null);
 
   async function load() {
     const d = await fetch(`/api/projects/${projectId}/deploy`).then((r) => r.json()).catch(() => null);
@@ -578,17 +591,6 @@ export function AgentDeployment({
 
   return (
     <Doc>
-      <div className="card mb-8 divide-y divide-edge text-sm">
-        <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 py-3">
-          <span className="w-32 font-medium text-fg">Host</span>
-          <span className="text-fg/90">{HOST_LABEL[st.host]}{st.hostConnected ? "" : " · not connected yet (add it in onboarding)"}</span>
-        </div>
-        <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 py-3">
-          <span className="w-32 font-medium text-fg">Who uses it</span>
-          <span className="text-fg/90">{LOGIN_LABEL[st.login] ?? st.login}</span>
-        </div>
-      </div>
-
       <DocSection title="Deployment steps">
         <div className="space-y-2">
           <Step n={1} state={stateOf("db")} title="Agent database">
@@ -759,29 +761,48 @@ export function AgentDeployment({
           </Step>
 
         </div>
-        {/* What the steps unlock: a checked test copy, then going live. */}
-        <div className="card mt-4 divide-y divide-edge text-sm">
-          <div className="flex items-center gap-4 px-4 py-3">
+        {busy && !/Releasing|Checking|Going live|Rolling back/.test(busy) && <StageLoading text={busy} size="sm" />}
+      </DocSection>
+
+      {/* The action: what the steps unlock — a checked testing agent, then going live. Set apart and highlighted. */}
+      <section className="mt-24 mb-16">
+        <div className="overflow-x-auto rounded-2xl border-2 border-accent/60 bg-accent/[0.07] text-sm shadow-[0_0_40px_-12px] shadow-accent/50">
+         <div className="min-w-[620px] divide-y divide-accent/25">
+          <div className={`${DEPLOY_GRID} py-2 text-[11px] font-semibold uppercase tracking-wider text-muted`}>
+            <span />
+            <span>Step</span>
+            <span className="text-center">Status</span>
+            <span>Live links</span>
+          </div>
+          <div className={`${DEPLOY_GRID} py-3`}>
             <Lock open={setupDone} working={!!busy && /Releasing|Checking/.test(busy)} why="Set up the agent database (and login, if needed) above to unlock." />
-            <span className="w-52 shrink-0 font-medium text-fg">Deploy agent for testing</span>
-            <span className="min-w-0 flex-1">
+            <span className="whitespace-nowrap font-medium text-fg">Deploy agent: testing</span>
+            <span className="flex min-w-0 justify-center text-center">
               {busy && /Releasing|Checking/.test(busy) ? (
-                <span className="text-muted">{busy}</span>
-              ) : setupDone && stage ? (
-                <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <TestDeployButton label="🧪 Redeploy" disabled={!!busy || !st.hostConnected} onClick={() => post("release", {}, "Releasing a test copy (a few minutes)…")} />
-                  {targetLink(stage.target) ? (
-                    <a className="text-accent underline" href={targetLink(stage.target)!} target="_blank" rel="noreferrer">Live testing agent ↗</a>
-                  ) : (
-                    <span className="text-fg/90">Released ({stage.release.id})</span>
-                  )}
-                </span>
+                <span className="flex items-center gap-2 text-muted"><span className="h-2 w-2 animate-pulse rounded-full bg-accent" />{busy}</span>
               ) : (
-                <TestDeployButton label="🧪 Deploy" disabled={!setupDone || !!busy || !st.hostConnected} onClick={() => post("release", {}, "Releasing a test copy (a few minutes)…")} />
+                <TestingAction
+                  projectId={projectId}
+                  autoflow={autoflow}
+                  github={github}
+                  onUpdated={() => { onUpdated(); load(); }}
+                  deployed={!!(setupDone && stage)}
+                  localDeploy={{
+                    label: stage ? "🧪 Redeploy" : "🧪 Deploy",
+                    disabled: !setupDone || !!busy || !st.hostConnected,
+                    onClick: () => post("release", {}, "Releasing a test copy (a few minutes)…"),
+                  }}
+                />
               )}
             </span>
+            <span className="flex flex-col gap-1">
+              {stage && targetLink(stage.target) && (
+                <a className="text-accent underline" href={targetLink(stage.target)!} target="_blank" rel="noreferrer">Live testing agent ↗</a>
+              )}
+              {!(stage && targetLink(stage.target)) && <span className="text-muted">—</span>}
+            </span>
           </div>
-          <div className="flex items-center gap-4 px-4 py-3">
+          <div className={`${DEPLOY_GRID} py-3`}>
             <Lock
               open={done.check || done.live}
               working={!!busy && /Going live|Rolling back/.test(busy)}
@@ -791,40 +812,91 @@ export function AgentDeployment({
                   : checkedThis && s.check?.inconclusive
                     ? `The last check couldn't score the testing copy: ${s.check.inconclusive}`
                     : checkedThis && s.check && !s.check.passed
-                    ? "The testing copy failed its checks: fix them in Evaluations, then check again."
+                    ? "The testing copy failed its checks: fix them in Evaluations, or go live anyway."
                     : "Unlocks once the agent is deployed for testing and passes its checks."
               }
             />
-            <span className="w-52 shrink-0 font-medium text-fg">Deploy agent for production</span>
-            <span className="min-w-0 flex-1">
-              {live ? (
+            <span className="whitespace-nowrap font-medium text-fg">Deploy agent: production</span>
+            <span className="flex min-w-0 flex-col items-center gap-1 text-center">
+              {live && (
                 <span className="flex flex-wrap items-center gap-x-3">
-                  {targetLink(live.target) ? (
-                    <a className="text-accent underline" href={targetLink(live.target)!} target="_blank" rel="noreferrer">Open the live agent ↗</a>
-                  ) : (
-                    <span className="text-fg/90">Release {live.release.id}</span>
-                  )}
+                  <span className="text-ok">✓ Live ({live.release.version ? `v${live.release.version}` : live.release.id})</span>
                   {canRollback && (
                     <button className="text-xs text-muted underline" disabled={!!busy} onClick={() => post("promote", { action: "rollback" }, "Rolling back…")}>
                       Roll back
                     </button>
                   )}
                 </span>
-              ) : null}
+              )}
               {!done.live && (
-                <button
-                  className="rounded-lg bg-ok px-4 py-1.5 text-sm font-semibold text-onbright transition-transform hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
-                  disabled={!!busy || !done.check}
-                  onClick={() => post("promote", { action: "promote" }, "Going live…")}
-                >
-                  🚀 Go live
-                </button>
+                <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <button
+                    className="rounded-lg bg-ok px-4 py-1.5 text-sm font-semibold text-onbright transition-transform hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+                    disabled={!!busy || !done.check}
+                    onClick={() => post("promote", { action: "promote" }, "Going live…")}
+                  >
+                    🚀 Go live
+                  </button>
+                  {!done.check && stage && anyway === null && (
+                    <button className="text-xs text-warn underline" disabled={!!busy} onClick={() => setAnyway("")}>
+                      Go live anyway
+                    </button>
+                  )}
+                </span>
               )}
             </span>
+            <span className="flex flex-col gap-1">
+              {live && targetLink(live.target) && (
+                <a className="text-accent underline" href={targetLink(live.target)!} target="_blank" rel="noreferrer">Live production agent ↗</a>
+              )}
+              {!(live && targetLink(live.target)) && <span className="text-muted">—</span>}
+            </span>
           </div>
+         </div>
+          {!done.check && stage && anyway !== null && (
+            <div className="space-y-3 bg-warn/10 px-4 py-4">
+              <p className="font-semibold text-warn">⚠ The testing agent ({stage.release.version ? `v${stage.release.version}` : stage.release.id}) hasn&apos;t passed its checks:</p>
+              <ul className="list-disc space-y-1 pl-5 text-fg/90">
+                {(st.failures?.length ? st.failures : ["It hasn't been checked on the testing agent yet."]).map((f) => (
+                  <li key={f} className={/injection|unsafe/i.test(f) ? "font-medium text-bad" : ""}>
+                    {f}
+                    {/injection|unsafe/i.test(f) && " This is a security rule: real users could be affected."}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs text-muted">You can still go live; it&apos;s your call. Your reason is saved with this release and shown in Release history.</p>
+              <textarea
+                className="input min-h-[64px] w-full text-sm"
+                placeholder="Why is it OK to go live anyway? (required)"
+                value={anyway}
+                onChange={(e) => setAnyway(e.target.value)}
+              />
+              <div className="flex gap-2">
+                <button
+                  className="rounded-lg bg-warn px-4 py-1.5 text-sm font-semibold text-onbright hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                  disabled={!!busy || anyway.trim().length < 3}
+                  onClick={async () => {
+                    const reason = anyway.trim();
+                    setAnyway(null);
+                    await post("promote", { action: "promote", override: reason }, "Going live…");
+                  }}
+                >
+                  🚀 Go live anyway
+                </button>
+                <button className="btn-ghost text-sm" onClick={() => setAnyway(null)}>Cancel</button>
+              </div>
+            </div>
+          )}
         </div>
-        {busy && !/Releasing|Checking|Going live|Rolling back/.test(busy) && <StageLoading text={busy} size="sm" />}
-      </DocSection>
+        {github?.url && (
+          <div className="mt-2 flex flex-wrap justify-end gap-x-4 px-1 text-xs">
+            <a className="text-accent underline" href={github.url} target="_blank" rel="noreferrer">Open on GitHub ↗</a>
+            {autoflow?.run_url && (autoflow.running || autoflow.stage === "failed") && (
+              <a className="text-muted underline" href={autoflow.run_url} target="_blank" rel="noreferrer">This release&apos;s run ↗</a>
+            )}
+          </div>
+        )}
+      </section>
 
 
       {(ev || checkedThis || s.history.length > 0) && (
@@ -851,7 +923,9 @@ export function AgentDeployment({
                   ) : (
                     <p className="text-fg">
                       <span className="font-semibold text-bad">Live testing agent: </span>
-                      failed its checks ({failedCheck}). Fix it in Evaluations; the next release is checked automatically.
+                      failed its checks ({failedCheck}).{" "}
+                      <a className="text-accent underline" href={`/project/${projectId}/qa#test-cases`}>Fix it in Evaluations →</a>{" "}
+                      The next release is checked automatically.
                     </p>
                   ))}
                 {newest?.kind === "event" &&
@@ -888,6 +962,13 @@ export function AgentDeployment({
               />
             </div>
           )}
+          <div className="mt-12">
+            <WatchHeading>Development and testing spend</WatchHeading>
+            <p className="mb-4 mt-1 text-xs text-muted">
+              AI credits this agent used: development (the pipeline writing, fixing and reviewing its code) and testing (evaluations and live checks).
+            </p>
+            <SpendMeter projectId={projectId} refreshKey={`${s.check?.at}-${busy}`} />
+          </div>
         </section>
       )}
 

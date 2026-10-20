@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { attributed } from "@/lib/agent/activity";
 import { getBuilderChat, runBuilder, type BuilderMode } from "@/lib/agent/builder";
 
 /** The Automatic Agent Builder's conversation so far. */
@@ -7,7 +8,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 }
 
 /** Body: { message, mode: "design" | "code" } — the AI changes the agent as asked and replies. */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+async function handlePost(req: NextRequest, { params }: { params: { id: string } }) {
   const b = await req.json().catch(() => ({}));
   const message = String(b.message ?? "").trim().slice(0, 4000);
   if (!message) return NextResponse.json({ error: "Type a change first." }, { status: 400 });
@@ -18,3 +19,5 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: e?.message || "The AI couldn't make that change." }, { status: 400 });
   }
 }
+
+export const POST = attributed(handlePost);

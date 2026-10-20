@@ -19,6 +19,11 @@ export async function modelKey(modelId: string, endpoint?: string): Promise<stri
   return null;
 }
 
+/** The small model that grades evals, per provider (others grade with the agent's own model). */
+const GRADER_MODEL: Record<string, string> = {
+  anthropic: "anthropic:claude-haiku-5-5",
+};
+
 export async function agentEnv(projectId: string, design: AgentDesign, slug: string): Promise<Record<string, string>> {
   const env: Record<string, string> = { ...(await (await credentialsAdapter(projectId)).envFor(projectId)) };
   const keyEnv = modelKeyEnv(design.model.selected);
@@ -30,6 +35,9 @@ export async function agentEnv(projectId: string, design: AgentDesign, slug: str
     const k = (await readConnectorConfig("ai-openai"))?.apiKey || process.env.OPENAI_API_KEY;
     if (k && !design.model_endpoint) env.OPENAI_API_KEY = k;
   }
+  // Grading test runs is a simple pass/fail judgment: use the provider's small model, not the agent's (often much pricier) one.
+  const grader = GRADER_MODEL[design.model.selected.split(":")[0]];
+  if (grader && !design.model_endpoint) env.EVAL_JUDGE_MODEL = grader;
   if (design.model_price) {
     env.MODEL_PRICE_IN = String(design.model_price.input);
     env.MODEL_PRICE_OUT = String(design.model_price.output);

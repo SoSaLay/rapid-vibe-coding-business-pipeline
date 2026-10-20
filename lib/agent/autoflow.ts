@@ -130,11 +130,10 @@ async function run(projectId: string, origin: string, designVersion?: number, co
   } else if (!refresh.ok) {
     throw new Error(refresh.d.error || "Updating the code failed.");
   }
-  await set(projectId, { stage: "testing", message: "Running the tests on your latest changes…" });
-  const test = await call(origin, projectId, "agent-build/test");
+  // The tests and the safety review don't depend on each other: run them side by side.
+  await set(projectId, { stage: "testing", message: "Testing your latest changes and reviewing their safety…" });
+  const [test, review] = await Promise.all([call(origin, projectId, "agent-build/test"), call(origin, projectId, "agent-build/review")]);
   if (!test.ok) throw new Error(test.d.error || "The tests couldn't run.");
-  await set(projectId, { stage: "reviewing", message: "Reviewing the safety of your latest changes…" });
-  const review = await call(origin, projectId, "agent-build/review");
   if (!review.ok) throw new Error(review.d.error || "The safety review couldn't run.");
 
   // 2. Deployment.
@@ -157,7 +156,7 @@ async function followRun(projectId: string, token: string, origin: string) {
   const deadline = Date.now() + 25 * 60_000;
   let seen = false;
   while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 15_000));
+    await new Promise((r) => setTimeout(r, 8_000));
     const j: any = await fetch(`https://api.github.com/repos/${status.repo}/actions/runs?head_sha=${sha}&per_page=5`, { headers })
       .then((r) => r.json())
       .catch(() => null);

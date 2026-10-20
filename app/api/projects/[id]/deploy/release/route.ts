@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { tracked } from "@/lib/agent/activity";
 import { loadBuild } from "@/lib/agent/build-context";
 import { chosenHost, deployEnv, getDeploy, hostCredentials, saveDeploy, stampRelease, type Release } from "@/lib/agent/deploy";
 import { runtimeAdapter } from "@/lib/agent/adapters/runtime";
 import { writeCodebase } from "@/lib/phases/agent-engineering";
 
 /** Ship the current commit to STAGING (Railway without a staging token: straight to production, checked after). */
-export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+async function handlePost(_req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await loadBuild(params.id);
   if (!ctx.design) return NextResponse.json({ error: "Approve the Agent Design first." }, { status: 400 });
   const s = await getDeploy(params.id);
@@ -27,3 +28,5 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   await saveDeploy(params.id, next);
   return NextResponse.json({ release, env }, { status: r.ok ? 200 : 500 });
 }
+
+export const POST = tracked("deployment", "Deploying the testing agent", handlePost);
