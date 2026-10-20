@@ -53,6 +53,8 @@ export function AgentEvals({
   const router = useRouter();
   const autoRan = useRef(false);
   const [loaded, setLoaded] = useState(false);
+  /** Re-run tests: the 1× / 3× choice is open. */
+  const [rerun, setRerun] = useState(false);
   /** The tracing tool where evaluation runs can be seen (Langfuse by default). */
   const [viewer, setViewer] = useState<{ label?: string; url?: string } | null>(null);
   useEffect(() => {
@@ -153,31 +155,13 @@ export function AgentEvals({
             <button
               className={`${Object.keys(state?.fixes ?? {}).length ? "btn-primary" : "btn-ghost"} flex shrink-0 items-center gap-1.5 text-sm`}
               disabled={!!busy}
-              onClick={() =>
-                Object.keys(state?.fixes ?? {}).length
-                  ? post("run", { retest: true }, "Re-testing what was fixed (plus the regression cases)…")
-                  : post("run", {}, RUN_LABEL)
-              }
-              title={
-                Object.keys(state?.fixes ?? {}).length
-                  ? "Runs only the cases the fixes touched, plus the regression cases; the rest keep their last results"
-                  : "Runs this version's test cases once each against your agent as it is now"
-              }
+              onClick={() => setRerun((v) => !v)}
+              aria-expanded={rerun}
             >
               <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor" aria-hidden>
                 <path d="M8 5v14l11-7z" />
               </svg>
-              {Object.keys(state?.fixes ?? {}).length ? "Re-test the fixes" : "Re-run tests"}
-            </button>
-          )}
-          {cases && (
-            <button
-              className="btn-ghost shrink-0 text-sm"
-              disabled={!!busy}
-              onClick={() => post("run", { trials: 3 }, "Running every case 3 times to check consistency (a few minutes)…")}
-              title="Runs every case 3 times to see whether the agent gets it right every time (3× the credits). Worth it before going live."
-            >
-              Consistency check (3×)
+              Re-run tests
             </button>
           )}
           <button
@@ -199,6 +183,32 @@ export function AgentEvals({
           )}
           </div>
         </div>
+        {rerun && cases && (
+          <div className="mb-4 grid gap-2 rounded-xl border border-edge bg-ink/40 p-3 text-sm sm:grid-cols-2">
+            <button
+              className="rounded-lg bg-accent p-3 text-left text-white shadow-md transition-transform hover:scale-[1.02] hover:opacity-95 active:scale-100"
+              onClick={() => {
+                setRerun(false);
+                Object.keys(state?.fixes ?? {}).length
+                  ? post("run", { retest: true }, "Re-testing what was fixed (plus the regression cases)…")
+                  : post("run", {}, RUN_LABEL);
+              }}
+            >
+              <div className="font-semibold">Run once (1×)</div>
+              <div className="mt-0.5 text-xs text-white/80">Quick and cheaper. Shows if it works.</div>
+            </button>
+            <button
+              className="rounded-lg bg-accent p-3 text-left text-white shadow-md transition-transform hover:scale-[1.02] hover:opacity-95 active:scale-100"
+              onClick={() => {
+                setRerun(false);
+                post("run", { trials: 3 }, "Running every case 3 times (a few minutes)…");
+              }}
+            >
+              <div className="font-semibold">Run 3 times (3×)</div>
+              <div className="mt-0.5 text-xs text-white/80">Costs 3× more. Shows if it works every time. Good before going live.</div>
+            </button>
+          </div>
+        )}
         {cases ? (
           <CaseTable
             projectId={projectId}

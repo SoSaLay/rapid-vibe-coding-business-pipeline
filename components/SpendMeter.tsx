@@ -144,7 +144,7 @@ export function SidebarSpend({ projectId, refreshKey }: { projectId: string; ref
     </div>
   );
   return (
-    <div className="mt-4 border-t border-edge px-3 pt-3 text-[12px]">
+    <div className="!mt-4 border-t border-edge px-3 pt-[6.5rem] text-[12px]">
       <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted">Spend this month</div>
       <div className="space-y-1">
         {line("Total", usd(s.total_usd), true)}
