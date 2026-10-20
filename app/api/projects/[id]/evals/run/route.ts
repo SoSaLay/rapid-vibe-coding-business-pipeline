@@ -47,7 +47,7 @@ async function handlePost(req: NextRequest, { params }: { params: { id: string }
     await fs.access(path.join(ctx.dir, "evals", "run_evals.py"));
     await fs.access(path.join(ctx.dir, "evals", "dataset.json"));
   } catch {
-    return NextResponse.json({ error: "No eval runner or dataset yet. Build the dataset first (rebuild the agent in Engineering if it predates Evaluations)." }, { status: 400 });
+    return NextResponse.json({ error: "No eval runner or dataset yet. Build the dataset first (rebuild the agent in Development if it predates Evaluations)." }, { status: 400 });
   }
 
   const env = await agentEnv(params.id, ctx.design, ctx.slug);

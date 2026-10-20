@@ -49,9 +49,9 @@ const langsmithTracing: AgentAdapter = {
 };
 
 export const SLOT_LABELS: Record<AgentSlot, { label: string; section: string }> = {
-  framework: { label: "Agent framework", section: "Agent Design · Engineering & Development" },
+  framework: { label: "Agent framework", section: "Agent Design · Development" },
   credentials: { label: "Tool credentials", section: "Agent Design · Deployment" },
-  tracing: { label: "Tracing", section: "Engineering & Development · Operations" },
+  tracing: { label: "Tracing", section: "Development · Operations" },
   approval: { label: "Human approval", section: "Security" },
   auth: { label: "Authorization", section: "Security" },
   "unit-tests": { label: "Unit tests", section: "Evaluations" },

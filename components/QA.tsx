@@ -98,7 +98,7 @@ export function QA({
   }
 
   if (!hasManifest) {
-    return <div className="card p-6 text-sm text-muted">Locked until the build completes (Engineering phase).</div>;
+    return <div className="card p-6 text-sm text-muted">Locked until the build completes (Development phase).</div>;
   }
 
   if (report) return <ReportView report={report} />;

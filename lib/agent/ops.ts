@@ -77,10 +77,12 @@ export async function runOps(dir: string, env: Record<string, string>, args: str
 export async function addProductionCase(args: { dir: string; run: any; expected: string; mustNotCall?: string[] }): Promise<{ dataset: Dataset; caseId: string }> {
   const file = path.join(args.dir, "evals", "dataset.json");
   const dataset = JSON.parse(await fs.readFile(file, "utf8")) as Dataset;
-  const fixtures: Record<string, string> = {};
+  // What each read tool really answered, call by call (a list when it was called more than once).
+  const answers: Record<string, string[]> = {};
   for (const c of args.run.calls ?? []) {
-    if (c.side_effect === "read" && !c.error && typeof c.result === "string" && !(c.tool in fixtures)) fixtures[c.tool] = c.result;
+    if (c.side_effect === "read" && !c.error && typeof c.result === "string") (answers[c.tool] ??= []).push(c.result);
   }
+  const fixtures: Record<string, string | string[]> = Object.fromEntries(Object.entries(answers).map(([k, v]) => [k, v.length === 1 ? v[0] : v]));
   const caseId = `production-run-${args.run.id}`;
   const turn = typeof args.run.input === "string" ? args.run.input : JSON.stringify(args.run.input);
   const next: EvalCase = {

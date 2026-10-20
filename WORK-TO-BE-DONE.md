@@ -108,7 +108,7 @@ Produces the `design-spec` the build phase works from. Two tools vendored:
 - [ ] Live test with Anthropic key (brief + mockup quality)
 - [ ] Live test Stitch-mode with a real Gemini key (screen HTML quality vs Claude engine)
 
-### Phase 6 — Engineering & Development — Part A ✅ / Part B ⬜
+### Phase 6 — Development — Part A ✅ / Part B ⬜
 **Part A — the build pipeline.** Tool decision: **GSD** recommended as a one-time global install (`npx get-shit-done-cc`), NOT vendored (24MB, fast-moving canary releases, installs to `~/.claude`) — the workspace briefing is agent-agnostic (`TASKS.md` + `CLAUDE.md`), works with bare Claude Code, and the monitor detects GSD's `.planning/` when present. OpenSpec deferred to Phase 11; boilerplates (open-saas/ixartz) rejected — clean scaffold + briefing beats stripping kitchen-sink code.
 - [x] **Architect** (`lib/phases/engineering.ts`): reads product-spec + design-spec (design optional) → stack proposal + rationale + Mermaid diagram + key decisions → `stack-selection`
 - [x] **Tech-stack selector** (`lib/stack.ts`, 9 slots; defaults silent, deviations warned, hidden behind "Change tech stack"): Frontend (Next.js + shadcn/ui), Backend (Next.js API routes), Database (Supabase), Auth (**Clerk** | Supabase Auth | none), Payments (**Clerk Billing** | Stripe direct | none), Hosting (**AWS Amplify** | Vercel), Domain (**Route 53**), Coding agent (Claude Code | others coming_soon), AI model (only if the app itself needs AI)

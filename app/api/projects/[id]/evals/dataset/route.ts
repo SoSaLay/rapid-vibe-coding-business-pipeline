@@ -9,6 +9,7 @@ import { writeCodebase } from "@/lib/phases/agent-engineering";
 import { getEvals, saveEvals } from "@/lib/agent/evals-state";
 import type { SecurityReport } from "@/lib/phases/agent-security";
 import { getOps } from "@/lib/agent/ops";
+import { applyCaseOverrides } from "@/lib/agent/test-cases";
 
 /** What went wrong lately, for new cases to cover: open incidents and the latest failing test cases. */
 async function recentProblems(projectId: string): Promise<string> {
@@ -50,7 +51,7 @@ async function handlePost(req: NextRequest, { params }: { params: { id: string }
     const security = (await latestArtifact(params.id, "security-report"))?.payload as SecurityReport | undefined;
     const body = await req.json().catch(() => ({}));
     const guidance = typeof body.guidance === "string" ? body.guidance : "";
-    const dataset = await generateDataset({
+    const generated = await generateDataset({
       design: ctx.design,
       spec: ctx.spec,
       examples,
@@ -59,6 +60,8 @@ async function handlePost(req: NextRequest, { params }: { params: { id: string }
       problems: await recentProblems(params.id),
       guidance,
     });
+    // Test cases the owner removed or corrected stay that way.
+    const dataset = applyCaseOverrides(generated, (await getEvals(params.id)).case_overrides, examples);
     // Stopped by the owner while the cases were being written: keep the current ones.
     if (req.signal?.aborted) return NextResponse.json({ error: "Stopped." }, { status: 499 });
     await writeCodebase(

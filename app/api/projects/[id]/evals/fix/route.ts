@@ -26,7 +26,7 @@ async function handlePost(req: NextRequest, { params }: { params: { id: string }
       }
       const results = await applyEvalFixes(params.id, targets);
       // One re-check for all of them: Engineering re-tests and re-reviews, then Deployment.
-      const last = [...results].reverse().find((r) => r.fixed);
+      const last = [...results].reverse().find((r) => r.release);
       if (last) startAutoflow(params.id, req.nextUrl.origin, last.version ?? undefined, { codeReady: true });
       return NextResponse.json({ results });
     } catch (e: any) {
@@ -39,7 +39,8 @@ async function handlePost(req: NextRequest, { params }: { params: { id: string }
     if (b.step === "apply") {
       const r = await applyEvalFix(params.id, target);
       // The code changed: Engineering re-tests and re-reviews it in the background, then Deployment.
-      if (r.fixed) startAutoflow(params.id, req.nextUrl.origin, r.version ?? undefined, { codeReady: true });
+      // Only a fix that made the failing cases pass goes on to be re-tested and released.
+      if (r.release) startAutoflow(params.id, req.nextUrl.origin, r.version ?? undefined, { codeReady: true });
       return NextResponse.json(r);
     }
     return NextResponse.json(await explainEvalFix(params.id, target));

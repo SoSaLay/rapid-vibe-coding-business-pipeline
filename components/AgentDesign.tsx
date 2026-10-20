@@ -146,7 +146,7 @@ export function AgentDesign({
     setBusy(null);
     if (d) {
       setDirty(false);
-      if (d.autoflow) setNotice("Saved. Engineering & Development is building your change now.");
+      if (d.autoflow) setNotice("Saved. Development is building your change now.");
       onUpdated();
     }
   }
@@ -368,7 +368,7 @@ export function AgentDesign({
             disabled={!!busy || localBlockers.length > 0}
             onClick={startEngineering}
           >
-            {busy ?? "Start Engineering & Development →"}
+            {busy ?? "Start Development →"}
           </button>
         </div>
         {(error || blockers.length > 0 || localBlockers.length > 0) && (
@@ -825,7 +825,7 @@ function CustomModel({ design, onChange }: { design: Design; onChange: (p: Parti
         />
         out
       </div>
-      <DocMuted>You add the key for this provider in Engineering, after the build. Evaluations will show whether it does the job as well.</DocMuted>
+      <DocMuted>You add the key for this provider in Development, after the build. Evaluations will show whether it does the job as well.</DocMuted>
     </div>
   );
 }
@@ -982,7 +982,7 @@ function KnowledgeEditor({ design, run, busy }: { design: Design; run: Run; busy
           <input className="input mt-2 h-9 w-full" placeholder="Or paste text — title" value={title} onChange={(e) => setTitle(e.target.value)} />
           <textarea className="input mt-1 w-full" rows={3} placeholder="Paste a policy, FAQ, or notes" value={text} onChange={(e) => setText(e.target.value)} />
           <button className="btn-ghost mt-1" disabled={busy || !text.trim()} onClick={() => run("knowledge", { add: { title, text } }, "Adding…").then((ok) => ok && (setText(""), setTitle("")))}>Add text</button>
-          <DocMuted className="mt-2">Documents are split, indexed and bundled with the agent when Engineering builds it.</DocMuted>
+          <DocMuted className="mt-2">Documents are split, indexed and bundled with the agent when Development builds it.</DocMuted>
         </div>
       )}
     </div>
@@ -1143,7 +1143,7 @@ function McpEditor({ servers, onChange }: { servers: McpServer[]; onChange: (s: 
           <input className="input h-9 min-w-0 flex-1" placeholder="Only these tools (optional, comma-separated)" value={allow} onChange={(e) => setAllow(e.target.value)} />
           <button className="btn-ghost" disabled={!draft.name.trim() || (draft.transport === "http" ? !draft.url : !draft.command)} onClick={add}>Add</button>
         </div>
-        <DocMuted>You add the token in Engineering, after the build. Changing MCP servers is a light change: no code rewrite.</DocMuted>
+        <DocMuted>You add the token in Development, after the build. Changing MCP servers is a light change: no code rewrite.</DocMuted>
       </div>
     </div>
   );

@@ -6,7 +6,7 @@ import { workspaceExists, writeWorkspaceFile } from "@/lib/workspace";
 /** Stage 1: generate the QA plan and write the briefing (QA-PLAN.md + qa/checklist.json) into the workspace. */
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   const manifestArtifact = await latestArtifact(params.id, "build-manifest");
-  if (!manifestArtifact) return NextResponse.json({ error: "No build yet — complete Engineering first." }, { status: 400 });
+  if (!manifestArtifact) return NextResponse.json({ error: "No build yet — complete Development first." }, { status: 400 });
   const specArtifact = await latestArtifact(params.id, "product-spec");
   if (!specArtifact) return NextResponse.json({ error: "No product spec found." }, { status: 400 });
   const project = await getProject(params.id);

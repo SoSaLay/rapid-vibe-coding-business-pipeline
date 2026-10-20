@@ -3,15 +3,18 @@
 import { frameworkAdapter } from "./registry";
 import { exampleTasks } from "../phases/agent-engineering";
 import { buildIndex } from "./knowledge";
+import { overrideExamples } from "./test-cases";
 import type { AgentDesign } from "./design";
 import type { FilledLogic, GeneratedFile } from "./types";
 
 export async function renderAgent(args: { projectId: string; title: string; design: AgentDesign; spec: Record<string, any>; logic: FilledLogic }) {
+  // Test cases the owner removed or corrected stay that way in the example tests.
+  const { tasks, logic } = await overrideExamples(args.projectId, exampleTasks(args.spec), args.logic);
   const files: GeneratedFile[] = (await frameworkAdapter(args.projectId)).render({
     title: args.title,
     design: args.design,
-    logic: args.logic,
-    exampleTasks: exampleTasks(args.spec),
+    logic,
+    exampleTasks: tasks,
     spec: args.spec,
   });
   let knowledge: { chunks: number; problems: string[] } | undefined;

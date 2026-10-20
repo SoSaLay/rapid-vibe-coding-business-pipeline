@@ -37,6 +37,16 @@ export function AgentBuilder({
 
   useEffect(() => {
     try { setOpen(localStorage.getItem(OPEN_KEY) === "1"); } catch {}
+    // "Ask the Agent Builder" from another page: open with the problem written in, ready to send.
+    const ask = new URLSearchParams(window.location.search).get("ask");
+    if (ask) {
+      setText(ask);
+      setOpen(true);
+      try { localStorage.setItem(OPEN_KEY, "1"); } catch {}
+      const u = new URL(window.location.href);
+      u.searchParams.delete("ask");
+      window.history.replaceState(null, "", u.toString());
+    }
   }, []);
   useEffect(() => {
     fetch(url).then((r) => r.json()).then((d) => setTurns(d.chat ?? [])).catch(() => {});

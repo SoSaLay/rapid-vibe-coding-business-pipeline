@@ -76,7 +76,7 @@ export const PHASES: PhaseDef[] = [
   },
   {
     id: "engineering",
-    name: "Engineering & Development",
+    name: "Development",
     short: "Build",
     consumes: ["product-spec", "design-spec"],
     produces: ["stack-selection", "task-graph", "build-manifest"],

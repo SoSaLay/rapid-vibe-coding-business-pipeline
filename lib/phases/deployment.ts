@@ -144,7 +144,7 @@ export async function runPreflight(workspaceOk: boolean): Promise<PreflightCheck
       label: "App workspace with git",
       ok: workspaceOk,
       detail: workspaceOk ? "found" : "workspace folder missing",
-      fix: workspaceOk ? undefined : "Re-run the Engineering scaffold — the app folder is gone.",
+      fix: workspaceOk ? undefined : "Re-run the Development scaffold — the app folder is gone.",
     },
     {
       id: "aws-cli",

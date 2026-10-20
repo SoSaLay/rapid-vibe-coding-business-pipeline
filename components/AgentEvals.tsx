@@ -9,7 +9,6 @@ import type { EvalSummary, EvalCase } from "@/lib/phases/agent-evals";
 import { Doc, DocSection, DocP, DocMuted, DocFacts } from "./doc/Doc";
 import { StopButton, useStopper } from "./StopButton";
 import { StageStart } from "./StageStart";
-import { SpendMeter } from "./SpendMeter";
 
 const CATEGORY_LABEL: Record<string, string> = {
   routine: "Routine (your examples)",
@@ -54,6 +53,11 @@ export function AgentEvals({
   const router = useRouter();
   const autoRan = useRef(false);
   const [loaded, setLoaded] = useState(false);
+  /** The tracing tool where evaluation runs can be seen (Langfuse by default). */
+  const [viewer, setViewer] = useState<{ label?: string; url?: string } | null>(null);
+  useEffect(() => {
+    fetch(`/api/projects/${projectId}/evals/viewer`).then((r) => r.json()).then(setViewer).catch(() => {});
+  }, [projectId]);
   // Running the tests is automatic: on arrival, and whenever test cases exist with no results yet.
   useEffect(() => {
     if (!hasSecurity || !loaded || autoRan.current || (state?.runs?.length ?? 0) > 0) return;
@@ -107,7 +111,7 @@ export function AgentEvals({
     if (await post("dataset", {}, "Writing test cases…")) await post("run", {}, RUN_LABEL);
   }
 
-  if (!hasSecurity) return <StageStart label="Start Evaluations" locked="Finish Engineering & Development first (including its safety checklist)." onStart={() => {}} />;
+  if (!hasSecurity) return <StageStart label="Start Evaluations" locked="Finish Development first (including its safety checklist)." onStart={() => {}} />;
 
   const runs = state?.runs ?? [];
   const last: EvalRun | undefined = runs[runs.length - 1];
@@ -188,6 +192,11 @@ export function AgentEvals({
             </svg>
             Generate new test cases
           </button>
+          {viewer?.url && (
+            <a className="btn-ghost flex shrink-0 items-center gap-1.5 text-sm" href={viewer.url} target="_blank" rel="noreferrer" title={`See every evaluation run, step by step, in ${viewer.label}`}>
+              View in {viewer.label} ↗
+            </a>
+          )}
           </div>
         </div>
         {cases ? (
@@ -199,14 +208,14 @@ export function AgentEvals({
             fixes={state?.fixes ?? {}}
             onFixed={onUpdated}
           />
-        ) : (
+        ) : null}
+        {cases && cases.length > 0 && (
+          <ManageCases projectId={projectId} cases={cases} overrides={state?.case_overrides ?? {}} busy={!!busy} onChanged={onUpdated} />
+        )}
+        {cases ? null : (
           <DocMuted>No test cases yet. They start from your example tasks, plus harder cases built from the design and the security threat model.</DocMuted>
         )}
       </section>
-
-      <div className="mb-8">
-        <SpendMeter projectId={projectId} refreshKey={`${runs.length}-${busy}`} />
-      </div>
 
       {(busy || error || log) && (
         <section className="doc-section">
@@ -235,7 +244,7 @@ export function AgentEvals({
                   projectId={projectId}
                   target={{ kind: "gate", index: i }}
                   canFix={!g.ok && i > 0 /* "Unit tests pass" is Engineering's job */}
-                  fixed={state?.fixes?.[`gate:${i}`]?.summary}
+                  fixed={state?.fixes?.[`gate:${i}`]}
                   onFixed={onUpdated}
                   cells={
                     <>
@@ -358,8 +367,9 @@ function FixAllIssues({ projectId, targets, labels, onFixed }: {
     setStage("idle");
     if (d.error) setMsg(d.error);
     else {
-      const failed = (d.results ?? []).filter((r: any) => !r.fixed);
-      if (failed.length) setMsg(`${failed.length} couldn't be fixed automatically.`);
+      const failed = (d.results ?? []).filter((r: any) => !r.fixed || (!r.verified && !r.release));
+      const ok = (d.results ?? []).length - failed.length;
+      setMsg(`${ok} fixed and checked${failed.length ? `; ${failed.length} still failing after up to 3 tries (see below).` : "."}`);
       onFixed();
     }
   }
@@ -389,7 +399,10 @@ function FixAllIssues({ projectId, targets, labels, onFixed }: {
               {items[i]?.fixable ? (
                 <p className="text-fg"><span className="font-semibold">Fix:</span> {items[i].plan}</p>
               ) : (
-                <p className="text-xs text-muted">Can&apos;t be fixed automatically.</p>
+                <p className="text-xs text-muted">
+                  Can&apos;t be fixed automatically.{" "}
+                  <AskBuilder projectId={projectId} text={`${labels(t)}: ${items[i]?.explanation ?? ""}`} />
+                </p>
               )}
             </div>
           ))}
@@ -418,7 +431,7 @@ function FixRow({ projectId, target, canFix, fixed, onFixed, cells }: {
   projectId: string;
   target: FixTargetUI;
   canFix: boolean;
-  fixed?: string;
+  fixed?: FixInfo;
   onFixed: () => void;
   cells: React.ReactNode;
 }) {
@@ -451,6 +464,10 @@ function FixRow({ projectId, target, canFix, fixed, onFixed, cells }: {
     setP(null);
     if (d.error) setMsg(d.error);
     else if (!d.fixed) setMsg(d.summary);
+    else if (!d.verified && !d.release) {
+      setMsg(d.summary);
+      onFixed();
+    }
     else onFixed();
   }
 
@@ -459,7 +476,11 @@ function FixRow({ projectId, target, canFix, fixed, onFixed, cells }: {
       <div className="flex items-center gap-3 px-4 py-2.5 text-sm">
         {cells}
         <span className="w-24 shrink-0 text-right">
-          {fixed ? (
+          {fixed?.verified ? (
+            <span className="text-xs font-medium text-ok" title="The failing cases were run again after the fix and now pass">
+              ✓ Fixed{fixed.tries && fixed.tries > 1 ? ` (try ${fixed.tries})` : ""}
+            </span>
+          ) : fixed ? (
             <span className="text-xs font-medium text-warn" title="The code was changed, but it hasn't been tested since">Fixed · untested</span>
           ) : canFix && stage === "idle" ? (
             <button className="rounded-lg bg-bad px-3 py-1 text-xs font-semibold text-white hover:opacity-90" onClick={explain}>
@@ -470,16 +491,25 @@ function FixRow({ projectId, target, canFix, fixed, onFixed, cells }: {
           ) : null}
         </span>
       </div>
-      {fixed && <p className="px-4 pb-2.5 text-xs text-warn">{fixed} Not tested yet: the next release&apos;s live check (or Re-run tests) shows whether it worked, and Fix it comes back if it didn&apos;t.</p>}
+      {fixed?.verified && (
+        <p className="px-4 pb-2.5 text-xs text-ok">{fixed.summary} The cases that failed now pass; it&apos;s being re-tested and released.</p>
+      )}
+      {fixed && !fixed.verified && (
+        <p className="px-4 pb-2.5 text-xs text-warn">
+          {fixed.summary} Not confirmed yet: <AskBuilder projectId={projectId} text={fixed.summary} />
+        </p>
+      )}
       {stage === "proposed" && p && (
         <div className="space-y-2 border-t border-edge px-4 py-3 text-sm">
           <p className="text-fg/90">{p.explanation}</p>
           <p className="text-fg"><span className="font-semibold">Fix:</span> {p.plan}</p>
           <div className="flex gap-2">
-            {p.fixable && (
+            {p.fixable ? (
               <button className="rounded-lg bg-bad px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90" onClick={apply}>
                 Confirm, fix it
               </button>
+            ) : (
+              <AskBuilder projectId={projectId} text={`${p.explanation} ${p.plan}`} button />
             )}
             <button className="btn-ghost text-sm" onClick={() => setStage("idle")}>Cancel</button>
           </div>
@@ -501,7 +531,7 @@ function CaseTable({ projectId, runs, currentVersion, currentCounts, fixes, onFi
   runs: EvalRun[];
   currentVersion: number;
   currentCounts: Record<string, number>;
-  fixes: Record<string, { summary: string }>;
+  fixes: Record<string, FixInfo>;
   onFixed: () => void;
 }) {
   const versions = Array.from(new Set([...runs.map((r) => r.summary.dataset_version), currentVersion])).sort((a, b) => a - b);
@@ -544,7 +574,7 @@ function CaseTable({ projectId, runs, currentVersion, currentCounts, fixes, onFi
             projectId={projectId}
             target={{ kind: "category", category: k }}
             canFix={fixable}
-            fixed={fixable ? fixes[`cat:${k}`]?.summary : undefined}
+            fixed={fixable ? fixes[`cat:${k}`] : undefined}
             onFixed={onFixed}
             cells={
               <>
@@ -561,3 +591,112 @@ function CaseTable({ projectId, runs, currentVersion, currentCounts, fixes, onFi
     </div>
   );
 }
+
+/**
+ * When Fix it can't help: hand the problem to the Automatic Agent Builder (Agent Design's side panel), which
+ * can change the built agent's tools and instructions in conversation. The problem is prefilled for the owner.
+ */
+export function AskBuilder({ projectId, text, button = false }: { projectId: string; text: string; button?: boolean }) {
+  const href = `/project/${projectId}/agent-design?ask=${encodeURIComponent(`Please fix this in my agent: ${text}`.slice(0, 1500))}`;
+  return (
+    <a className={button ? "btn-ghost text-sm" : "text-accent underline"} href={href}>
+      Ask the Agent Builder →
+    </a>
+  );
+}
+
+/**
+ * Manage test cases: see every case and remove the ones that no longer make sense. Removing asks first
+ * (fewer tests can let mistakes through) and writes a new version; earlier versions are kept.
+ */
+function ManageCases({ projectId, cases, overrides, busy, onChanged }: {
+  projectId: string;
+  cases: EvalCase[];
+  overrides: Record<string, { why?: string }>;
+  busy: boolean;
+  onChanged: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [confirming, setConfirming] = useState(false);
+  const [working, setWorking] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const toggle = (id: string) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const attacks = cases.filter((c) => picked.has(c.id) && c.category === "adversarial").length;
+
+  async function remove() {
+    setWorking(true);
+    setMsg(null);
+    const d = await fetch(`/api/projects/${projectId}/evals/cases`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "remove", ids: [...picked] }),
+    }).then((r) => r.json()).catch(() => ({ error: "That didn't work." }));
+    setWorking(false);
+    setConfirming(false);
+    if (d.error) return setMsg(d.error);
+    setPicked(new Set());
+    setMsg(`Removed ${d.removed}. Test cases are now version ${d.version}; earlier versions are kept.`);
+    onChanged();
+  }
+
+  return (
+    <div className="mt-3">
+      <button className="text-sm text-accent underline" onClick={() => setOpen((v) => !v)}>
+        {open ? "Hide test cases" : `Manage test cases (${cases.length})`}
+      </button>
+      {open && (
+        <div className="mt-2 overflow-hidden rounded-xl border border-edge text-sm">
+          <ul className="max-h-96 divide-y divide-edge overflow-y-auto">
+            {cases.map((c) => (
+              <li key={c.id} className="flex items-start gap-3 px-3 py-2">
+                <input type="checkbox" className="mt-1" checked={picked.has(c.id)} onChange={() => toggle(c.id)} aria-label={`Select ${c.id}`} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium text-fg">{c.id}</span>
+                    <span className="text-xs text-muted">{CATEGORY_LABEL[c.category] ?? c.category}</span>
+                    {overrides[c.example_input ? `example:${c.example_input}` : c.id]?.why && (
+                      <span className="rounded bg-accent/15 px-1.5 text-[11px] text-accent">{overrides[c.example_input ? `example:${c.example_input}` : c.id].why}</span>
+                    )}
+                  </div>
+                  <p className="truncate text-xs text-fg/80" title={c.turns.join(" → ")}>{c.turns.join(" → ")}</p>
+                  <p className="truncate text-xs text-muted" title={c.expected}>Should: {c.expected}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <div className="space-y-2 border-t border-edge bg-ink/40 px-3 py-2">
+            {!confirming ? (
+              <button
+                className="rounded-lg border border-bad/50 px-3 py-1.5 text-sm font-semibold text-bad hover:bg-bad/10 disabled:opacity-40"
+                disabled={!picked.size || busy || working}
+                onClick={() => setConfirming(true)}
+              >
+                Remove selected ({picked.size})
+              </button>
+            ) : (
+              <div className="space-y-2 rounded-lg border border-warn/50 bg-warn/10 p-3">
+                <p className="font-semibold text-warn">⚠ You&apos;re about to remove {picked.size} test case{picked.size === 1 ? "" : "s"}.</p>
+                <p className="text-fg/90">
+                  Your agent won&apos;t be tested on {picked.size === 1 ? "it" : "them"} anymore, so a mistake {picked.size === 1 ? "it" : "they"} would
+                  have caught can reach your users. This makes a new version of your test cases; the current one stays in the history.
+                  {attacks > 0 && <span className="font-medium text-bad"> {attacks} of them test{attacks === 1 ? "s" : ""} attacks on your agent.</span>}
+                </p>
+                <div className="flex gap-2">
+                  <button className="rounded-lg bg-bad px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90" disabled={working} onClick={remove}>
+                    {working ? "Removing…" : "Yes, remove them"}
+                  </button>
+                  <button className="btn-ghost text-sm" onClick={() => setConfirming(false)}>Cancel</button>
+                </div>
+              </div>
+            )}
+            {msg && <p className="text-xs text-muted">{msg}</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A Fix it result: what changed, and whether the failing cases were re-run and now pass (and on which try). */
+type FixInfo = { summary: string; verified?: boolean; tries?: number };

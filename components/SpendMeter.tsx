@@ -113,3 +113,64 @@ export function SpendMeter({ projectId, refreshKey }: { projectId: string; refre
     </div>
   );
 }
+
+/**
+ * The sidebar's spend box (agents): this month's total, development and testing, the last test's cost,
+ * and the monthly testing budget link. `refreshKey` re-reads it when the page refreshes.
+ */
+export function SidebarSpend({ projectId, refreshKey }: { projectId: string; refreshKey?: unknown }) {
+  const [s, setS] = useState<Status | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState("");
+  useEffect(() => {
+    fetch(`/api/spend?project=${projectId}`).then((r) => r.json()).then((d) => !d.error && setS(d)).catch(() => {});
+  }, [projectId, refreshKey]);
+  async function save() {
+    const d = await fetch("/api/spend", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ budget: value.trim() === "" ? null : value.replace(/[$,\s]/g, ""), project: projectId }),
+    }).then((r) => r.json()).catch(() => null);
+    if (d && !d.error) {
+      setS(d);
+      setEditing(false);
+    }
+  }
+  if (!s) return null;
+  const line = (label: string, v: string, strong = false) => (
+    <div className="flex items-baseline justify-between gap-2">
+      <span className={strong ? "font-semibold text-fg" : "text-muted"}>{label}</span>
+      <span className={strong ? "font-semibold text-fg" : "text-fg/90"}>{v}</span>
+    </div>
+  );
+  return (
+    <div className="mt-4 border-t border-edge px-3 pt-3 text-[12px]">
+      <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted">Spend this month</div>
+      <div className="space-y-1">
+        {line("Total", usd(s.total_usd), true)}
+        {line("Development", usd(s.development_usd))}
+        {line("Testing", `${usd(s.testing_usd)}${s.budget_usd !== null ? ` / ${usd(s.budget_usd)}` : ""}`)}
+        {line("Last test", s.last_test ? usd(s.last_test.usd) : "—")}
+      </div>
+      {s.over_budget && <p className="mt-1.5 text-bad">Testing budget reached: automatic checks paused.</p>}
+      {editing ? (
+        <div className="mt-2 flex items-center gap-1.5">
+          <input
+            className="input h-7 w-20 text-xs"
+            placeholder="$/month"
+            value={value}
+            autoFocus
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && save()}
+          />
+          <button className="text-accent underline" onClick={save}>Save</button>
+          <button className="text-muted underline" onClick={() => setEditing(false)}>Cancel</button>
+        </div>
+      ) : (
+        <button className="mt-2 text-accent underline" onClick={() => { setValue(s.budget_usd?.toString() ?? ""); setEditing(true); }}>
+          {s.budget_usd !== null ? "Change monthly testing budget" : "Set a monthly testing budget"}
+        </button>
+      )}
+    </div>
+  );
+}

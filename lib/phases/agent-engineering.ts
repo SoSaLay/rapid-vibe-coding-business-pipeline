@@ -1,5 +1,5 @@
 /**
- * Agent pipeline — stage 3: Engineering & Development.
+ * Agent pipeline — stage 3: Development.
  *
  * Fully automatic: builds exactly the APPROVED agent-design, no new decisions.
  *   1. write   — the model fills the parts a template can't know (system prompt,

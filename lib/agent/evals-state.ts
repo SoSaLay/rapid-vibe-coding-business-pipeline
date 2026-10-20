@@ -3,6 +3,15 @@
 import { getPhaseState, savePhaseState } from "../store";
 import type { EvalSummary, GateCheck } from "../phases/agent-evals";
 
+export interface CaseOverride {
+  removed?: boolean;
+  expected?: string;
+  fixtures?: Record<string, string | string[]>;
+  /** Why it changed (shown in the case list). */
+  why?: string;
+  at: string;
+}
+
 export interface EvalRun {
   at: string;
   summary: EvalSummary;
@@ -21,7 +30,12 @@ export interface EvalsState {
   baseline: EvalSummary | null;
   baseline_at?: string;
   /** Fix it on a kind of case or a gate rule, since the last run: key → what the AI changed. Cleared by the next run. */
-  fixes?: Record<string, { summary: string; at: string }>;
+  fixes?: Record<string, { summary: string; at: string; verified?: boolean; tries?: number }>;
+  /**
+   * The owner's (or a fix's) changes to test cases, kept so a new dataset version or a rebuild doesn't undo
+   * them. Keyed by case id, or "example:<the example task's wording>" for cases that come from example tasks.
+   */
+  case_overrides?: Record<string, CaseOverride>;
   /** Cached explanations for Fix it (so reopening one doesn't cost another AI call). Cleared by the next run. */
   proposals?: Record<string, { explanation: string; plan: string; fixable: boolean }>;
 }

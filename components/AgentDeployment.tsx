@@ -7,7 +7,7 @@ import Link from "next/link";
 import type { DeployState } from "@/lib/agent/deploy";
 import { Doc, DocSection, DocP, DocMuted, DocFacts } from "./doc/Doc";
 import { StageStart } from "./StageStart";
-import { SpendMeter } from "./SpendMeter";
+import { AskBuilder } from "./AgentEvals";
 
 interface Status {
   state: DeployState;
@@ -119,17 +119,51 @@ type Github = { built: boolean; connected: boolean; mode: "ask" | "auto" | null;
  * testing agent. With GitHub connected, deploying = push to GitHub, whose workflow runs the unit tests
  * and releases the testing agent; the pipeline then checks it. Without GitHub, it deploys from here.
  */
-function TestingAction({ projectId, autoflow, github, deployed, localDeploy, onUpdated }: {
+function TestingAction({ projectId, autoflow, github, deployed, checkFailed, needsYou, localDeploy, onUpdated }: {
   projectId: string;
   autoflow: Autoflow;
   github: Github;
   /** A testing agent exists already. */
   deployed: boolean;
+  /** The latest testing release failed its live check (Fix deployment can work on it). */
+  checkFailed: boolean;
+  /** The latest check couldn't grade because of the owner's setup (e.g. out of credits): what to do. */
+  needsYou: string | null;
   /** Deploy straight from this machine (no GitHub, or the first deploy). Null when that isn't possible. */
   localDeploy: { label: string; onClick: () => void; disabled: boolean } | null;
   onUpdated: () => void;
 }) {
   const [sending, setSending] = useState(false);
+  const [fixing, setFixing] = useState(false);
+  const [fixNote, setFixNote] = useState<{ tone: "ok" | "you" | "bad"; text: string } | null>(null);
+  /** Fix deployment: Engineering works out what to change (or says what you need to do). */
+  async function fixDeployment() {
+    setFixing(true);
+    setFixNote(null);
+    window.dispatchEvent(new Event("pipeline:busy"));
+    const d = await fetch(`/api/projects/${projectId}/deploy/fix`, { method: "POST" }).then((r) => r.json()).catch(() => ({ error: "That didn't work." }));
+    setFixing(false);
+    if (d.needs_you) setFixNote({ tone: "you", text: `You need to: ${d.needs_you}` });
+    else if (d.pipeline) setFixNote({ tone: "bad", text: `Pipeline issue (not something you did): ${d.pipeline}` });
+    else if (d.error) setFixNote({ tone: "bad", text: d.error });
+    else if (d.fixed && d.verified)
+      setFixNote({ tone: "ok", text: `Fixed${d.tries > 1 ? ` on try ${d.tries}` : ""}: ${d.summary} The cases that failed now pass; it's being re-tested, released and checked again.` });
+    else if (d.fixed && d.release) setFixNote({ tone: "ok", text: `Fixed: ${d.summary} Development is re-testing it, then it's released and checked again.` });
+    else if (d.fixed) setFixNote({ tone: "bad", text: d.summary });
+    else setFixNote({ tone: "bad", text: `${d.summary || "Couldn't fix it automatically."}` });
+    onUpdated();
+  }
+  const fixButton = (
+    <button className={`${OUTLINE_BTN} border-bad/60 text-bad hover:bg-bad/10`} disabled={fixing || sending} onClick={fixDeployment}>
+      {fixing ? "Fixing…" : "🛠 Fix deployment"}
+    </button>
+  );
+  const note = fixNote ? (
+    <span className={`basis-full text-xs ${fixNote.tone === "ok" ? "text-ok" : fixNote.tone === "you" ? "text-warn" : "text-bad"}`}>
+      {fixNote.text}
+      {fixNote.tone === "bad" && <> <AskBuilder projectId={projectId} text={fixNote.text} /></>}
+    </span>
+  ) : null;
   const send = async (body: Record<string, unknown>) => {
     setSending(true);
     await fetch(`/api/projects/${projectId}/github`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => {});
@@ -145,7 +179,7 @@ function TestingAction({ projectId, autoflow, github, deployed, localDeploy, onU
 
   // Working: Engineering rebuilding, or GitHub releasing.
   if (autoflow?.running && autoflow.phase === "engineering") {
-    return row(<span className="flex items-center gap-2 text-muted"><span className="h-2 w-2 animate-pulse rounded-full bg-accent" />Engineering is building your latest changes…</span>);
+    return row(<span className="flex items-center gap-2 text-muted"><span className="h-2 w-2 animate-pulse rounded-full bg-accent" />Development is building your latest changes…</span>);
   }
   if (autoflow?.running && autoflow.phase === "deployment") {
     return row(<span className="flex items-center gap-2 text-fg/90"><span className="h-2 w-2 animate-pulse rounded-full bg-accent" />{autoflow.message}</span>);
@@ -156,16 +190,14 @@ function TestingAction({ projectId, autoflow, github, deployed, localDeploy, onU
     <span className="basis-full text-xs text-bad">Last try failed: {autoflow.error}</span>
   ) : null;
 
-  // New changes waiting.
+  if (fixing) return row(<span className="flex items-center gap-2 text-muted"><span className="h-2 w-2 animate-pulse rounded-full bg-accent" />Development is working out how to fix this deployment…</span>);
+
+  // New changes waiting (the count shows under the step name).
   if (n > 0 && github?.connected) {
     return row(
-      <span className="flex flex-wrap items-center gap-2">
-        <span className="flex items-center gap-2 font-semibold text-warn">
-          <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-warn" />
-          {n} new change{n === 1 ? "" : "s"}
-        </span>
+      <span className="flex flex-wrap items-center justify-center gap-2">
         <button
-          className="rounded-lg bg-warn px-3 py-1.5 text-sm whitespace-nowrap font-semibold text-onbright hover:opacity-90"
+          className={`${OUTLINE_BTN} border-warn/70 text-warn hover:bg-warn/10`}
           disabled={sending}
           onClick={() => send(github.mode === null ? { action: "mode", mode: "ask", deploy: true } : { action: "deploy" })}
           title="Push your changes to GitHub; it releases the testing agent and the pipeline checks it"
@@ -173,16 +205,16 @@ function TestingAction({ projectId, autoflow, github, deployed, localDeploy, onU
           Deploy now
         </button>
         {github.mode === "auto" ? (
-          <button className="btn-ghost text-sm whitespace-nowrap" disabled={sending} onClick={() => send({ action: "mode", mode: "ask" })} title="New changes wait here for Deploy now">
+          <button className={`${OUTLINE_BTN} border-fg/40 text-fg/90 hover:border-accent`} disabled={sending} onClick={() => send({ action: "mode", mode: "ask" })} title="New changes wait here for Deploy now">
             Ask me every time
           </button>
         ) : (
-          <button className="btn-ghost text-sm whitespace-nowrap" disabled={sending} onClick={() => send({ action: "mode", mode: "auto", deploy: true })} title="Deploys now, and every future change on its own">
+          <button className={`${OUTLINE_BTN} border-fg/40 text-fg/90 hover:border-accent`} disabled={sending} onClick={() => send({ action: "mode", mode: "auto", deploy: true })} title="Deploys now, and every future change on its own">
             Always deploy automatically
           </button>
         )}
       </span>,
-      failed,
+      <>{failed}{note}</>,
     );
   }
   if (n > 0 && localDeploy) {
@@ -194,17 +226,33 @@ function TestingAction({ projectId, autoflow, github, deployed, localDeploy, onU
     );
   }
 
-  // Nothing new.
+  // Nothing new. The latest release failed its check or didn't release: fix it (or say what you need to do).
   if (failed && github?.connected) {
     return row(
-      <button className="btn-ghost text-sm" disabled={sending} onClick={() => send({ action: "deploy" })}>Try again</button>,
-      failed,
+      <span className="flex flex-wrap items-center justify-center gap-2">
+        {fixButton}
+        <button className={`${OUTLINE_BTN} border-fg/40 text-fg/90 hover:border-accent`} disabled={sending} onClick={() => send({ action: "deploy" })}>Try again</button>
+      </span>,
+      <>{failed}{note}</>,
+    );
+  }
+  if (needsYou) return row(<span className="text-sm text-warn"><span className="font-semibold">You need to:</span> {needsYou}</span>);
+  if (checkFailed) {
+    return row(
+      <span className="flex flex-wrap items-center justify-center gap-2">
+        <span className="text-sm text-bad">✗ Checks didn&apos;t pass</span>
+        {fixButton}
+      </span>,
+      note,
     );
   }
   if (localDeploy && !github?.connected) return row(<TestDeployButton label={localDeploy.label} disabled={localDeploy.disabled} onClick={localDeploy.onClick} />);
   if (!deployed && localDeploy) return row(<TestDeployButton label={localDeploy.label} disabled={localDeploy.disabled} onClick={localDeploy.onClick} />);
   return row(<span className="text-sm text-muted">✓ Latest changes deployed</span>);
 }
+
+/** Outlined, same-width buttons for the testing row. */
+const OUTLINE_BTN = "inline-flex w-52 justify-center whitespace-nowrap rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40";
 
 function TestDeployButton({ label, disabled, onClick }: { label: string; disabled: boolean; onClick: () => void }) {
   return (
@@ -776,7 +824,15 @@ export function AgentDeployment({
           </div>
           <div className={`${DEPLOY_GRID} py-3`}>
             <Lock open={setupDone} working={!!busy && /Releasing|Checking/.test(busy)} why="Set up the agent database (and login, if needed) above to unlock." />
-            <span className="whitespace-nowrap font-medium text-fg">Deploy agent: testing</span>
+            <span className="flex flex-col">
+              <span className="whitespace-nowrap font-medium text-fg">Deploy agent: testing</span>
+              {(github?.unpushed ?? 0) > 0 && !autoflow?.running && (
+                <span className="mt-1 flex items-center gap-1.5 text-xs font-semibold text-warn">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-warn" />
+                  {github!.unpushed} new change{github!.unpushed === 1 ? "" : "s"}
+                </span>
+              )}
+            </span>
             <span className="flex min-w-0 justify-center text-center">
               {busy && /Releasing|Checking/.test(busy) ? (
                 <span className="flex items-center gap-2 text-muted"><span className="h-2 w-2 animate-pulse rounded-full bg-accent" />{busy}</span>
@@ -787,6 +843,8 @@ export function AgentDeployment({
                   github={github}
                   onUpdated={() => { onUpdated(); load(); }}
                   deployed={!!(setupDone && stage)}
+                  checkFailed={!!stage && s.check?.release === stage.release.id && !s.check.passed && !s.check.inconclusive}
+                  needsYou={stage && s.check?.release === stage.release.id && s.check.inconclusive ? s.check.inconclusive : null}
                   localDeploy={{
                     label: stage ? "🧪 Redeploy" : "🧪 Deploy",
                     disabled: !setupDone || !!busy || !st.hostConnected,
@@ -962,13 +1020,6 @@ export function AgentDeployment({
               />
             </div>
           )}
-          <div className="mt-12">
-            <WatchHeading>Development and testing spend</WatchHeading>
-            <p className="mb-4 mt-1 text-xs text-muted">
-              AI credits this agent used: development (the pipeline writing, fixing and reviewing its code) and testing (evaluations and live checks).
-            </p>
-            <SpendMeter projectId={projectId} refreshKey={`${s.check?.at}-${busy}`} />
-          </div>
         </section>
       )}
 

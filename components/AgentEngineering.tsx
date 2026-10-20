@@ -7,6 +7,7 @@ import { StopButton, useStopper } from "./StopButton";
 import { StageStart } from "./StageStart";
 import { AgentKeys } from "./AgentKeys";
 import { StageLoading } from "./BuildingRobot";
+import { AskBuilder } from "./AgentEvals";
 import type { SecurityReport } from "@/lib/phases/agent-security";
 
 interface ExampleResult {
@@ -184,7 +185,7 @@ export function AgentEngineering({
     else router.push(`/project/${projectId}/qa?autostart=1`);
   }
 
-  if (!hasDesign) return <StageStart label="Start Engineering & Development" locked="Approve the Agent Design first." onStart={() => {}} />;
+  if (!hasDesign) return <StageStart label="Start Development" locked="Approve the Agent Design first." onStart={() => {}} />;
   if (autostart && !build && !busy && !autoRan.current) {
     autoRan.current = true;
     setTimeout(() => runFrom(0), 0);
@@ -193,7 +194,7 @@ export function AgentEngineering({
   if (!build) {
     return (
       <StageStart
-        label="Start Engineering & Development"
+        label="Start Development"
         busy={busy}
         error={error}
         onStart={() => runFrom(0)}
@@ -244,7 +245,7 @@ export function AgentEngineering({
 
       {!stale && <AgentKeys projectId={projectId} refreshKey={String(build.design_version)} />}
 
-      {!stale && reviewed && <FixAllSafety projectId={projectId} count={redSafety} onDone={onUpdated} />}
+      {!stale && reviewed && <FixAllSafety projectId={projectId} refreshKey={`${build.design_version}-${build.tests?.passed}-${build.tests?.failed}-${security?.ran_at}`} onDone={onUpdated} />}
 
       {!stale && (
         <DocSection title="Safety checklist">
@@ -372,24 +373,44 @@ function byTool<T extends { tool: string }>(rows: T[]): [string, T[]][] {
 }
 
 /** Big red "Fix all issues": every red security check and threat, fixed one after another. */
-function FixAllSafety({ projectId, count, onDone }: { projectId: string; count: number; onDone: () => void }) {
+/**
+ * Fix all issues: the AI takes on everything known to be broken — red safety items, failing example tasks
+ * and the latest evaluation failures — fixing the agent, or a test that is itself wrong. Then it's re-tested.
+ */
+function FixAllSafety({ projectId, refreshKey, onDone }: { projectId: string; refreshKey: unknown; onDone: () => void }) {
   const [stage, setStage] = useState<"idle" | "confirm" | "fixing">("idle");
   const [msg, setMsg] = useState<string | null>(null);
+  const [failed, setFailed] = useState<{ area: string; summary: string }[]>([]);
+  const [n, setN] = useState<{ total: number; safety: number; examples: number; evaluations: number } | null>(null);
+  useEffect(() => {
+    fetch(`/api/projects/${projectId}/agent-build/fix-all`).then((r) => r.json()).then((d) => !d.error && setN(d)).catch(() => {});
+  }, [projectId, refreshKey, stage]);
+  const count = n?.total ?? 0;
   async function run() {
     setStage("fixing");
     setMsg(null);
+    setFailed([]);
     const d = await fetch(`/api/projects/${projectId}/agent-build/fix-all`, { method: "POST" }).then((r) => r.json()).catch(() => ({ error: "That didn't work." }));
     setStage("idle");
     if (d.error) setMsg(d.error);
     else {
-      const failed = (d.results ?? []).filter((r: any) => !r.fixed).length;
-      if (failed) setMsg(`${failed} couldn't be fixed automatically. Open them below.`);
+      const bad = (d.results ?? []).filter((r: any) => !r.fixed);
+      const good = (d.results ?? []).length - bad.length;
+      setFailed(bad);
+      setMsg(`${good} fixed${bad.length ? `, ${bad.length} couldn't be fixed automatically` : ""}. ${good ? "Your agent is being re-tested now." : ""}`);
     }
     onDone();
   }
+  const parts = n
+    ? [
+        n.safety && `${n.safety} safety item${n.safety === 1 ? "" : "s"}`,
+        n.examples && `${n.examples} failing example task${n.examples === 1 ? "" : "s"}`,
+        n.evaluations && `${n.evaluations} evaluation problem${n.evaluations === 1 ? "" : "s"}`,
+      ].filter(Boolean)
+    : [];
   return (
     <div className="mt-12 space-y-3">
-      {stage === "idle" && count === 0 && (
+      {stage === "idle" && n && count === 0 && (
         <button disabled className="w-full cursor-default whitespace-nowrap rounded-xl border border-ok/40 bg-ok/15 px-5 py-3 text-base font-semibold text-ok opacity-80 sm:w-1/4 sm:min-w-[13rem]">
             ✓ All issues fixed
           </button>
@@ -404,15 +425,27 @@ function FixAllSafety({ projectId, count, onDone }: { projectId: string; count: 
       )}
       {stage === "confirm" && (
         <div className="space-y-3 rounded-xl border border-bad/40 bg-ink/40 p-4 text-sm">
-          <p className="text-fg">The AI will fix all {count} red items in the safety checklist below, one after another, by changing your agent&apos;s code. Each one is ticked off with what was changed.</p>
+          <p className="text-fg">
+            The AI will work through everything that&apos;s failing ({parts.join(", ")}), one after another. For each, it fixes your agent&apos;s
+            code, or corrects a test that is itself wrong. Then your agent is re-tested.
+          </p>
           <div className="flex gap-2">
             <button className="rounded-lg bg-bad px-4 py-2 text-sm font-semibold text-white hover:opacity-90" onClick={run}>Confirm, fix all</button>
             <button className="btn-ghost text-sm" onClick={() => setStage("idle")}>Cancel</button>
           </div>
         </div>
       )}
-      {stage === "fixing" && <StageLoading text={`Fixing ${count} issues in your agent's code, one after another…`} size="sm" />}
+      {stage === "fixing" && <StageLoading text={`Fixing ${count} issue${count === 1 ? "" : "s"}, one after another…`} size="sm" />}
       {msg && <p className="text-sm text-warn">{msg}</p>}
+      {failed.length > 0 && (
+        <ul className="space-y-1 text-sm">
+          {failed.map((f, i) => (
+            <li key={i} className="text-fg/90">
+              <span className="text-xs text-muted">{f.area}:</span> {f.summary} <AskBuilder projectId={projectId} text={f.summary} />
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

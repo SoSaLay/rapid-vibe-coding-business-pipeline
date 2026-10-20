@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { SidebarSpend } from "./SpendMeter";
 import { phasesFor } from "@/lib/pipeline";
 import { phaseDisplayStatus, type Chip } from "@/lib/pipeline-status";
 import { onboardingProgress, TONE_DOT, type OnboardingStatus } from "./Onboarding";
@@ -136,6 +137,9 @@ export function DocSidebar({
         </Link>
       </div>
       )}
+
+      {/* Agents: what this agent has cost in AI this month. */}
+      {kind === "agent" && <SidebarSpend projectId={projectId} refreshKey={`${activeSlug}-${JSON.stringify(live)}`} />}
     </nav>
   );
 }

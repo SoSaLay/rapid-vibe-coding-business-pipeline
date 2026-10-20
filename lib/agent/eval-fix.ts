@@ -8,9 +8,11 @@
 
 import { activeProvider } from "../llm/registry";
 import { loadBuild } from "./build-context";
-import { changeAgent } from "./fix";
+import { fixAndVerify } from "./fix-loop";
 import { getEvals, saveEvals } from "./evals-state";
-import type { EvalSummary } from "../phases/agent-evals";
+import type { Dataset, EvalCase, EvalSummary } from "../phases/agent-evals";
+import { promises as fs } from "fs";
+import path from "path";
 
 export type EvalFixTarget = { kind: "category"; category: string } | { kind: "gate"; index: number };
 
@@ -24,6 +26,22 @@ function casesForGate(label: string, s: EvalSummary) {
   if (/capability/i.test(label)) return f.filter((c) => c.suite === "capability");
   if (/unsafe tool/i.test(label)) return f;
   return [];
+}
+
+/** The failing test cases behind a target, in full (so a fix can tell a wrong test from a wrong agent). */
+export async function failingCasesFor(projectId: string, target: EvalFixTarget): Promise<EvalCase[]> {
+  const state = await getEvals(projectId);
+  const last = state.runs[state.runs.length - 1];
+  if (!last) return [];
+  const ids = new Set(
+    (target.kind === "category"
+      ? last.summary.failing_cases.filter((c) => c.category === target.category)
+      : casesForGate(last.gate[target.index]?.label ?? "", last.summary)
+    ).map((c) => c.case),
+  );
+  const ctx = await loadBuild(projectId);
+  const dataset = await fs.readFile(path.join(ctx.dir, "evals", "dataset.json"), "utf8").then((t) => JSON.parse(t) as Dataset).catch(() => null);
+  return (dataset?.cases ?? []).filter((c) => ids.has(c.id));
 }
 
 async function issueFor(projectId: string, target: EvalFixTarget): Promise<string> {
@@ -56,7 +74,9 @@ export async function explainEvalFix(projectId: string, target: EvalFixTarget, s
   const r = await activeProvider().completeJson<{ explanation: string; plan: string; fixable: boolean }>({
     system:
       "You explain to a non-technical owner why their AI agent fails some tests, and what you'd change. Plain words, no code, no snake_case names. " +
-      "Levers you can use: require approval on a tool, add instruction rules, rewrite a tool's code, lower the step limit, switch the model.",
+      "Levers you can use: require approval on a tool, add instruction rules, rewrite a tool's code, lower the step limit, switch the model, " +
+      "or correct/remove a test case that is itself wrong (its test data can't lead to the expected outcome). If the test is wrong, say so plainly " +
+      "and that you'll correct the test; that IS fixable.",
     effort: "low",
     tier: "small",
     schema: {
@@ -69,7 +89,17 @@ export async function explainEvalFix(projectId: string, target: EvalFixTarget, s
       },
       required: ["explanation", "plan", "fixable"],
     },
-    messages: [{ role: "user", content: `AGENT: ${ctx.design?.summary ?? ""}\nMODEL: ${ctx.design?.model.selected ?? ""}\n\n${issue}` }],
+    messages: [
+      {
+        role: "user",
+        content:
+          `AGENT: ${ctx.design?.summary ?? ""}\nMODEL: ${ctx.design?.model.selected ?? ""}\n\n${issue}\n\nTHE TEST CASES:\n` +
+          (await failingCasesFor(projectId, target))
+            .map((c) => `- ${c.id}: expected "${c.expected}"; test data ${JSON.stringify(c.fixtures).slice(0, 800)}`)
+            .join("\n")
+            .slice(0, 6000),
+      },
+    ],
   });
   const proposal = { explanation: r.explanation.trim(), plan: r.plan.trim(), fixable: !!r.fixable };
   if (save) await saveEvals(projectId, { ...state, proposals: { ...(state.proposals ?? {}), [key]: proposal } });
@@ -80,17 +110,21 @@ export async function applyEvalFix(projectId: string, target: EvalFixTarget) {
   const key = evalFixKey(target);
   const issue = await issueFor(projectId, target);
   const plan = (await getEvals(projectId)).proposals?.[key]?.plan ?? "";
-  const r = await changeAgent({ projectId, issue, details: plan, kind: "quality", keepTests: false });
+  // Fix, then re-run exactly the failing cases (retrying up to 3 times) before it's released.
+  const r = await fixAndVerify({ projectId, issue, details: plan, cases: await failingCasesFor(projectId, target) });
   if (r.fixed) {
     const state = await getEvals(projectId);
-    await saveEvals(projectId, { ...state, fixes: { ...(state.fixes ?? {}), [key]: { summary: r.summary, at: new Date().toISOString() } } });
+    await saveEvals(projectId, {
+      ...state,
+      fixes: { ...(state.fixes ?? {}), [key]: { summary: r.summary, at: new Date().toISOString(), verified: r.verified, tries: r.tries } },
+    });
   }
   return r;
 }
 
 /** Fix all: apply several fixes one after another (each builds on the last), skipping ones already fixed. */
 export async function applyEvalFixes(projectId: string, targets: EvalFixTarget[]) {
-  const results: { key: string; fixed: boolean; summary: string; version: number | null }[] = [];
+  const results: { key: string; fixed: boolean; summary: string; version: number | null; verified?: boolean; tries?: number; release?: boolean }[] = [];
   for (const t of targets) {
     const key = evalFixKey(t);
     if ((await getEvals(projectId)).fixes?.[key]) continue;

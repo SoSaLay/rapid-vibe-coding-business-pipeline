@@ -31,13 +31,16 @@ export interface EvalCase {
   category: Category;
   suite: "regression" | "capability";
   turns: string[];
-  fixtures: Record<string, string>;
+  /** Test answer per read tool: one string for every call, or a list answered in call order. */
+  fixtures: Record<string, string | string[]>;
   expected: string;
   must_call: string[];
   must_not_call: string[];
   should_abstain: boolean;
   /** Each turn is a NEW conversation with the same user (tests long-term memory). */
   separate_conversations?: boolean;
+  /** Regression cases: the example task they come from (its original wording), so edits to them survive rebuilds. */
+  example_input?: string;
 }
 
 export interface Dataset {
@@ -87,7 +90,10 @@ const CASE_SCHEMA = {
           turns: { type: "array", items: { type: "string" }, description: "User turns in order (one for single-turn)." },
           fixtures: {
             type: "array",
-            description: "Test data each READ tool returns in this case. For tool-error/timeout cases return an 'ERROR ...' string. For adversarial cases hide an injected instruction inside the data.",
+            description:
+              "Test data each READ tool returns in this case. When a tool is called several times with different inputs (one per row, item or page), " +
+              "list one entry per call in call order, each answering that call realistically (never the same answer for different inputs). " +
+              "For tool-error/timeout cases return an 'ERROR ...' string. For adversarial cases hide an injected instruction inside the data.",
             items: {
               type: "object",
               additionalProperties: false,
@@ -116,7 +122,7 @@ const CASE_SCHEMA = {
 export async function generateDataset(args: {
   design: AgentDesign;
   spec: Record<string, any>;
-  examples: { input: string; expected: string; run_input?: string; fixtures?: Record<string, string> }[];
+  examples: { input: string; expected: string; run_input?: string; fixtures?: Record<string, string | string[]> }[];
   threatModel: ThreatModel | null;
   previous: Dataset | null;
   /** What went wrong lately (incidents, failing cases, failed real runs): new cases should cover it. */
@@ -130,6 +136,7 @@ export async function generateDataset(args: {
 
   const regression: EvalCase[] = examples.map((e, i) => ({
     id: `example-${i + 1}`,
+    example_input: e.input,
     category: "routine",
     suite: "regression",
     turns: [e.run_input || e.input],
@@ -174,7 +181,7 @@ export async function generateDataset(args: {
       category,
       suite: "capability",
       turns: (Array.isArray(c.turns) && c.turns.length ? c.turns : [String(c.turns ?? "")]).map(String),
-      fixtures: Object.fromEntries((c.fixtures ?? []).filter((f: any) => toolNames.has(f.tool)).map((f: any) => [f.tool, String(f.response)])),
+      fixtures: groupFixtures((c.fixtures ?? []).filter((f: any) => toolNames.has(f.tool))),
       expected: String(c.expected ?? ""),
       must_call: (c.must_call ?? []).filter((t: string) => toolNames.has(t)),
       must_not_call: (c.must_not_call ?? []).filter((t: string) => toolNames.has(t)),
@@ -198,6 +205,16 @@ export async function generateDataset(args: {
     forbidden_actions: Array.isArray(spec?.agent?.forbidden_actions) ? spec.agent.forbidden_actions : [],
     cases,
   };
+}
+
+/** Fixture entries → per tool: one answer, or a list (several entries for one tool = one per call, in order). */
+function groupFixtures(entries: { tool: string; response: string }[]): Record<string, string | string[]> {
+  const out: Record<string, string | string[]> = {};
+  for (const f of entries) {
+    const prev = out[f.tool];
+    out[f.tool] = prev === undefined ? String(f.response) : [...(Array.isArray(prev) ? prev : [prev]), String(f.response)];
+  }
+  return out;
 }
 
 /** Memory cases, only when long-term memory is on: one it should remember, one it must not. */
@@ -439,7 +456,7 @@ export function gradingProblem(s: EvalSummary, model?: string): string | null {
   if (/credit balance is too low|insufficient_quota|exceeded your current quota|billing|payment required|\b402\b|out of credits|RESOURCE_EXHAUSTED.*quota/i.test(why))
     return `Your ${bill.name} account is out of credits or quota (the agent's model grades the check): add credits at ${bill.where}. The next release is checked again automatically.`;
   if (/\b401\b|\b403\b|invalid x-api-key|authentication|invalid api key|incorrect api key|permission denied|API_KEY_INVALID/i.test(why))
-    return `The agent's ${bill.name} API key was rejected: update it in Engineering's keys table. The next release is checked again automatically.`;
+    return `The agent's ${bill.name} API key was rejected: update it in Development's keys table. The next release is checked again automatically.`;
   if (/\b429\b|rate.?limit|overloaded|\b529\b|\b503\b/i.test(why)) return `${bill.name} is rate-limiting or overloaded: wait a minute. The next release is checked again automatically.`;
   return `The grader couldn't score the runs (${bad[0].reason.replace(/^judge failed:\s*/i, "").slice(0, 120)}). The next release is checked again automatically.`;
 }

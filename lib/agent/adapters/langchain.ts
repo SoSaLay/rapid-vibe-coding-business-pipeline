@@ -332,19 +332,25 @@ class Verdict(BaseModel):
     reason: str
 
 
-def grade(task: str, expected: str, actual) -> Verdict:
+def grade(task: str, expected: str, actual) -> tuple[Verdict, dict]:
+    """The grade, and the grading tokens it cost (so the pipeline can count testing spend)."""
     from langchain.chat_models import init_chat_model
 
     from agent.graph import MODEL
 
-    judge = init_chat_model(os.getenv("EVAL_JUDGE_MODEL", MODEL)).with_structured_output(Verdict)
-    return judge.invoke(
+    judge = init_chat_model(os.getenv("EVAL_JUDGE_MODEL", MODEL)).with_structured_output(Verdict, include_raw=True)
+    out = judge.invoke(
         "Grade an AI agent's run. Pass only if the actual result achieves what the expected outcome describes "
         "(wording can differ). Write tools ran in dry-run mode, so '[dry run] would ...' counts as doing it, and "
         "read tools returned test data. This is a test run with no one to click approve: every approval step counts "
         "as shown and approved, so actions after it are not 'before approval'.\\n\\n"
         f"TASK:\\n{task}\\n\\nEXPECTED:\\n{expected}\\n\\nACTUAL:\\n{json.dumps(actual, default=str)[:6000]}"
     )
+    u = getattr(out["raw"], "usage_metadata", None) or {}
+    usage = {"input_tokens": int(u.get("input_tokens") or 0), "output_tokens": int(u.get("output_tokens") or 0)}
+    if out["parsed"] is None:
+        return Verdict(passed=False, reason=f"judge failed: {out.get('parsing_error')}"), usage
+    return out["parsed"], usage
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -363,9 +369,10 @@ def test_example_task(i, monkeypatch):
     ex = EXAMPLES[i]
     monkeypatch.setenv("AGENT_FIXTURES", json.dumps(ex.get("fixtures", {})))
     result = run_task(ex.get("run_input") or ex["input"])
-    verdict = grade(ex["input"], ex["expected"], result) if result.get("ok") else Verdict(passed=False, reason=f"Handed off: {result.get('reason')}")
+    verdict, judge_usage = grade(ex["input"], ex["expected"], result) if result.get("ok") else (Verdict(passed=False, reason=f"Handed off: {result.get('reason')}"), {})
     rows = json.loads(RESULTS.read_text())
-    rows.append({"index": i, "input": ex["input"], "expected": ex["expected"], "result": result, "passed": verdict.passed, "reason": verdict.reason})
+    rows.append({"index": i, "input": ex["input"], "expected": ex["expected"], "result": result, "passed": verdict.passed, "reason": verdict.reason,
+                 "judge_usage": judge_usage})
     RESULTS.write_text(json.dumps(rows, indent=2, default=str))
     assert verdict.passed, verdict.reason
 `;
@@ -470,9 +477,13 @@ export const langchainFramework: FrameworkAdapter = {
     const toolNames = new Set(design.tools.filter((t) => t.enabled).map((t) => pyIdent(t.name)));
     const examples = base.map((ex, i) => {
       const filled = logic.examples.find((e) => e.index === i);
-      const fixtures = Object.fromEntries(
-        (filled?.fixtures ?? []).filter((f) => toolNames.has(pyIdent(f.tool))).map((f) => [pyIdent(f.tool), f.response])
-      );
+      // Several answers for one tool = one per call, in order.
+      const fixtures: Record<string, string | string[]> = {};
+      for (const f of (filled?.fixtures ?? []).filter((f) => toolNames.has(pyIdent(f.tool)))) {
+        const k = pyIdent(f.tool);
+        const prev = fixtures[k];
+        fixtures[k] = prev === undefined ? f.response : [...(Array.isArray(prev) ? prev : [prev]), f.response];
+      }
       return { ...ex, run_input: filled?.run_input || ex.input, fixtures };
     });
     const workflowNote =

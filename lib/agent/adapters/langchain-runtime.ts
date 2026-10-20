@@ -88,6 +88,15 @@ def fixtures() -> dict:
         return {}
 
 
+def _fixture(name: str) -> str:
+    """A tool's test response: one answer for every call, or a list answered in call order (the last one repeats)."""
+    value = fixtures()[name]
+    if isinstance(value, list):
+        i = sum(1 for c in (_CALLS.get() or []) if c["tool"] == name)
+        value = value[min(i, len(value) - 1)] if value else ""
+    return value if isinstance(value, str) else json.dumps(value, default=str)
+
+
 def _record(name: str, side_effect: str, kwargs: dict, out: str) -> str:
     calls = _CALLS.get()
     if calls is not None:
@@ -103,7 +112,7 @@ def safe_tool(name: str, side_effect: str):
             if blocked:
                 return _record(name, side_effect, kwargs, blocked)
             if dry_run() and name in fixtures():
-                return _record(name, side_effect, kwargs, str(fixtures()[name]))
+                return _record(name, side_effect, kwargs, _fixture(name))
             if side_effect == "write" and dry_run():
                 return _record(name, side_effect, kwargs, (
                     f"[dry run] {name} would run with {json.dumps(kwargs, default=str)[:500]}. "
@@ -458,7 +467,12 @@ def score(case: dict, trial: int) -> dict:
 def main() -> None:
     # EVAL_ONLY="regression,adversarial": run only cases in those suites or categories (the live check's subset).
     only = {x.strip() for x in os.getenv("EVAL_ONLY", "").split(",") if x.strip()}
-    cases = [c for c in DATASET["cases"] if not only or c.get("suite") in only or c.get("category") in only]
+    # EVAL_CASES="example-4,edge-1": run only those cases (checking a fix on exactly what failed).
+    ids = {x.strip() for x in os.getenv("EVAL_CASES", "").split(",") if x.strip()}
+    cases = [
+        c for c in DATASET["cases"]
+        if (not only or c.get("suite") in only or c.get("category") in only) and (not ids or c["id"] in ids)
+    ]
     jobs = [(case, t) for case in cases for t in range(TRIALS)]
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:
         futures = [pool.submit(contextvars.copy_context().run, score, case, t) for case, t in jobs]

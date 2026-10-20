@@ -282,7 +282,7 @@ export default function ProjectWorkspace() {
         <button className="btn-ghost text-sm" onClick={() => setNavOpen((v) => !v)}>
           ☰ Phases
         </button>
-        <span className="truncate text-sm font-medium text-fg">{project.title}</span>
+        <span className="truncate text-sm font-medium text-fg"><span className="text-muted">{project.kind === "agent" ? "Agent" : "Application"}: </span>{project.title}</span>
         <ThemeToggle />
       </div>
 
@@ -294,7 +294,7 @@ export default function ProjectWorkspace() {
             <ThemeToggle />
           </div>
           <div className="mb-3">
-            <div className="truncate text-sm font-semibold text-fg">{project.title}</div>
+            <div className="truncate text-sm font-semibold text-fg"><span className="font-medium text-muted">{project.kind === "agent" ? "Agent" : "Application"}: </span>{project.title}</div>
           </div>
           <DocSidebar projectId={id} activeSlug={activeSlug} status={project.phase_status} present={present} kind={project.kind} onboarding={onboarding} live={liveStages} />
         </aside>

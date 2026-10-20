@@ -139,7 +139,7 @@ export function ProductDesign({
   const approvedBanner = approved ? (
     <div className="card p-4 border border-ok/30">
       <span className="rounded-full bg-ok px-3 py-1 text-sm font-semibold text-onbright">design-spec saved</span>
-      <span className="ml-3 text-xs text-muted">Phase complete — Engineering unlocked.</span>
+      <span className="ml-3 text-xs text-muted">Phase complete — Development unlocked.</span>
     </div>
   ) : null;
 
@@ -182,7 +182,7 @@ export function ProductDesign({
             <>
               <div className="card p-5 text-center space-y-2">
                 <p className="text-xs text-muted">
-                  Happy with the logo and mockups? Approving saves the design-spec artifact and unlocks Engineering.
+                  Happy with the logo and mockups? Approving saves the design-spec artifact and unlocks Development.
                 </p>
                 <button className="btn-primary" disabled={busy} onClick={() => post("product-design/approve")}>
                   {busy ? "Saving…" : "Approve design → unlock Build"}

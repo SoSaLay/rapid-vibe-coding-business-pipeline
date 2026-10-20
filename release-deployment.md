@@ -12,7 +12,7 @@ Each stage reads the artifact before it and writes its own, using the same envel
 |---|---|---|---|---|
 | 1 | Define the Job | `raw-idea` | `product-spec` (with an `agent` block) | Partly. The question rounds are aimed at agents; the spec is still shaped like a product spec |
 | 2 | Agent Design | `product-spec` | `agent-design` | No. Placeholder card |
-| 3 | Engineering & Development | `product-spec`, `agent-design` | `build-manifest` | Runs the project build flow, not an agent build |
+| 3 | Development | `product-spec`, `agent-design` | `build-manifest` | Runs the project build flow, not an agent build |
 | 4 | Security | `agent-design`, `build-manifest` | `security-report` | No. Placeholder card |
 | 5 | Evaluations | `build-manifest`, `security-report` | `qa-report` (eval results + pinned baseline) | Runs the project QA flow |
 | 6 | Deployment | `qa-report` | `deploy-manifest` | Runs the project deploy flow |
@@ -123,7 +123,7 @@ Each stage asks for a slot, never a specific vendor:
 
 **Done when:** every allowed action from stage 1 maps to a tool contract, and every tool has its permission and approval flag set.
 
-## 3. Engineering & Development
+## 3. Development
 
 **Research:** Build a single tool-calling loop with a bound on how many steps it can take, structured output, error handling, tracing and a safe fallback, then test it locally on actual tasks. LangChain's `create_agent` provides the configurable loop and structured responses. LangSmith Studio lets you inspect runs and state locally before deploying.
 
