@@ -10,6 +10,8 @@ import { uvRunModule } from "@/lib/agent/adapters/pytest-uv";
 import { gate, summarize } from "@/lib/phases/agent-evals";
 import { getEvals, saveEvals, type EvalsState } from "@/lib/agent/evals-state";
 import { budgetMessage, recordSpend, spendStatus } from "@/lib/agent/spend";
+import { codeFingerprint } from "@/lib/agent/code-fp";
+import { practiceModel } from "@/lib/agent/design";
 
 /**
  * Which suites/kinds a re-test after Fix it needs: the kinds and rules that were fixed, plus the
@@ -34,7 +36,9 @@ function retestScope(state: EvalsState): string[] | null {
 
 /**
  * Run the layers: deterministic unit tests, then the dataset × trials.
- * Body: { trials?: 1-5 (1 by default; 3 = consistency run), retest?: true (only what Fix it touched), force?: true (past the budget) }.
+ * Body: { trials?: 1-5 (1 by default; 3 = consistency run), retest?: true (only what Fix it touched), force?: true (past the budget),
+ *   practice?: true (run the agent on its cheaper practice model: a rough check, never the pinned baseline) }.
+ * Cases that already passed on this exact code are reused, not paid for again (see EVAL_CODE_FP in the runner).
  */
 async function handlePost(req: NextRequest, { params }: { params: { id: string } }) {
   const body = await req.json().catch(() => ({}));
@@ -51,6 +55,9 @@ async function handlePost(req: NextRequest, { params }: { params: { id: string }
   }
 
   const env = await agentEnv(params.id, ctx.design, ctx.slug);
+  const practice = body.practice ? practiceModel(ctx.design.model.selected, ctx.design.model_endpoint) : null;
+  if (body.practice && !practice) return NextResponse.json({ error: "This agent's model has no cheaper practice model." }, { status: 400 });
+  const code_fp = await codeFingerprint(ctx.dir);
   await fs.writeFile(path.join(ctx.dir, ".env"), renderDotEnv(env), { mode: 0o600 });
 
   // Layer 1: fast deterministic checks. Layer 2: the dataset, repeated.
@@ -60,14 +67,20 @@ async function handlePost(req: NextRequest, { params }: { params: { id: string }
   const localFile = path.join(ctx.dir, ".results", "evals-local.json");
   const prev = await fs.readFile(localFile, "utf8").then(JSON.parse).catch(() => null);
   let only = body.retest ? retestScope(state) : null;
-  if (only && !(prev && prev.trials === trials && prev.dataset_version === state.dataset_version && !(prev.only ?? []).length)) only = null;
-  const run = await uvRunModule(ctx.dir, "evals.run_evals", { ...env, EVAL_TRIALS: String(trials), ...(only ? { EVAL_ONLY: only.join(",") } : {}) });
+  if (only && !(prev && prev.trials === trials && (prev.model ?? null) === (practice ?? ctx.design.model.selected) && prev.dataset_version === state.dataset_version && !(prev.only ?? []).length)) only = null;
+  const run = await uvRunModule(ctx.dir, "evals.run_evals", {
+    ...env,
+    EVAL_TRIALS: String(trials),
+    EVAL_CODE_FP: code_fp,
+    ...(practice ? { AGENT_MODEL_OVERRIDE: practice } : {}),
+    ...(only ? { EVAL_ONLY: only.join(",") } : {}),
+  });
   if (!run.ok) return NextResponse.json({ error: "The eval run failed.", output: run.output }, { status: 500 });
 
   const fresh = JSON.parse(await fs.readFile(path.join(ctx.dir, ".results", "evals.json"), "utf8"));
   // What this run cost is what was actually run (before merging in reused results).
   const spent = summarize(fresh, ctx.design.model_price).spend_usd;
-  await recordSpend(params.id, only ? "re-test after fixes" : trials > 1 ? "consistency run" : "evaluations", spent);
+  await recordSpend(params.id, practice ? "practice run" : only ? "re-test after fixes" : trials > 1 ? "consistency run" : "evaluations", spent);
   const keep = (r: any) => !only!.includes(r.suite) && !only!.includes(r.category);
   const raw = only ? { ...fresh, only: [], rows: [...prev.rows.filter(keep), ...fresh.rows] } : fresh;
   await fs.writeFile(localFile, JSON.stringify(raw));
@@ -77,11 +90,20 @@ async function handlePost(req: NextRequest, { params }: { params: { id: string }
   checks.unshift({ label: "Unit tests pass", ok: unit.ok, detail: `${unit.passed} passed · ${unit.failed} failed` });
   const passed = checks.every((c) => c.ok);
 
-  const entry = { at: new Date().toISOString(), summary, gate: checks, passed, unit: { ok: unit.ok, passed: unit.passed, failed: unit.failed } };
+  const entry = {
+    at: new Date().toISOString(),
+    summary,
+    gate: checks,
+    passed,
+    unit: { ok: unit.ok, passed: unit.passed, failed: unit.failed },
+    code_fp,
+    full: !only,
+    ...(practice ? { practice } : {}),
+  };
   // A new run supersedes earlier Fix it notes and explanations.
   const next = { ...state, runs: [...state.runs, entry].slice(-20), fixes: {}, proposals: {} };
   // The first passing run becomes the pinned baseline.
-  if (!next.baseline && passed) Object.assign(next, { baseline: summary, baseline_at: entry.at });
+  if (!next.baseline && passed && !practice) Object.assign(next, { baseline: summary, baseline_at: entry.at });
   await saveEvals(params.id, next);
   return NextResponse.json({ run: entry, baseline: next.baseline });
 }

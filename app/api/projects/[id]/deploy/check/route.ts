@@ -9,12 +9,16 @@ import { getEvals, saveEvals } from "@/lib/agent/evals-state";
 import { sh, uvBin } from "@/lib/agent/proc";
 import { syncGithubRelease } from "@/lib/agent/autoflow";
 import { budgetMessage, recordSpend, spendStatus } from "@/lib/agent/spend";
+import { codeFingerprint } from "@/lib/agent/code-fp";
+import type { Dataset } from "@/lib/phases/agent-evals";
 
 /**
  * Canary check: run the cases the release rules measure (regression + attacks, 1 try each) against the
  * DEPLOYED staging version, in its eval mode (dry run + test data). Must keep the regression suite near
  * the baseline and resist every attack. A release is checked once: the same version is never re-run
  * (that would only spend model credits for the same answer) unless the last check couldn't grade.
+ * When every case already passed locally, on the agent's own model, on this exact code, the check only
+ * proves the deployment works: one routine case + one attack instead of the whole set (most of the cost).
  * The result also lands in Evaluations as its newest run, so "fixed" there turns into a real pass/fail
  * and anything still failing gets its Fix it back.
  */
@@ -32,9 +36,10 @@ async function handlePost(req: NextRequest, { params }: { params: { id: string }
   const host = await chosenHost(params.id);
   const creds = (await hostCredentials(host)) ?? {};
   const agentEnv = await deployEnv({ projectId: params.id, design: ctx.design, slug: ctx.slug, host });
+  const quick = await quickCases(params.id, ctx.dir, ctx.design.model.selected);
   const r = await sh(uvBin(), ["run", "python", "-m", "evals.run_evals"], {
     cwd: ctx.dir,
-    env: { ...agentEnv, ...creds, EVAL_REMOTE: "1", EVAL_TRIALS: "1", EVAL_ONLY: "regression,adversarial", DEPLOY_TARGET: JSON.stringify(stage.target) },
+    env: { ...agentEnv, ...creds, EVAL_REMOTE: "1", EVAL_TRIALS: "1", ...(quick ? { EVAL_CASES: quick.join(",") } : { EVAL_ONLY: "regression,adversarial" }), DEPLOY_TARGET: JSON.stringify(stage.target) },
     timeoutMs: 30 * 60_000,
   });
   if (!r.ok) return NextResponse.json({ error: "The check couldn't run.", output: r.out.slice(-3000) }, { status: 500 });
@@ -54,7 +59,15 @@ async function handlePost(req: NextRequest, { params }: { params: { id: string }
   ];
   // Grading itself failed (credits, key, rate limit): the result says nothing about the agent.
   const inconclusive = gradingProblem(summary, ctx.design.model.selected) ?? undefined;
-  const check = { release: stage.release.id, at: new Date().toISOString(), passed: !inconclusive && gate.every((g) => g.ok), summary, gate, inconclusive };
+  const check = {
+    release: stage.release.id,
+    at: new Date().toISOString(),
+    passed: !inconclusive && gate.every((g) => g.ok),
+    summary,
+    gate,
+    inconclusive,
+    ...(quick ? { quick: `Quick check (${quick.length} cases): every case already passed on this exact code, so this only proves the live version works.` } : {}),
+  };
   await saveDeploy(params.id, { ...s, check, checks: { ...(s.checks ?? {}), [check.release]: check.passed } });
   if (!inconclusive) {
     // Evaluations' newest run: clears earlier Fix it notes (they're now tested) and brings back Fix it for what still fails.
@@ -73,3 +86,17 @@ async function handlePost(req: NextRequest, { params }: { params: { id: string }
 }
 
 export const POST = tracked("deployment", "Checking the testing agent", handlePost);
+
+/**
+ * One routine case + one attack, when the newest local run covered every case on the agent's own model,
+ * passed, and tested exactly the code there is now. Null = run the full regression + attack set.
+ */
+async function quickCases(projectId: string, dir: string, model: string): Promise<string[] | null> {
+  const last = [...(await getEvals(projectId)).runs].reverse().find((r) => r.source !== "live");
+  if (!last?.passed || !last.full || last.practice || last.summary.model !== model) return null;
+  if (!last.code_fp || last.code_fp !== (await codeFingerprint(dir))) return null;
+  const dataset = await fs.readFile(path.join(dir, "evals", "dataset.json"), "utf8").then((t) => JSON.parse(t) as Dataset).catch(() => null);
+  const routine = dataset?.cases.find((c) => c.suite === "regression");
+  const attack = dataset?.cases.find((c) => c.category === "adversarial");
+  return routine && attack ? [routine.id, attack.id] : null;
+}

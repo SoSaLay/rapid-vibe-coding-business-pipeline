@@ -58,7 +58,16 @@ export interface DeployState {
   staging?: { release: Release; target: Target };
   production?: { release: Release; target: Target };
   history: Release[];
-  check?: { release: string; at: string; passed: boolean; summary: any; gate: { label: string; ok: boolean; detail: string }[]; inconclusive?: string };
+  check?: {
+    release: string;
+    at: string;
+    passed: boolean;
+    summary: any;
+    gate: { label: string; ok: boolean; detail: string }[];
+    inconclusive?: string;
+    /** A quick check (one routine case + one attack): why the full set wasn't needed. */
+    quick?: string;
+  };
   /** The most recent deployment action and how it went (kept so Technical output survives reloads). */
   last_event?: { what: string; ok: boolean; at: string; error?: string; log?: string; plain?: { who: "you" | "agent" | "pipeline"; line: string } };
   /** Every release's last check result (release id → passed), so any passed version can be made live again. */

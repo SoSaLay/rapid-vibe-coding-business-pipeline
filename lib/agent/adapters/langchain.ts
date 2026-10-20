@@ -213,6 +213,8 @@ function renderGraph(design: AgentDesign, spec?: Record<string, any>): string {
 
 from __future__ import annotations
 
+import os
+
 from dotenv import load_dotenv
 from langchain.agents import create_agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware
@@ -224,7 +226,8 @@ from .tools import APPROVAL_REQUIRED, TOOLS
 ${enabledSkills(design).length ? "from .skills import index_text, load_skill\n" : ""}${ragOn(design) ? "from .knowledge import search_knowledge\n" : ""}${longTermMemory(design, spec) ? "from .memory import remember\n" : ""}${(design.mcp_servers ?? []).length ? "from .mcp_tools import MCP_APPROVAL, MCP_TOOLS\n" : ""}
 load_dotenv()
 
-MODEL = ${lit(design.model.selected)}
+# AGENT_MODEL_OVERRIDE: practice test runs on a cheaper model (set only by the pipeline's test runs).
+MODEL = os.getenv("AGENT_MODEL_OVERRIDE") or ${lit(design.model.selected)}
 # Most model + tool turns one run may take. Past this, the run stops and hands off.
 STEP_LIMIT = ${Math.max(1, Math.round(design.step_limit) || 8)}
 

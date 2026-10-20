@@ -136,7 +136,8 @@ Design the SIMPLEST thing that reliably does the job, and recommend a choice for
 
 - Workflow or agent: if the steps are fixed and known, recommend "workflow" (a deterministic sequence)
   and say so. Recommend "agent" only when the steps depend on what it finds.
-- Model: pick the cheapest model that can do the job within the latency and cost budgets. Models:
+- Model: default to Claude Sonnet 5.5. Go cheaper (Haiku, GPT-5 mini) when the job is simple and rule-shaped.
+  Never recommend Opus: it costs about twice as much to run and to test; the owner can still pick it. Models:
 ${AGENT_MODELS.map((m) => `  - ${m.id} (${m.label}, ${m.tier}): ${m.note}`).join("\n")}
 - Tools: one per capability the job needs, each with the NARROWEST permission. Every allowed action
   must map to a tool. Never design a tool for a forbidden action. Writes that are consequential or
@@ -157,6 +158,13 @@ const LABELS: Record<string, string> = {
   "long-term": "Long-term memory",
   ...Object.fromEntries(AGENT_MODELS.map((m) => [m.id, m.label])),
 };
+
+/** The model pick, with Sonnet as the default (and in place of Opus, which only the owner chooses). */
+const DEFAULT_MODEL = "anthropic:claude-sonnet-5-5";
+function modelChoice(raw: any): Choice<string> {
+  const rec = MODEL_IDS.includes(raw?.recommended) && raw.recommended !== "anthropic:claude-opus-5-5" ? raw.recommended : DEFAULT_MODEL;
+  return toChoice({ ...raw, recommended: rec }, MODEL_IDS);
+}
 
 function toChoice<T extends string>(raw: any, ids: T[]): Choice<T> {
   const recommended = (ids.includes(raw?.recommended) ? raw.recommended : ids[0]) as T;
@@ -212,7 +220,7 @@ export async function generateAgentDesign(spec: Record<string, any>, title: stri
   return {
     summary: raw.summary ?? "",
     approach: toChoice(raw.approach, ["agent", "workflow"]),
-    model: toChoice(raw.model, MODEL_IDS),
+    model: modelChoice(raw.model),
     memory: toChoice(raw.memory, ["none", "conversation", "long-term"]),
     retrieval: raw.retrieval ?? { enabled: false, rationale: "" },
     inputs: raw.inputs ?? [],

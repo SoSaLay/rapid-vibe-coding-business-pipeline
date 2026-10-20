@@ -11,16 +11,15 @@ interface Status {
   over_budget: boolean;
 }
 
-type Kind = "testing";
 const usd = (n: number) => (n < 0.01 && n > 0 ? "<$0.01" : `$${n.toFixed(2)}`);
 
 /**
  * This agent's AI spend this month: the total, development (the pipeline writing, fixing and reviewing its
- * code) and testing (evaluations and live checks), the cost of the last test, and a monthly testing budget.
+ * code) and testing (evaluations and live checks), the cost of the last test, and one monthly budget for all of it.
  */
 export function SpendMeter({ projectId, refreshKey }: { projectId: string; refreshKey?: unknown }) {
   const [s, setS] = useState<Status | null>(null);
-  const [editing, setEditing] = useState<Kind | null>(null);
+  const [editing, setEditing] = useState(false);
   const [value, setValue] = useState("");
 
   useEffect(() => {
@@ -31,11 +30,11 @@ export function SpendMeter({ projectId, refreshKey }: { projectId: string; refre
     const d = await fetch("/api/spend", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ budget: value.trim() === "" ? null : value.replace(/[$,\s]/g, ""), project: projectId, kind: editing }),
+      body: JSON.stringify({ budget: value.trim() === "" ? null : value.replace(/[$,\s]/g, ""), project: projectId }),
     }).then((r) => r.json()).catch(() => null);
     if (d && !d.error) {
       setS(d);
-      setEditing(null);
+      setEditing(false);
     }
   }
 
@@ -50,22 +49,21 @@ export function SpendMeter({ projectId, refreshKey }: { projectId: string; refre
         />
       </div>
     );
-  const link = (kind: Kind, budget: number | null) => (
-    <button className="text-accent underline" onClick={() => { setValue(budget?.toString() ?? ""); setEditing(kind); }}>
-      {budget !== null ? `Change monthly ${kind} budget` : `Set a monthly ${kind} budget`}
-    </button>
-  );
 
   return (
     <div className="overflow-hidden rounded-xl border border-edge text-sm">
       <div className={`${row} bg-panel`}>
         <span className="font-semibold text-fg">Total spend this month</span>
-        <span className="font-semibold text-fg">{usd(s.total_usd)}</span>
+        <span className="font-semibold text-fg">
+          {usd(s.total_usd)}
+          {s.budget_usd !== null && <span className="font-normal text-muted"> of {usd(s.budget_usd)} budget</span>}
+        </span>
       </div>
+      <div className="bg-panel">{budgeted(s.total_usd, s.budget_usd, s.over_budget)}</div>
       <div className="border-t border-edge">
         <div className={row}>
           <span className="text-fg/90">
-            Development <span className="text-xs text-muted">(writing, fixing and reviewing the code)</span>
+            Development total <span className="text-xs text-muted">(writing, fixing and reviewing the code)</span>
           </span>
           <span className="text-fg/90">
             {usd(s.development_usd)}
@@ -75,14 +73,10 @@ export function SpendMeter({ projectId, refreshKey }: { projectId: string; refre
       <div className="border-t border-edge">
         <div className={row}>
           <span className="text-fg/90">
-            Testing <span className="text-xs text-muted">(evaluations and live checks)</span>
+            Testing total <span className="text-xs text-muted">(evaluations and live checks)</span>
           </span>
-          <span className="text-fg/90">
-            {usd(s.testing_usd)}
-            {s.budget_usd !== null && <span className="text-muted"> of {usd(s.budget_usd)} budget</span>}
-          </span>
+          <span className="text-fg/90">{usd(s.testing_usd)}</span>
         </div>
-        {budgeted(s.testing_usd, s.budget_usd, s.over_budget)}
       </div>
       <div className={`${row} border-t border-edge`}>
         <span className="text-fg/90">
@@ -93,7 +87,7 @@ export function SpendMeter({ projectId, refreshKey }: { projectId: string; refre
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-edge px-4 py-2 text-xs text-muted">
         {editing ? (
           <span className="flex flex-wrap items-center gap-2">
-            <span>Monthly {editing} budget:</span>
+            <span>Monthly budget (development + testing):</span>
             <input
               className="input h-7 w-24 text-xs"
               placeholder="$ per month"
@@ -103,12 +97,14 @@ export function SpendMeter({ projectId, refreshKey }: { projectId: string; refre
               onKeyDown={(e) => e.key === "Enter" && save()}
             />
             <button className="text-accent underline" onClick={save}>Save</button>
-            <button className="underline" onClick={() => setEditing(null)}>Cancel</button>
+            <button className="underline" onClick={() => setEditing(false)}>Cancel</button>
           </span>
         ) : (
-          link("testing", s.budget_usd)
+          <button className="text-accent underline" onClick={() => { setValue(s.budget_usd?.toString() ?? ""); setEditing(true); }}>
+            {s.budget_usd !== null ? "Change monthly budget" : "Set a monthly budget"}
+          </button>
         )}
-        {s.over_budget && <span className="text-bad">Testing budget reached: automatic checks are paused.</span>}
+        {s.over_budget && <span className="text-bad">Monthly budget reached: automatic checks are paused.</span>}
       </div>
     </div>
   );
@@ -116,7 +112,7 @@ export function SpendMeter({ projectId, refreshKey }: { projectId: string; refre
 
 /**
  * The sidebar's spend box (agents): this month's total, development and testing, the last test's cost,
- * and the monthly testing budget link. `refreshKey` re-reads it when the page refreshes.
+ * and the monthly budget (development + testing) link. `refreshKey` re-reads it when the page refreshes.
  */
 export function SidebarSpend({ projectId, refreshKey }: { projectId: string; refreshKey?: unknown }) {
   const [s, setS] = useState<Status | null>(null);
@@ -147,12 +143,12 @@ export function SidebarSpend({ projectId, refreshKey }: { projectId: string; ref
     <div className="!mt-4 border-t border-edge px-3 pt-[6.5rem] text-[12px]">
       <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted">Spend this month</div>
       <div className="space-y-1">
-        {line("Total", usd(s.total_usd), true)}
-        {line("Development", usd(s.development_usd))}
-        {line("Testing", `${usd(s.testing_usd)}${s.budget_usd !== null ? ` / ${usd(s.budget_usd)}` : ""}`)}
+        {line("Total", `${usd(s.total_usd)}${s.budget_usd !== null ? ` / ${usd(s.budget_usd)}` : ""}`, true)}
+        {line("Development total", usd(s.development_usd))}
+        {line("Testing total", usd(s.testing_usd))}
         {line("Last test", s.last_test ? usd(s.last_test.usd) : "—")}
       </div>
-      {s.over_budget && <p className="mt-1.5 text-bad">Testing budget reached: automatic checks paused.</p>}
+      {s.over_budget && <p className="mt-1.5 text-bad">Monthly budget reached: automatic checks paused.</p>}
       {editing ? (
         <div className="mt-2 flex items-center gap-1.5">
           <input
@@ -168,7 +164,7 @@ export function SidebarSpend({ projectId, refreshKey }: { projectId: string; ref
         </div>
       ) : (
         <button className="mt-2 text-accent underline" onClick={() => { setValue(s.budget_usd?.toString() ?? ""); setEditing(true); }}>
-          {s.budget_usd !== null ? "Change monthly testing budget" : "Set a monthly testing budget"}
+          {s.budget_usd !== null ? "Change monthly budget" : "Set a monthly budget"}
         </button>
       )}
     </div>

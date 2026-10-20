@@ -47,7 +47,7 @@ export function AgentEvals({
   const [log, setLog] = useState<string | null>(null);
   const [override, setOverride] = useState("");
   const [cases, setCases] = useState<EvalCase[] | null>(null);
-  /** A run paused by the monthly testing budget, waiting for "Run anyway". */
+  /** A run paused by the monthly budget, waiting for "Run anyway". */
   const [overBudget, setOverBudget] = useState<{ path: string; body: any; label: string } | null>(null);
   const stopper = useStopper();
   const router = useRouter();
@@ -184,7 +184,7 @@ export function AgentEvals({
           </div>
         </div>
         {rerun && cases && (
-          <div className="mb-4 grid gap-2 rounded-xl border border-edge bg-ink/40 p-3 text-sm sm:grid-cols-2">
+          <div className="mb-4 grid gap-2 rounded-xl border border-edge bg-ink/40 p-3 text-sm sm:grid-cols-3">
             <button
               className="rounded-lg bg-accent p-3 text-left text-white shadow-md transition-transform hover:scale-[1.02] hover:opacity-95 active:scale-100"
               onClick={() => {
@@ -206,6 +206,16 @@ export function AgentEvals({
             >
               <div className="font-semibold">Run 3 times (3×)</div>
               <div className="mt-0.5 text-xs text-white/80">Costs 3× more. Shows if it works every time. Good before going live.</div>
+            </button>
+            <button
+              className="rounded-lg border border-edge bg-panel p-3 text-left text-fg transition-transform hover:scale-[1.02] active:scale-100"
+              onClick={() => {
+                setRerun(false);
+                post("run", { practice: true }, "Practice run on a cheaper model…");
+              }}
+            >
+              <div className="font-semibold">Practice run</div>
+              <div className="mt-0.5 text-xs text-muted">Much cheaper: runs on a smaller model. A rough check while you iterate; it doesn&apos;t count for release.</div>
             </button>
           </div>
         )}
@@ -564,7 +574,7 @@ function CaseTable({ projectId, runs, currentVersion, currentCounts, fixes, onFi
         <button className={arrow} disabled={at <= 0} onClick={() => setV(versions[at - 1])} aria-label="Previous version">‹</button>
         <div className="text-center">
           <div className="text-sm font-semibold text-fg">Version {v}{v === currentVersion ? " (current)" : ""}</div>
-          <div className="text-xs text-muted">{total} cases · {when ? `${run?.source === "live" ? `live check of the testing agent (release ${run.release})` : "run"} ${when}` : "not run yet"}</div>
+          <div className="text-xs text-muted">{total} cases · {when ? `${run?.source === "live" ? `live check of the testing agent (release ${run.release})` : run?.practice ? `practice run on ${run.practice.split(":")[1] ?? run.practice}` : "run"} ${when}${run?.summary.runs_reused ? ` · ${run.summary.runs_reused} reused (already passed on this code, free)` : ""}` : "not run yet"}</div>
         </div>
         <button className={arrow} disabled={at >= versions.length - 1} onClick={() => setV(versions[at + 1])} aria-label="Next version">›</button>
       </div>

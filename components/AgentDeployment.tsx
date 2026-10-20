@@ -977,7 +977,10 @@ export function AgentDeployment({
                       {s.check!.inconclusive} <span className="text-muted">(The agent wasn't at fault: its answers couldn't be graded, so this check doesn't count.)</span>
                     </p>
                   ) : s.check!.passed ? (
-                    <p className="text-ok">✓ Success: the live testing agent passed its checks. Nothing to fix; it's ready to go live.</p>
+                    <p className="text-ok">
+                      ✓ Success: the live testing agent passed its checks. Nothing to fix; it's ready to go live.
+                      {s.check!.quick && <span className="text-muted"> {s.check!.quick}</span>}
+                    </p>
                   ) : (
                     <p className="text-fg">
                       <span className="font-semibold text-bad">Live testing agent: </span>

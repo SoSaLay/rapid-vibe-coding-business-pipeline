@@ -1,7 +1,7 @@
 /**
  * Fix and check: change the agent for ONE problem, then right away re-run only the test cases that failed
  * (on this machine, one try each — cheap and quick). If they still fail, try again with what went wrong,
- * up to 3 times. Stops early when a try makes no progress or the testing budget is used up. Only a fix
+ * up to 3 times. Stops early when a try makes no progress or the monthly budget is used up. Only a fix
  * that makes those cases pass goes on to be re-tested, released and live-checked.
  */
 
@@ -12,6 +12,7 @@ import { changeAgent } from "./fix";
 import { agentEnv, renderDotEnv } from "./env";
 import { uvRunModule } from "./adapters/pytest-uv";
 import { recordSpend, spendStatus } from "./spend";
+import { codeFingerprint } from "./code-fp";
 import { summarize, type Dataset, type EvalCase } from "../phases/agent-evals";
 
 export interface FixAttempt {
@@ -44,7 +45,7 @@ async function recheck(projectId: string, ids: string[]): Promise<Record<string,
   if (!still.length) return null;
   const env = await agentEnv(projectId, ctx.design, ctx.slug);
   await fs.writeFile(path.join(ctx.dir, ".env"), renderDotEnv(env), { mode: 0o600 });
-  const run = await uvRunModule(ctx.dir, "evals.run_evals", { ...env, EVAL_TRIALS: "1", EVAL_CASES: still.join(",") });
+  const run = await uvRunModule(ctx.dir, "evals.run_evals", { ...env, EVAL_TRIALS: "1", EVAL_CASES: still.join(","), EVAL_CODE_FP: await codeFingerprint(ctx.dir) });
   if (!run.ok) return Object.fromEntries(still.map((id) => [id, `The check couldn't run: ${run.output.slice(-300)}`]));
   const raw = JSON.parse(await fs.readFile(path.join(ctx.dir, ".results", "evals.json"), "utf8"));
   await recordSpend(projectId, "checking a fix", summarize(raw, ctx.design.model_price).spend_usd);

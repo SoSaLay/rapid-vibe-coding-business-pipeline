@@ -181,6 +181,17 @@ export const AGENT_MODELS: { id: string; label: string; tier: string; note: stri
 ];
 
 /**
+ * The cheaper model a practice test run uses instead of the agent's own (null = none: it already is the
+ * cheap one, or it's a custom model/endpoint). Practice runs are opt-in; real checks use the agent's model.
+ */
+export function practiceModel(selected: string, endpoint?: string): string | null {
+  if (endpoint) return null;
+  if (selected.startsWith("anthropic:") && selected !== "anthropic:claude-haiku-5-5") return "anthropic:claude-haiku-5-5";
+  if (selected === "openai:gpt-5") return "openai:gpt-5-mini";
+  return null;
+}
+
+/**
  * LangChain providers a custom model can use ("provider:model"): the pip package and the key it reads.
  * "openai" also covers any OpenAI-compatible endpoint (set a custom endpoint URL).
  */

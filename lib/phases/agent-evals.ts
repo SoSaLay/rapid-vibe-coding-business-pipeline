@@ -71,6 +71,8 @@ export interface EvalRow {
   usage: Usage | null;
   /** Grading tokens for this row (zero when an earlier grade was reused). */
   judge_usage?: Usage & { reused?: boolean };
+  /** Passed earlier on this exact code, model and case: its result was reused, not paid for again. */
+  reused?: boolean;
   reason: string;
 }
 
@@ -282,6 +284,8 @@ export interface EvalSummary {
   grading_usd?: number | null;
   /** Grades reused from earlier identical answers (not paid for again). */
   grades_reused?: number;
+  /** Cases that passed earlier on this exact code, reused instead of run again (not paid for again). */
+  runs_reused?: number;
   failing_cases: { case: string; category: string; suite: string; passed_trials: number; trials: number; reason: string }[];
 }
 
@@ -314,6 +318,7 @@ export function summarize(
   const gradingUsd = grading.every((c) => c !== null) ? (grading as number[]).reduce((a, b) => a + b, 0) : null;
   const knownCost = costs.every((c) => c !== null);
   const totalCost = knownCost ? (costs as number[]).reduce((a, b) => a + b, 0) : null;
+  const paidCost = knownCost ? (costs as number[]).reduce((a, c, i) => a + (rows[i].reused ? 0 : c!), 0) : null;
   const successes = rows.filter((r) => r.passed).length;
   const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
 
@@ -343,9 +348,10 @@ export function summarize(
     avg_tokens: avg(tokens),
     cost_per_run: totalCost !== null && rows.length ? totalCost / rows.length : null,
     cost_per_success: totalCost !== null && successes ? totalCost / successes : null,
-    spend_usd: totalCost !== null && gradingUsd !== null ? totalCost + gradingUsd : null,
+    spend_usd: paidCost !== null && gradingUsd !== null ? paidCost + gradingUsd : null,
     grading_usd: gradingUsd,
     grades_reused: rows.filter((r) => r.judge_usage?.reused).length,
+    runs_reused: rows.filter((r) => r.reused).length,
     failing_cases: cases
       .filter((rs) => !rs.every((r) => r.passed))
       .map((rs) => ({

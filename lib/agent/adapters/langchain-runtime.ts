@@ -334,6 +334,21 @@ try:
     _GRADES: dict = json.loads(GRADES.read_text())
 except Exception:  # noqa: BLE001
     _GRADES = {}
+# Runs already paid for: a case that PASSED on this exact code (EVAL_CODE_FP, set by the pipeline), model and
+# test case is reused instead of run again. Failures always re-run. EVAL_FRESH=1 runs everything.
+RUNS = ROOT / ".results" / "passed-runs.json"
+CODE_FP = os.getenv("EVAL_CODE_FP", "")
+REUSE = bool(CODE_FP) and os.getenv("EVAL_REMOTE") != "1" and os.getenv("EVAL_FRESH") != "1"
+try:
+    _RUNS: dict = json.loads(RUNS.read_text()) if REUSE else {}
+except Exception:  # noqa: BLE001
+    _RUNS = {}
+
+
+def _run_key(case: dict, trial: int) -> str:
+    return hashlib.sha256(f"{CODE_FP}\\n{MODEL}\\n{trial}\\n{json.dumps(case, sort_keys=True)}".encode()).hexdigest()
+
+
 # Cases run side by side (each mostly waits on the model): more workers = a shorter run, same cost.
 WORKERS = max(1, int(os.getenv("EVAL_WORKERS", "8")))
 
@@ -418,6 +433,20 @@ def _remote(case: dict) -> dict:
 
 
 def score(case: dict, trial: int) -> dict:
+    if REUSE:
+        with _grades_lock:
+            hit = _RUNS.get(_run_key(case, trial))
+        if hit:
+            # Its tokens stay for the speed/cost numbers; "reused" keeps it out of what this run spent.
+            return {**hit, "judge_usage": {"input_tokens": 0, "output_tokens": 0, "reused": True}, "reused": True}
+    row = _score(case, trial)
+    if REUSE and row["passed"]:
+        with _grades_lock:
+            _RUNS[_run_key(case, trial)] = row
+    return row
+
+
+def _score(case: dict, trial: int) -> dict:
     if os.getenv("EVAL_REMOTE") == "1":
         run = _remote(case)
     else:
@@ -480,7 +509,10 @@ def main() -> None:
     OUT.parent.mkdir(exist_ok=True)
     with _grades_lock:
         GRADES.write_text(json.dumps(_GRADES))
-    OUT.write_text(json.dumps({"dataset_version": DATASET.get("version"), "trials": TRIALS, "model": MODEL, "judge_model": JUDGE_MODEL, "remote": os.getenv("EVAL_REMOTE") == "1", "only": sorted(only), "rows": rows}, indent=2, default=str))
+        if REUSE:
+            RUNS.write_text(json.dumps(_RUNS))
+    OUT.write_text(json.dumps({"dataset_version": DATASET.get("version"), "trials": TRIALS, "model": MODEL, "code_fp": CODE_FP,
+                               "reused": sum(1 for r in rows if r.get("reused")), "judge_model": JUDGE_MODEL, "remote": os.getenv("EVAL_REMOTE") == "1", "only": sorted(only), "rows": rows}, indent=2, default=str))
     if os.getenv("LANGFUSE_PUBLIC_KEY"):
         try:
             from langfuse import get_client

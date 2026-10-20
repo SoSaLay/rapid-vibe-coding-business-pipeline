@@ -1,9 +1,10 @@
 /**
- * Testing spend: what evaluations and live checks cost in model credits (the agent's runs plus grading),
- * per agent and in total, against an optional monthly budget. Kept in data/connectors/testing-spend.json.
+ * AI spend per agent: development (the pipeline writing, fixing and reviewing its code) and testing
+ * (evaluations, live checks: the agent's runs plus grading), against one optional monthly budget that
+ * covers both. Kept in data/connectors/testing-spend.json (the name predates development being counted).
  *
  * When this month's total reaches the budget, automatic work that spends credits pauses (auto-checks,
- * automatic releases); anything the owner starts by hand asks first.
+ * fix retries); anything the owner starts by hand asks first.
  */
 
 import { readConnectorConfig, saveConnectorConfig } from "../connectors/config";
@@ -17,7 +18,7 @@ export interface SpendEntry {
 }
 
 interface SpendFile {
-  /** Monthly testing budget per agent (project id → dollars). */
+  /** Monthly budget per agent, development + testing (project id → dollars). */
   budgets?: Record<string, number>;
   entries?: SpendEntry[];
 }
@@ -65,7 +66,7 @@ export interface SpendStatus {
   testing_usd: number;
   /** The last testing run and what it cost. */
   last_test?: SpendEntry;
-  /** This agent's monthly testing budget (null = none). */
+  /** This agent's monthly budget for all its AI spend (null = none). */
   budget_usd: number | null;
   over_budget: boolean;
 }
@@ -77,17 +78,18 @@ export async function spendStatus(project: string): Promise<SpendStatus> {
   const development_usd = month.filter((e) => e.what === "pipeline AI").reduce((a, e) => a + e.usd, 0);
   const testing_usd = month.filter((e) => e.what !== "pipeline AI").reduce((a, e) => a + e.usd, 0);
   const budget = f.budgets?.[project] ?? null;
+  const total_usd = development_usd + testing_usd;
   return {
-    total_usd: development_usd + testing_usd,
+    total_usd,
     development_usd,
     testing_usd,
     last_test: [...mine].reverse().find((e) => e.what !== "pipeline AI"),
     budget_usd: budget,
-    over_budget: budget !== null && testing_usd >= budget,
+    over_budget: budget !== null && total_usd >= budget,
   };
 }
 
 /** The message shown when work is paused for the budget. */
 export function budgetMessage(s: SpendStatus) {
-  return `This agent's testing budget for the month is used up ($${s.testing_usd.toFixed(2)} of $${(s.budget_usd ?? 0).toFixed(2)}). Raise it, or confirm to run anyway.`;
+  return `This agent's monthly budget is used up ($${s.total_usd.toFixed(2)} of $${(s.budget_usd ?? 0).toFixed(2)}: $${s.development_usd.toFixed(2)} development, $${s.testing_usd.toFixed(2)} testing). Raise it, or confirm to run anyway.`;
 }

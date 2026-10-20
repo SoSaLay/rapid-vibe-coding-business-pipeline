@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { setSpendBudget, spendStatus } from "@/lib/agent/spend";
 
-/** GET ?project=id → that agent's AI spend this month (development + testing) and its testing budget. POST { project, budget }. */
+/** GET ?project=id → that agent's AI spend this month (development + testing) and its monthly budget, which covers both. POST { project, budget }. */
 export async function GET(req: NextRequest) {
   const project = req.nextUrl.searchParams.get("project");
   if (!project) return NextResponse.json({ error: "Which agent?" }, { status: 400 });

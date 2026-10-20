@@ -21,6 +21,12 @@ export interface EvalRun {
   /** "live": the deployed testing agent's check (regression + attack cases only), for this release. */
   source?: "local" | "live";
   release?: string;
+  /** Code fingerprint the run tested (lib/agent/code-fp.ts). */
+  code_fp?: string;
+  /** Every test case ran (not a re-test of only what was fixed). */
+  full?: boolean;
+  /** A practice run: the cheaper model it used instead of the agent's own. */
+  practice?: string;
 }
 
 export interface EvalsState {
