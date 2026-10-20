@@ -414,6 +414,18 @@ function Steps({ items }: { items: React.ReactNode[] }) {
 }
 
 /** Agent pipeline — stage 6. Package → database → login → staging → live check → approve → production (+ rollback). */
+/** The last status per agent, so coming back to Deployment shows it at once while it refreshes. */
+const lastStatus = new Map<string, Status>();
+
+/** Fetch an agent's deployment status ahead of time (once), so the first visit to Deployment shows it at once. */
+export function prefetchDeployStatus(projectId: string) {
+  if (lastStatus.has(projectId)) return;
+  fetch(`/api/projects/${projectId}/deploy`)
+    .then((r) => r.json())
+    .then((d) => d && !d.error && !lastStatus.has(projectId) && lastStatus.set(projectId, d))
+    .catch(() => {});
+}
+
 export function AgentDeployment({
   projectId,
   hasEvals,
@@ -435,7 +447,7 @@ export function AgentDeployment({
   const autoKey = useRef<string | null>(null);
   // Quick start is shown by default; the other column's heading switches to traditional setup.
   const [dbMode, setDbMode] = useState<"quick" | "api">("quick");
-  const [st, setSt] = useState<Status | null>(null);
+  const [st, setSt] = useState<Status | null>(() => lastStatus.get(projectId) ?? null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [log, setLog] = useState<string | null>(null);
@@ -445,20 +457,28 @@ export function AgentDeployment({
   const [failedAction, setFailedAction] = useState<{ what: string; at: string } | null>(null);
   const [dbUrl, setDbUrl] = useState("");
   const [jwks, setJwks] = useState("");
-  const [urls, setUrls] = useState<{ staging?: string; production?: string }>({});
+  const [urls, setUrls] = useState<{ staging?: string; production?: string }>(() => lastStatus.get(projectId)?.state.railway_urls ?? {});
   /** "Go live anyway": the open warning and the owner's reason. */
   const [anyway, setAnyway] = useState<string | null>(null);
 
   async function load() {
     const d = await fetch(`/api/projects/${projectId}/deploy`).then((r) => r.json()).catch(() => null);
-    if (d) {
+    if (d && !d.error) {
+      lastStatus.set(projectId, d);
       setSt(d);
       setUrls(d.state.railway_urls ?? {});
     }
   }
   useEffect(() => { load(); }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
   // A background release (GitHub) records its version and checks it: pick that up as it happens.
-  useEffect(() => { if (autoflow) load(); }, [autoflow?.stage, autoflow?.message]); // eslint-disable-line react-hooks/exhaustive-deps
+  // (Only on a change: the first render's value is already covered by the load above.)
+  const flowKey = autoflow ? `${autoflow.stage}|${autoflow.message}` : "";
+  const seenFlow = useRef(flowKey);
+  useEffect(() => {
+    if (flowKey === seenFlow.current) return;
+    seenFlow.current = flowKey;
+    if (autoflow) load();
+  }, [flowKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function post(path: string, body: any, label: string) {
     setBusy(label);

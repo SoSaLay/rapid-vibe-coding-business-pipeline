@@ -39,12 +39,18 @@ interface RepoState {
 
 const API = "https://api.github.com";
 
+// The gh CLI's answer, kept a minute: asking it takes ~0.3s and every page refresh needs it.
+const ghCli = globalThis as unknown as { __ghToken?: { at: number; token: string | null } };
+
 export async function githubToken(): Promise<string | null> {
   const saved = await getGithubToken();
   if (saved) return saved;
+  if (ghCli.__ghToken && Date.now() - ghCli.__ghToken.at < 60_000) return ghCli.__ghToken.token;
   const r = await sh("gh", ["auth", "token"], { cwd: process.cwd(), timeoutMs: 10_000 }).catch(() => null);
   const t = r?.ok ? r.out.trim().split("\n").pop()?.trim() : "";
-  return t && /^[\w-]{20,}$/.test(t) ? t : null;
+  const token = t && /^[\w-]{20,}$/.test(t) ? t : null;
+  ghCli.__ghToken = { at: Date.now(), token };
+  return token;
 }
 
 export async function pushMode(): Promise<PushMode | null> {
@@ -69,17 +75,33 @@ async function saveRepoState(projectId: string, s: RepoState) {
   await saveProjectSettings(projectId, { agentGithub: s });
 }
 
+const g = globalThis as unknown as { __unpushed?: Map<string, number> };
+g.__unpushed ??= new Map();
+const unpushedCache = g.__unpushed;
+
 /** How far the agent's local code is ahead of GitHub. */
 export async function githubStatus(projectId: string) {
   const ctx = await loadBuild(projectId);
-  const [token, mode, repo] = await Promise.all([githubToken(), pushMode(), repoState(projectId)]);
+  const [token, mode, repo, headR] = await Promise.all([
+    githubToken(),
+    pushMode(),
+    repoState(projectId),
+    ctx.build ? sh("git", ["rev-parse", "HEAD"], { cwd: ctx.dir }) : null,
+  ]);
   if (!ctx.build) return { built: false, connected: !!token, mode, repo: null, unpushed: 0 };
-  const head = (await sh("git", ["rev-parse", "HEAD"], { cwd: ctx.dir })).out.trim();
+  const head = headR?.out.trim() ?? "";
   let unpushed = 0;
   if (head && head !== repo?.pushed_sha) {
-    const known = repo?.pushed_sha && (await sh("git", ["cat-file", "-e", `${repo.pushed_sha}^{commit}`], { cwd: ctx.dir })).ok;
-    const r = await sh("git", ["rev-list", "--count", known ? `${repo!.pushed_sha}..HEAD` : "HEAD"], { cwd: ctx.dir });
-    unpushed = Number(r.out.trim()) || 0;
+    // The same two commits always give the same count: ask git once.
+    const key = `${ctx.dir}\0${repo?.pushed_sha ?? ""}..${head}`;
+    const hit = unpushedCache.get(key);
+    if (hit !== undefined) unpushed = hit;
+    else {
+      const known = repo?.pushed_sha && (await sh("git", ["cat-file", "-e", `${repo.pushed_sha}^{commit}`], { cwd: ctx.dir })).ok;
+      const r = await sh("git", ["rev-list", "--count", known ? `${repo!.pushed_sha}..${head}` : head], { cwd: ctx.dir });
+      unpushed = Number(r.out.trim()) || 0;
+      if (r.ok) unpushedCache.set(key, unpushed);
+    }
   }
   return {
     built: true,

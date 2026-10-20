@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getProject, listArtifacts, getPhaseState, deleteProject } from "@/lib/store";
-import { PODialogue } from "@/lib/phases/product-owner";
 import { getAutoflow, isAutoflowRunning } from "@/lib/agent/autoflow";
 import { activities } from "@/lib/agent/activity";
 import { githubStatus } from "@/lib/agent/github";
@@ -8,23 +7,19 @@ import { githubStatus } from "@/lib/agent/github";
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const project = await getProject(params.id);
   if (!project) return NextResponse.json({ error: "Project not found." }, { status: 404 });
-  const artifacts = await listArtifacts(params.id);
-  const productOwner = await getPhaseState<PODialogue>(params.id, "product-owner");
-  const ideaValidation = await getPhaseState(params.id, "idea-validation");
-  const preMarketing = await getPhaseState(params.id, "pre-marketing");
-  const productDesign = await getPhaseState(params.id, "product-design");
-  const engineering = await getPhaseState(params.id, "engineering");
-  const qa = await getPhaseState(params.id, "qa");
-  const deployment = await getPhaseState(params.id, "deployment");
-  const marketing = await getPhaseState(params.id, "marketing-sales");
-  const operations = await getPhaseState(params.id, "operations");
-  const iteration = await getPhaseState(params.id, "iteration");
-  const agentDesign = await getPhaseState(params.id, "agent-design");
-  const security = await getPhaseState(params.id, "security");
+  // Everything is read side by side: these are independent files (and a few git commands for agents).
+  const phases = ["product-owner", "idea-validation", "pre-marketing", "product-design", "engineering", "qa", "deployment",
+    "marketing-sales", "operations", "iteration", "agent-design", "security"] as const;
+  const isAgent = project.kind === "agent";
+  const [artifacts, states, flow, github] = await Promise.all([
+    listArtifacts(params.id),
+    Promise.all(phases.map((ph) => getPhaseState<any>(params.id, ph))),
+    isAgent ? getAutoflow(params.id) : null,
+    isAgent ? githubStatus(params.id).catch(() => null) : null,
+  ]);
+  const [productOwner, ideaValidation, preMarketing, productDesign, engineering, qa, deployment, marketing, operations, iteration, agentDesign, security] = states;
   // Agents: the background flow after a design change, and what's not on GitHub yet.
-  const flow = project.kind === "agent" ? await getAutoflow(params.id) : null;
   const autoflow = flow ? { ...flow, running: isAutoflowRunning(params.id) } : null;
-  const github = project.kind === "agent" ? await githubStatus(params.id).catch(() => null) : null;
   return NextResponse.json({
     project,
     artifacts,

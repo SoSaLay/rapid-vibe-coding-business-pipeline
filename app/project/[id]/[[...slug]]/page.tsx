@@ -17,7 +17,7 @@ import { Engineering } from "@/components/Engineering";
 import { AgentDesign } from "@/components/AgentDesign";
 import { AgentEngineering } from "@/components/AgentEngineering";
 import { AgentEvals } from "@/components/AgentEvals";
-import { AgentDeployment } from "@/components/AgentDeployment";
+import { AgentDeployment, prefetchDeployStatus } from "@/components/AgentDeployment";
 import { AgentOperations } from "@/components/AgentOperations";
 import { QA } from "@/components/QA";
 import { Deployment } from "@/components/Deployment";
@@ -49,6 +49,9 @@ interface ProjectData {
   phaseState: { "product-owner": any };
 }
 
+/** The last project data per id (see the page's first state). */
+const lastData = new Map<string, ProjectData>();
+
 export default function ProjectWorkspace() {
   const params = useParams();
   const router = useRouter();
@@ -67,7 +70,8 @@ export default function ProjectWorkspace() {
   // artifact face shows the menu of this phase's artifacts.
   const artifactSlug = slug?.[2];
 
-  const [data, setData] = useState<ProjectData | null>(null);
+  // Switching stages remounts this page: start from the last copy so it shows at once, then refresh.
+  const [data, setData] = useState<ProjectData | null>(() => lastData.get(id) ?? null);
   const [showIdea, setShowIdea] = useState(false);
   const [showIterate, setShowIterate] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
@@ -75,7 +79,10 @@ export default function ProjectWorkspace() {
 
   const refresh = useCallback(async () => {
     const res = await fetch(`/api/projects/${id}`);
-    if (res.ok) setData(await res.json());
+    if (!res.ok) return;
+    const d = await res.json();
+    lastData.set(id, d);
+    setData(d);
   }, [id]);
 
   useEffect(() => { refresh(); }, [refresh]);
@@ -90,6 +97,12 @@ export default function ProjectWorkspace() {
     const t = setInterval(refresh, flowRunning ? 3000 : 15000);
     return () => clearInterval(t);
   }, [flowRunning, isAgent, refresh]);
+  // Agents: have Deployment's status ready before it's opened (it's the slowest stage to load).
+  useEffect(() => {
+    if (!isAgent) return;
+    const t = setTimeout(() => prefetchDeployStatus(id), 800);
+    return () => clearTimeout(t);
+  }, [isAgent, id]);
   useEffect(() => {
     const onBusy = () => setTimeout(refresh, 700);
     window.addEventListener("pipeline:busy", onBusy);
