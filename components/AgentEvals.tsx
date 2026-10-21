@@ -2,8 +2,9 @@
 
 import { StageLoading } from "./BuildingRobot";
 
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { PLATFORMS, type PlatformId } from "@/lib/agent/platforms";
 import type { EvalsState, EvalRun } from "@/lib/agent/evals-state";
 import type { EvalSummary, EvalCase } from "@/lib/phases/agent-evals";
 import { Doc, DocSection, DocP, DocMuted, DocFacts } from "./doc/Doc";
@@ -25,6 +26,9 @@ const CATEGORY_LABEL: Record<string, string> = {
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 const RUN_LABEL = "Running the evaluations (a few minutes)…";
+
+/** Which build Fix it works on (the tab picked at the top of Evaluations). */
+const PlatformContext = createContext<PlatformId>("self");
 
 /** Agent pipeline — stage 5. Versioned dataset → repeated runs → metrics vs pinned baseline → release gate. */
 export function AgentEvals({
@@ -57,19 +61,37 @@ export function AgentEvals({
   const [rerun, setRerun] = useState(false);
   /** The tracing tool where evaluation runs can be seen (Langfuse by default). */
   const [viewer, setViewer] = useState<{ label?: string; url?: string } | null>(null);
+  /** Which build is being tested: our way, or the agent's build on Claude / ChatGPT. */
+  const [platform, setPlatform] = useState<PlatformId>(() => {
+    const q = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("platform") : null;
+    return q === "claude" || q === "chatgpt" ? q : "self";
+  });
+  /** The platforms this agent is built on (our way when it has a local build). */
+  const [builtOn, setBuiltOn] = useState<PlatformId[] | null>(null);
+  useEffect(() => {
+    fetch(`/api/projects/${projectId}/hosted`)
+      .then((r) => r.json())
+      .then((d) => {
+        // Only the path picked in Development.
+        const chosen = (d?.chosen ?? "self") as PlatformId;
+        setBuiltOn([chosen]);
+        setPlatform(chosen);
+      })
+      .catch(() => setBuiltOn(["self"]));
+  }, [projectId]);
   useEffect(() => {
     fetch(`/api/projects/${projectId}/evals/viewer`).then((r) => r.json()).then(setViewer).catch(() => {});
   }, [projectId]);
   // Running the tests is automatic: on arrival, and whenever test cases exist with no results yet.
   useEffect(() => {
-    if (!hasSecurity || !loaded || autoRan.current || (state?.runs?.length ?? 0) > 0) return;
+    if (!hasSecurity || !loaded || !builtOn || autoRan.current || (state?.runs ?? []).some((r) => (r.platform ?? "self") === platform)) return;
     if (!autostart && !cases) return;
     autoRan.current = true;
     (async () => {
       if (!cases && !(await post("dataset", {}, "Writing test cases…"))) return;
       await post("run", {}, RUN_LABEL);
     })();
-  }, [autostart, hasSecurity, loaded]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [autostart, hasSecurity, loaded, builtOn]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetch(`/api/projects/${projectId}/evals/dataset`)
@@ -90,7 +112,7 @@ export function AgentEvals({
         method: "POST",
         signal: stopper.signal(),
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body ?? {}),
+        body: JSON.stringify(path === "run" && platform !== "self" ? { ...(body ?? {}), platform } : body ?? {}),
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -115,7 +137,8 @@ export function AgentEvals({
 
   if (!hasSecurity) return <StageStart label="Start Evaluations" locked="Finish Development first (including its safety checklist)." onStart={() => {}} />;
 
-  const runs = state?.runs ?? [];
+  // Runs of the build being looked at (live checks belong to our way's deployment).
+  const runs = (state?.runs ?? []).filter((r) => (r.platform ?? "self") === platform);
   const last: EvalRun | undefined = runs[runs.length - 1];
   const baseline = state?.baseline ?? null;
   const caseCount = cases?.length ?? 0;
@@ -129,7 +152,31 @@ export function AgentEvals({
   }
 
   return (
+    <PlatformContext.Provider value={platform}>
     <Doc>
+      {builtOn && builtOn.length > 1 && (
+        <div className="mb-8 overflow-hidden rounded-xl border border-edge">
+          <div className="flex divide-x divide-edge bg-ink/40 text-sm">
+            {PLATFORMS.filter((p) => builtOn.includes(p.id)).map((p) => (
+              <button
+                key={p.id}
+                className={`flex-1 px-3 py-2.5 font-semibold ${platform === p.id ? "bg-accent/15 text-fg" : "text-muted hover:text-fg"}`}
+                onClick={() => setPlatform(p.id)}
+                aria-pressed={platform === p.id}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {platform !== "self" && (
+        <p className="mb-6 rounded-lg border border-edge bg-ink/40 px-4 py-3 text-sm text-fg/90">
+          These runs talk to the agent hosted on {platform === "claude" ? "Claude" : "ChatGPT"}, with each test case&apos;s test data in its
+          sandbox (nothing real is sent or bought). Fix it updates the {platform === "claude" ? "Claude" : "ChatGPT"} agent itself and re-checks the
+          fix there.
+        </p>
+      )}
       {last && (state?.dataset_version ?? 1) === last.summary.dataset_version && (
         <FixAllIssues
           projectId={projectId}
@@ -306,6 +353,7 @@ export function AgentEvals({
         </>
       )}
     </Doc>
+    </PlatformContext.Provider>
   );
 }
 
@@ -361,11 +409,12 @@ function FixAllIssues({ projectId, targets, labels, onFixed }: {
   const [stage, setStage] = useState<"idle" | "explaining" | "proposed" | "applying">("idle");
   const [items, setItems] = useState<{ explanation: string; plan: string; fixable: boolean }[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
+  const fixPlatform = useContext(PlatformContext);
   const call = (step: "explain-all" | "apply-all", list: FixTargetUI[]) =>
     fetch(`/api/projects/${projectId}/evals/fix`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ targets: list, step }),
+      body: JSON.stringify({ targets: list, step, ...(fixPlatform !== "self" ? { platform: fixPlatform } : {}) }),
     }).then((r) => r.json()).catch(() => ({ error: "That didn't work." }));
 
   async function explain() {
@@ -458,11 +507,12 @@ function FixRow({ projectId, target, canFix, fixed, onFixed, cells }: {
   const [stage, setStage] = useState<"idle" | "explaining" | "proposed" | "applying">("idle");
   const [p, setP] = useState<{ explanation: string; plan: string; fixable: boolean } | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const fixPlatform = useContext(PlatformContext);
   const call = (step: "explain" | "apply") =>
     fetch(`/api/projects/${projectId}/evals/fix`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ target, step }),
+      body: JSON.stringify({ target, step, ...(fixPlatform !== "self" ? { platform: fixPlatform } : {}) }),
     }).then((r) => r.json()).catch(() => ({ error: "That didn't work." }));
 
   async function explain() {
@@ -574,7 +624,7 @@ function CaseTable({ projectId, runs, currentVersion, currentCounts, fixes, onFi
         <button className={arrow} disabled={at <= 0} onClick={() => setV(versions[at - 1])} aria-label="Previous version">‹</button>
         <div className="text-center">
           <div className="text-sm font-semibold text-fg">Version {v}{v === currentVersion ? " (current)" : ""}</div>
-          <div className="text-xs text-muted">{total} cases · {when ? `${run?.source === "live" ? `live check of the testing agent (release ${run.release})` : run?.practice ? `practice run on ${run.practice.split(":")[1] ?? run.practice}` : "run"} ${when}${run?.summary.runs_reused ? ` · ${run.summary.runs_reused} reused (already passed on this code, free)` : ""}` : "not run yet"}</div>
+          <div className="text-xs text-muted">{total} cases · {when ? `${run?.source === "live" ? `live check of the testing agent (release ${run.release})` : run?.practice ? `practice run on ${run.practice.split(":")[1] ?? run.practice}` : run?.platform ? `run on ${run.platform === "claude" ? "Claude" : "ChatGPT"}` : "run"} ${when}${run?.summary.runs_reused ? ` · ${run.summary.runs_reused} reused (already passed on this code, free)` : ""}` : "not run yet"}</div>
         </div>
         <button className={arrow} disabled={at >= versions.length - 1} onClick={() => setV(versions[at + 1])} aria-label="Next version">›</button>
       </div>
@@ -613,14 +663,14 @@ function CaseTable({ projectId, runs, currentVersion, currentCounts, fixes, onFi
 }
 
 /**
- * When Fix it can't help: hand the problem to the Automatic Agent Builder (Agent Design's side panel), which
+ * When Fix it can't help: hand the problem to the Automatic Agent Changer (Agent Design's side panel), which
  * can change the built agent's tools and instructions in conversation. The problem is prefilled for the owner.
  */
 export function AskBuilder({ projectId, text, button = false }: { projectId: string; text: string; button?: boolean }) {
   const href = `/project/${projectId}/agent-design?ask=${encodeURIComponent(`Please fix this in my agent: ${text}`.slice(0, 1500))}`;
   return (
     <a className={button ? "btn-ghost text-sm" : "text-accent underline"} href={href}>
-      Ask the Agent Builder →
+      Ask the Agent Changer →
     </a>
   );
 }

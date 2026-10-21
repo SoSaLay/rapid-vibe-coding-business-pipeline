@@ -29,7 +29,7 @@ function className(name: string): string {
     .join("");
 }
 
-const PY_TYPE: Record<Field["type"], string> = {
+export const PY_TYPE: Record<Field["type"], string> = {
   string: "str",
   number: "float",
   boolean: "bool",
@@ -46,11 +46,11 @@ const PY_SAMPLE: Record<Field["type"], string> = {
 };
 
 /** A Python string literal (JSON escaping is valid Python for plain strings). */
-function lit(s: string): string {
+export function lit(s: string): string {
   return JSON.stringify(s ?? "");
 }
 
-function ordered(fields: Field[]): Field[] {
+export function ordered(fields: Field[]): Field[] {
   return [...fields.filter((f) => f.required), ...fields.filter((f) => !f.required)];
 }
 
@@ -68,7 +68,7 @@ function pydanticModel(name: string, fields: Field[], doc: string): string {
   return lines.join("\n");
 }
 
-function indent(body: string, n = 4): string {
+export function indent(body: string, n = 4): string {
   const pad = " ".repeat(n);
   const text = body.replace(/\t/g, "    ").replace(/\s+$/, "");
   // Normalize the model's own indentation, then re-indent under the def.

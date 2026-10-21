@@ -232,6 +232,8 @@ export interface ProjectSettings {
   agentStack?: Record<string, string>;
   /** Agent pipeline: expected runs per month, for the monthly cost estimate. */
   agentRunsPerMonth?: number;
+  /** Agent pipeline: the build path picked in Development ("self" | "claude" | "chatgpt"); Evaluations and Deployment show only it. */
+  agentPlatform?: "self" | "claude" | "chatgpt";
   /** Agent pipeline: the agent's private GitHub repo and what was last pushed (lib/agent/github.ts). */
   agentGithub?: { owner: string; repo: string; pushed_sha?: string; pushed_at?: string; secret_hashes?: Record<string, string>; ci?: string };
 }

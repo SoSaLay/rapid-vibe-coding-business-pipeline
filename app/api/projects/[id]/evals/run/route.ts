@@ -12,6 +12,7 @@ import { getEvals, saveEvals, type EvalsState } from "@/lib/agent/evals-state";
 import { budgetMessage, recordSpend, spendStatus } from "@/lib/agent/spend";
 import { codeFingerprint } from "@/lib/agent/code-fp";
 import { practiceModel } from "@/lib/agent/design";
+import { runHostedEvals } from "@/lib/agent/hosted/evals";
 
 /**
  * Which suites/kinds a re-test after Fix it needs: the kinds and rules that were fixed, plus the
@@ -37,7 +38,8 @@ function retestScope(state: EvalsState): string[] | null {
 /**
  * Run the layers: deterministic unit tests, then the dataset × trials.
  * Body: { trials?: 1-5 (1 by default; 3 = consistency run), retest?: true (only what Fix it touched), force?: true (past the budget),
- *   practice?: true (run the agent on its cheaper practice model: a rough check, never the pinned baseline) }.
+ *   practice?: true (run the agent on its cheaper practice model: a rough check, never the pinned baseline),
+ *   platform?: "claude" | "chatgpt" (run against the agent's build there instead of our own) }.
  * Cases that already passed on this exact code are reused, not paid for again (see EVAL_CODE_FP in the runner).
  */
 async function handlePost(req: NextRequest, { params }: { params: { id: string } }) {
@@ -45,6 +47,10 @@ async function handlePost(req: NextRequest, { params }: { params: { id: string }
   const trials = Math.min(5, Math.max(1, Number(body.trials) || 1));
   const budget = await spendStatus(params.id);
   if (budget.over_budget && !body.force) return NextResponse.json({ error: budgetMessage(budget), over_budget: true }, { status: 402 });
+  if (body.platform === "claude" || body.platform === "chatgpt") {
+    const cases = Array.isArray(body.cases) ? body.cases.filter((c: unknown) => typeof c === "string") : undefined;
+    return runHosted(params.id, body.platform, trials, cases);
+  }
   const ctx = await loadBuild(params.id);
   if (!ctx.design || !ctx.build) return NextResponse.json({ error: "Build the agent first." }, { status: 400 });
   try {
@@ -109,3 +115,35 @@ async function handlePost(req: NextRequest, { params }: { params: { id: string }
 }
 
 export const POST = tracked("qa", "Running the evaluations", handlePost);
+
+/** Evaluations against the agent's build on Claude or ChatGPT (every case, with its test data). */
+async function runHosted(projectId: string, platform: "claude" | "chatgpt", trials: number, cases?: string[]) {
+  let raw;
+  try {
+    raw = await runHostedEvals(projectId, platform, { trials, cases });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || "The run failed." }, { status: 400 });
+  }
+  const summary = summarize(raw);
+  await recordSpend(projectId, `evaluations (${platform === "claude" ? "Claude" : "ChatGPT"})`, summary.spend_usd);
+  const state = await getEvals(projectId);
+  const baseline = state.hosted_baselines?.[platform] ?? null;
+  const spec = (await latestArtifact(projectId, "product-spec"))?.payload as any;
+  const checks = gate(summary, baseline, { latency: spec?.agent?.latency_budget, cost: spec?.agent?.cost_budget });
+  const passed = checks.every((c) => c.ok);
+  const entry = {
+    at: new Date().toISOString(),
+    summary,
+    gate: checks,
+    passed,
+    unit: { ok: true, passed: 0, failed: 0 },
+    full: !cases?.length,
+    platform,
+  };
+  // A spot check of a few cases answers the caller but doesn't stand in for a full run in the history.
+  if (cases?.length) return NextResponse.json({ run: entry, baseline });
+  const next = { ...state, runs: [...state.runs, entry].slice(-20), fixes: {}, proposals: {} };
+  if (!baseline && passed) next.hosted_baselines = { ...(state.hosted_baselines ?? {}), [platform]: summary };
+  await saveEvals(projectId, next);
+  return NextResponse.json({ run: entry, baseline: next.hosted_baselines?.[platform] ?? null });
+}

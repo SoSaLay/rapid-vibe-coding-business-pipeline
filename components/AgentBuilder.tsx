@@ -6,7 +6,7 @@ import type { ChatTurn } from "@/lib/phases/agent-design-chat";
 const OPEN_KEY = "agent-builder-open";
 
 /**
- * The Automatic Agent Builder: a tall tab on the right edge opens a full-height side panel
+ * The Automatic Agent Changer: a tall tab on the right edge opens a full-height side panel
  * (Copilot Studio style), messages above and the input pinned at the bottom. Shown on Agent
  * Design ("design": edits the draft) and on Evaluations ("code": changes the
  * built agent). One conversation is shared across those pages.
@@ -37,7 +37,7 @@ export function AgentBuilder({
 
   useEffect(() => {
     try { setOpen(localStorage.getItem(OPEN_KEY) === "1"); } catch {}
-    // "Ask the Agent Builder" from another page: open with the problem written in, ready to send.
+    // "Ask the Agent Changer" from another page: open with the problem written in, ready to send.
     const ask = new URLSearchParams(window.location.search).get("ask");
     if (ask) {
       setText(ask);
@@ -98,11 +98,11 @@ export function AgentBuilder({
       <button
         onClick={() => toggle(true)}
         className="fixed right-0 top-1/2 z-40 flex w-[5.5rem] -translate-y-1/2 flex-col items-center gap-0.5 rounded-l-xl border border-r-0 border-accent/50 bg-accent px-2 py-4 text-center text-sm font-semibold leading-tight text-white shadow-lg hover:bg-accent/90"
-        aria-label="Open the Automatic Agent Builder"
+        aria-label="Open the Automatic Agent Changer"
       >
         {/* A tall tab, but each word reads left to right. */}
         <span className="mb-1 text-lg">✦</span>
-        {["Automatic", "Agent", "Builder"].map((w) => (
+        {["Automatic", "Agent", "Changer"].map((w) => (
           <span key={w}>{w}</span>
         ))}
       </button>
@@ -112,7 +112,7 @@ export function AgentBuilder({
     <aside className="fixed inset-y-0 right-0 z-40 flex w-full flex-col border-l border-edge bg-panel shadow-2xl sm:w-[20rem]">
       <div className="flex items-center justify-between gap-3 border-b border-edge px-4 py-3">
         <div>
-          <div className="text-base font-semibold text-fg">✦ Automatic Agent Builder</div>
+          <div className="text-base font-semibold text-fg">✦ Automatic Agent Changer</div>
           <div className="text-xs text-muted">{mode === "code" ? "Tell the AI what to change in your agent." : "Tell the AI what to change in the design."}</div>
         </div>
         <button className="rounded-md px-2 py-1 text-lg leading-none text-muted hover:bg-ink hover:text-fg" onClick={() => toggle(false)} aria-label="Collapse">
@@ -134,8 +134,8 @@ export function AgentBuilder({
       <div className="border-t border-edge p-3">
         <div className="flex items-end gap-2 rounded-xl border border-edge bg-ink px-3 py-2 focus-within:border-accent/60">
           <textarea
-            className="max-h-32 min-h-[1.5rem] flex-1 resize-none bg-transparent text-sm text-fg outline-none placeholder:text-muted"
-            rows={1}
+            className="max-h-[50vh] min-h-[8rem] flex-1 resize-y bg-transparent text-sm leading-relaxed text-fg outline-none placeholder:text-muted"
+            rows={6}
             placeholder="What should change?"
             value={text}
             onChange={(e) => setText(e.target.value)}

@@ -3,7 +3,7 @@
  * workspace folder and the build state (kept under the engineering phase state).
  */
 
-import { getPhaseState, getProject, latestArtifact, savePhaseState } from "../store";
+import { getPhaseState, getProject, latestArtifact, listArtifacts, savePhaseState } from "../store";
 import { workspacePath, slugify } from "../workspace";
 import type { AgentDesign } from "./design";
 import type { ExampleResult } from "../phases/agent-engineering";
@@ -20,6 +20,8 @@ export interface AgentBuildState {
   logic?: import("./types").FilledLogic;
   /** Tool signature the code was written for; a different one needs a full rebuild. */
   tools_signature?: string;
+  /** Data sources the code was written for (see sourcesSignature); missing on builds made before it was tracked. */
+  sources_signature?: string;
   knowledge?: { chunks: number; problems: string[] };
   install?: { ok: boolean; output: string; at: string; repaired?: boolean };
   tests?: { ok: boolean; passed: number; failed: number; output: string; examples: ExampleResult[]; at: string; skipped_examples: boolean; note?: string; summarized?: boolean | number };
@@ -49,6 +51,28 @@ export async function saveBuild(projectId: string, phase: any, build: AgentBuild
 }
 
 /** What the generated code depends on: the tools and their inputs. Anything else is a light change. */
+/** Where the agent's data comes from: the tool code is written against these, so a change needs a rewrite. */
+export function sourcesSignature(design: AgentDesign): string {
+  return JSON.stringify(design.data_sources.map((d) => [d.name.trim(), d.kind.trim(), d.access]).sort());
+}
+
+/**
+ * The data sources the build's code matches. Builds made before this was tracked: the design version
+ * the build was last made from.
+ */
+export async function builtSources(projectId: string, build: AgentBuildState): Promise<string | null> {
+  if (build.sources_signature !== undefined) return build.sources_signature;
+  const art = (await listArtifacts(projectId)).find((a) => a.artifact_type === "agent-design" && a.version === build.design_version);
+  return art ? sourcesSignature(art.payload as AgentDesign) : null;
+}
+
+/** The code has to be rewritten (not just re-rendered): the tools or the data sources changed since it was written. */
+export async function needsRewrite(projectId: string, build: AgentBuildState, design: AgentDesign): Promise<boolean> {
+  if (build.tools_signature !== toolsSignature(design)) return true;
+  const built = await builtSources(projectId, build);
+  return built !== null && built !== sourcesSignature(design);
+}
+
 export function toolsSignature(design: import("./design").AgentDesign): string {
   return JSON.stringify(
     design.tools

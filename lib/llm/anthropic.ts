@@ -45,10 +45,12 @@ const SMALL_MODEL = "claude-haiku-5-5";
  * spec) mid-JSON. Higher effort → more room for both thinking and the answer.
  */
 const MAX_TOKENS_BY_EFFORT: Record<"low" | "medium" | "high", number> = {
-  low: 4000,
-  medium: 8000,
-  high: 16000,
+  low: 8000,
+  medium: 16000,
+  high: 32000,
 };
+/** A response that still runs out of room is asked again once with this much (thinking can use most of it). */
+const RETRY_MAX_TOKENS = 64000;
 
 async function getApiKey(): Promise<string | null> {
   const config = await readConnectorConfig(ID);
@@ -90,20 +92,29 @@ export const anthropicProvider: LlmProvider = {
     const effort = args.effort ?? "high";
     const small = args.tier === "small" && !args.model;
 
-    const response = await client.messages.create({
-      model: args.model || (small ? SMALL_MODEL : MODEL),
-      max_tokens: MAX_TOKENS_BY_EFFORT[effort],
-      // The small model answers directly: no extended thinking or effort setting.
-      ...(small ? {} : { thinking: { type: "adaptive" } }),
-      system: [{ type: "text", text: args.system, cache_control: { type: "ephemeral" } }],
-      output_config: {
-        ...(small ? {} : { effort }),
-        format: { type: "json_schema", schema: args.schema as any },
-      },
-      messages: args.messages.map((m) => ({ role: m.role, content: m.content })),
-    } as any);
-
-    recordUsage(args.model || (small ? SMALL_MODEL : MODEL), (response as any).usage);
+    const model = args.model || (small ? SMALL_MODEL : MODEL);
+    // Streamed: large budgets are only allowed as a stream (the SDK refuses long non-streamed calls).
+    const ask = async (maxTokens: number) => {
+      const r = await client.messages
+        .stream({
+          model,
+          max_tokens: maxTokens,
+          // The small model answers directly: no extended thinking or effort setting.
+          ...(small ? {} : { thinking: { type: "adaptive" } }),
+          system: [{ type: "text", text: args.system, cache_control: { type: "ephemeral" } }],
+          output_config: {
+            ...(small ? {} : { effort }),
+            format: { type: "json_schema", schema: args.schema as any },
+          },
+          messages: args.messages.map((m) => ({ role: m.role, content: m.content })),
+        } as any)
+        .finalMessage();
+      recordUsage(model, (r as any).usage);
+      return r;
+    };
+    let response = await ask(MAX_TOKENS_BY_EFFORT[effort]);
+    // (A model with a smaller output ceiling rejects the bigger ask: keep the first answer and report it below.)
+    if ((response as any).stop_reason === "max_tokens") response = await ask(RETRY_MAX_TOKENS).catch(() => response);
 
     const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === "text");
     if (!textBlock) throw new Error("No response from Claude.");

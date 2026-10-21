@@ -1,5 +1,5 @@
 /**
- * The Automatic Agent Builder: the side-panel chat on Agent Design.
+ * The Automatic Agent Changer: the side-panel chat on Agent Design.
  *  - "design" mode edits the draft design (it reopens for approval, like an Edit link).
  *  - "code" mode works on the BUILT agent: the change becomes the approved design and the
  *    codebase is re-rendered and committed, so the agent is re-tested and re-reviewed.
@@ -7,7 +7,7 @@
  */
 
 import { getPhaseState, latestArtifact, savePhaseState } from "../store";
-import { loadBuild, toolsSignature } from "./build-context";
+import { loadBuild, needsRewrite } from "./build-context";
 import { applyToBuild, approveDesign } from "./apply-change";
 import { chatEditDesign, type ChatTurn } from "../phases/agent-design-chat";
 import type { AgentDesign } from "./design";
@@ -36,9 +36,9 @@ export async function runBuilder(projectId: string, message: string, mode: Build
   if (!built) {
     if (designChanged) await savePhaseState(projectId, "agent-design", { ...state, design: r.design, approved: false });
   } else if (designChanged || logicChanged) {
-    if (toolsSignature(r.design) !== ctx!.build!.tools_signature) {
+    if (await needsRewrite(projectId, ctx!.build!, r.design)) {
       await approveDesign(projectId, r.design);
-      reply += " This changes the tools themselves, so the code needs a full rewrite: press Rebuild everything in Development.";
+      reply += " This changes the tools or where the data comes from, so the code needs a full rewrite: press Rebuild everything in Development.";
     } else {
       await applyToBuild({
         projectId,

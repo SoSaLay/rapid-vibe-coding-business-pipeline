@@ -3,6 +3,7 @@ import { attributed } from "@/lib/agent/activity";
 import { getPhaseState, savePhaseState, saveArtifact, completePhase, getProject } from "@/lib/store";
 import { designBlockers, type AgentDesign } from "@/lib/agent/design";
 import { startAutoflow } from "@/lib/agent/autoflow";
+import { scheduleHostedSync } from "@/lib/agent/hosted/sync";
 
 /** Lock the design. Engineering builds only the approved version. */
 async function handlePost(req: NextRequest, { params }: { params: { id: string } }) {
@@ -26,6 +27,8 @@ async function handlePost(req: NextRequest, { params }: { params: { id: string }
   const built = (await getPhaseState<any>(params.id, "engineering"))?.agentBuild;
   const autoflow = !!built && built.design_version !== artifact.version;
   if (autoflow) startAutoflow(params.id, req.nextUrl.origin, artifact.version);
+  // The agent's copies on Claude / ChatGPT follow the approved design (after the self-hosted rebuild, if any).
+  scheduleHostedSync(params.id);
   return NextResponse.json({ artifact, project, autoflow }, { status: 201 });
 }
 

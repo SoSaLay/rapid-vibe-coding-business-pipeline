@@ -1,11 +1,12 @@
 /**
  * Apply a change to a BUILT agent without a full rewrite: record the new design as the
  * approved version, re-render the codebase from the (possibly edited) logic, commit it,
- * and reinstall when tool code changed. Shared by safety "Fix it" and the Automatic Agent Builder.
+ * and reinstall when tool code changed. Shared by safety "Fix it" and the Automatic Agent Changer.
  * Only valid when the tools' signature is unchanged (new/removed tools need a full rebuild).
  */
 
 import { getPhaseState, savePhaseState, saveArtifact } from "../store";
+import { scheduleHostedSync } from "./hosted/sync";
 import { saveBuild, type loadBuild } from "./build-context";
 import { renderAgent } from "./render";
 import { writeCodebase } from "../phases/agent-engineering";
@@ -29,6 +30,7 @@ export async function approveDesign(projectId: string, design: AgentDesign): Pro
   });
   const ds = (await getPhaseState<any>(projectId, "agent-design")) ?? {};
   await savePhaseState(projectId, "agent-design", { ...ds, design: plain, approved: true, approved_version: art.version });
+  scheduleHostedSync(projectId);
   return art.version;
 }
 

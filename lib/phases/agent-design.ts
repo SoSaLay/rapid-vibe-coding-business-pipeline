@@ -9,7 +9,7 @@
 
 import { activeProvider } from "../llm/registry";
 import { SKIMMABLE_STYLE } from "./brevity";
-import { AGENT_MODELS, AgentDesign, Choice, recommendLogin } from "../agent/design";
+import { AGENT_MODELS, AgentDesign, Choice, recommendLogin, type ServiceChoice } from "../agent/design";
 import { recommendSkills } from "../agent/skills";
 
 const MODEL_IDS = AGENT_MODELS.map((m) => m.id);
@@ -217,6 +217,9 @@ export async function generateAgentDesign(spec: Record<string, any>, title: stri
   ]);
   const raw = { ...decisions, ...contracts };
   const skills = await skillsP;
+  const tools = (raw.tools ?? []).map((t: any) => ({ ...t, enabled: true }));
+  // Optional: without it the Tools section shows each service with just the provider in use.
+  const services = await proposeServices({ tools } as AgentDesign, specToAgentText(spec)).catch(() => []);
   return {
     summary: raw.summary ?? "",
     approach: toChoice(raw.approach, ["agent", "workflow"]),
@@ -225,8 +228,9 @@ export async function generateAgentDesign(spec: Record<string, any>, title: stri
     retrieval: raw.retrieval ?? { enabled: false, rationale: "" },
     inputs: raw.inputs ?? [],
     outputs: raw.outputs ?? [],
-    tools: (raw.tools ?? []).map((t: any) => ({ ...t, enabled: true })),
+    tools,
     data_sources: raw.data_sources ?? [],
+    services,
     step_limit: Number(raw.step_limit) || 8,
     fallback: raw.fallback ?? "",
     coverage: raw.coverage ?? [],
@@ -238,6 +242,76 @@ export async function generateAgentDesign(spec: Record<string, any>, title: stri
     // One knowledge approach: document search only when the job needs outside knowledge; else facts live in skills.
     knowledge: { mode: raw.retrieval?.enabled ? "rag" : skills.length ? "skills" : "none", sources: [] },
   };
+}
+
+const SERVICES_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    services: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          key_env: { type: "string", description: "The credential env var these tools use now (copy it exactly)." },
+          need: { type: "string", description: "What the service is for, 1-3 plain words, e.g. 'Web search', 'Google Drive', 'Email'." },
+          options: {
+            type: "array",
+            description: "2-4 real providers the owner could pick, the one in use now FIRST. Only one option when it's a specific account (e.g. their Google Drive).",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                provider: { type: "string", description: "Product name, e.g. 'Exa', 'Brave Search', 'Tavily'." },
+                integration: { type: "string", description: "The Python library / LangChain integration / API the tool code would use." },
+                key_env: { type: "string", description: "UPPER_SNAKE env var for its key; for the first option, the current one exactly." },
+                key_label: { type: "string", description: "Plain name of the key, e.g. 'Exa API key'." },
+                how_to_get: { type: "string", description: "Where to get the key, ONE line: site → page → button." },
+                tradeoff: { type: "string", description: "Why pick it, ≤15 words (price, free tier, quality)." },
+              },
+              required: ["provider", "integration", "key_env", "key_label", "how_to_get", "tradeoff"],
+            },
+          },
+        },
+        required: ["key_env", "need", "options"],
+      },
+    },
+  },
+  required: ["services"],
+};
+
+/**
+ * The outside services the agent needs keys for (tools grouped by credential), each with real provider
+ * alternatives: what the owner picks in Agent Design's Tools section and gets keys for in Development.
+ */
+export async function proposeServices(design: AgentDesign, jobText = ""): Promise<ServiceChoice[]> {
+  const groups = new Map<string, { label: string; tools: string[]; integration: string }>();
+  for (const t of design.tools.filter((t) => t.enabled && t.credential_env)) {
+    const g = groups.get(t.credential_env) ?? { label: t.credential_label, tools: [], integration: t.integration };
+    g.tools.push(`${t.name}: ${t.description}`);
+    groups.set(t.credential_env, g);
+  }
+  if (!groups.size) return [];
+  const r = await activeProvider().completeJson<{ services: (Omit<ServiceChoice, "selected">)[] }>({
+    system:
+      "You help a non-technical owner pick the outside services an AI agent uses. For each credential below, name what it's for " +
+      "and list real, currently available providers that could do that job (current one first), each with the key it needs and where " +
+      "to get it. Prefer providers with a free tier or simple API keys. Never invent products.",
+    effort: "low",
+    schema: SERVICES_SCHEMA,
+    messages: [
+      {
+        role: "user",
+        content:
+          (jobText ? `THE JOB:\n${jobText.slice(0, 3000)}\n\n` : "") +
+          [...groups].map(([env, g]) => `CREDENTIAL ${env} (${g.label}), used now via: ${g.integration}\n  tools: ${g.tools.join(" | ")}`).join("\n\n"),
+      },
+    ],
+  });
+  return (r.services ?? [])
+    .filter((s) => groups.has(s.key_env) && s.options?.length)
+    .map((s) => ({ ...s, options: s.options.map((o, i) => (i === 0 ? { ...o, key_env: s.key_env } : o)), selected: s.options[0].provider }));
 }
 
 /** Shared with the design chat so a tool it adds has the same contract shape. */

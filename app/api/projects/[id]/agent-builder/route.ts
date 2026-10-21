@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { attributed } from "@/lib/agent/activity";
 import { getBuilderChat, runBuilder, type BuilderMode } from "@/lib/agent/builder";
 
-/** The Automatic Agent Builder's conversation so far. */
+/** The Automatic Agent Changer's conversation so far. */
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   return NextResponse.json({ chat: await getBuilderChat(params.id) });
 }

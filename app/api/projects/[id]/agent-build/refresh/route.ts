@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { scheduleHostedSync } from "@/lib/agent/hosted/sync";
 import { tracked } from "@/lib/agent/activity";
 import { promises as fs } from "fs";
 import path from "path";
-import { loadBuild, saveBuild, toolsSignature } from "@/lib/agent/build-context";
+import { loadBuild, needsRewrite, saveBuild, sourcesSignature } from "@/lib/agent/build-context";
 import { renderAgent } from "@/lib/agent/render";
 import { writeCodebase } from "@/lib/phases/agent-engineering";
 import { uvSync } from "@/lib/agent/adapters/pytest-uv";
@@ -18,8 +19,8 @@ async function handlePost(_req: NextRequest, { params }: { params: { id: string 
   const ctx = await loadBuild(params.id);
   if (!ctx.design || !ctx.spec || !ctx.build) return NextResponse.json({ error: "Build the agent first." }, { status: 400 });
   if (!ctx.build.logic) return NextResponse.json({ error: "This build predates light updates. Rebuild once; later changes can be light." }, { status: 409 });
-  if (ctx.build.tools_signature !== toolsSignature(ctx.design)) {
-    return NextResponse.json({ error: "The tools changed, so the code has to be rewritten. Use Rebuild." }, { status: 409 });
+  if (await needsRewrite(params.id, ctx.build, ctx.design)) {
+    return NextResponse.json({ error: "The tools or data sources changed, so the code has to be rewritten. Use Rebuild." }, { status: 409 });
   }
   try {
     const { files, knowledge } = await renderAgent({ projectId: params.id, title: ctx.title, design: ctx.design, spec: ctx.spec, logic: ctx.build.logic });
@@ -36,10 +37,12 @@ async function handlePost(_req: NextRequest, { params }: { params: { id: string 
       files: files.filter((f) => f.explains).map((f) => ({ path: f.path, explains: f.explains })),
       written_at: new Date().toISOString(),
       knowledge,
+      sources_signature: sourcesSignature(ctx.design),
       install: { ok: sync.ok, output: sync.output, at: new Date().toISOString() },
       tests: undefined,
       light: true,
     };
+    scheduleHostedSync(params.id);
     await saveBuild(params.id, ctx.phase, build as any);
     return NextResponse.json({ build }, { status: sync.ok ? 200 : 500 });
   } catch (e: any) {

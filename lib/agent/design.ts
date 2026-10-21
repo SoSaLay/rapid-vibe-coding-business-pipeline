@@ -37,6 +37,32 @@ export interface ToolContract {
   enabled: boolean;
 }
 
+/** One provider the agent could use for a service (e.g. Exa for web search), and the key it needs. */
+export interface ServiceOption {
+  provider: string;
+  /** The library or API the tool code uses with this provider (becomes each tool's `integration`). */
+  integration: string;
+  key_env: string;
+  key_label: string;
+  /** Where to get the key, in one line. */
+  how_to_get: string;
+  /** Why pick it (or not), ≤15 words. */
+  tradeoff: string;
+}
+
+/**
+ * An outside service the agent needs a key for (the tools that share one credential), with the provider
+ * picked and the alternatives. Agent Design's Tools section shows these; Development asks for their keys.
+ * Matched to tools by `key_env` = the tools' credential_env.
+ */
+export interface ServiceChoice {
+  key_env: string;
+  /** What it's for, 1-3 words, e.g. "Web search". */
+  need: string;
+  selected: string;
+  options: ServiceOption[];
+}
+
 export interface DataSource {
   name: string;
   kind: string;
@@ -78,6 +104,13 @@ export interface McpServer {
   approval: boolean;
   /** Only these tools (empty = all the server offers). */
   allow: string[];
+  /**
+   * Signed in through the MCP catalog (lib/agent/mcp-catalog.ts) instead of a pasted key: the agent gets its
+   * own sign-in in env (<token_env>, plus <PREFIX>_REFRESH_TOKEN etc.) and refreshes it itself.
+   */
+  signin?: boolean;
+  /** The tools this sign-in replaced (turned off; turned back on when switching back to a key). */
+  replaces?: string[];
 }
 
 export interface MemoryConfig {
@@ -116,6 +149,8 @@ export interface AgentDesign {
   outputs: Field[];
   tools: ToolContract[];
   data_sources: DataSource[];
+  /** The services the agent needs keys for, with provider options (see ServiceChoice). */
+  services?: ServiceChoice[];
   step_limit: number;
   fallback: string;
   /** Stage 1 allowed actions → the tool that covers each ("" = uncovered). */
@@ -236,7 +271,8 @@ export function needsNoTool(d: AgentDesign, toolName: string): boolean {
 export function designBlockers(d: AgentDesign): string[] {
   const out: string[] = [];
   const tools = d.tools.filter((t) => t.enabled);
-  if (d.approach.selected === "agent" && tools.length === 0) out.push("An agent needs at least one tool turned on.");
+  if (d.approach.selected === "agent" && tools.length === 0 && !(d.mcp_servers ?? []).length) out.push("An agent needs at least one tool turned on.");
+  if (d.data_sources.some((x) => !x.name.trim() || !x.kind.trim())) out.push("Each data source needs a name and what it is.");
   for (const t of tools) {
     if (!t.permission.trim()) out.push(`Tool "${t.name}" has no permission set.`);
   }

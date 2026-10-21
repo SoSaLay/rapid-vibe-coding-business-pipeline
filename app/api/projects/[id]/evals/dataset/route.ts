@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { hostedBuilds } from "@/lib/agent/hosted/common";
 import { tracked } from "@/lib/agent/activity";
 import { promises as fs } from "fs";
 import path from "path";
@@ -44,7 +45,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
 async function handlePost(req: NextRequest, { params }: { params: { id: string } }) {
   const ctx = await loadBuild(params.id);
-  if (!ctx.design || !ctx.spec || !ctx.build) return NextResponse.json({ error: "Build the agent first." }, { status: 400 });
+  // Built our way, or on Claude / ChatGPT (their test cases live in the same folder).
+  const hosted = Object.keys(await hostedBuilds(params.id)).length > 0;
+  if (!ctx.design || !ctx.spec || (!ctx.build && !hosted)) return NextResponse.json({ error: "Build the agent first." }, { status: 400 });
   try {
     const examples = (await readJson<any[]>(path.join(ctx.dir, "tests", "examples.json"))) ?? [];
     const previous = await readJson<Dataset>(path.join(ctx.dir, "evals", "dataset.json"));

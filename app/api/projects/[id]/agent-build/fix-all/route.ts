@@ -53,9 +53,14 @@ async function handlePost(req: NextRequest, { params }: { params: { id: string }
   }
 
   if (evalTargets.length) {
-    for (const r of await applyEvalFixes(params.id, evalTargets)) {
-      results.push({ area: "evaluations", fixed: !!r.release, summary: r.summary, verified: r.verified, tries: r.tries });
-      changed ||= !!r.release;
+    try {
+      for (const r of await applyEvalFixes(params.id, evalTargets)) {
+        results.push({ area: "evaluations", fixed: !!r.release, summary: r.summary, verified: r.verified, tries: r.tries });
+        changed ||= !!r.release;
+      }
+    } catch (e: any) {
+      // One area failing must not lose what the others fixed (or the whole request).
+      results.push({ area: "evaluations", fixed: false, summary: e?.message || "Couldn't fix the evaluation failures." });
     }
   }
 
@@ -64,7 +69,16 @@ async function handlePost(req: NextRequest, { params }: { params: { id: string }
   return NextResponse.json({ results });
 }
 
-export const POST = tracked("engineering", "Fixing all issues", handlePost);
+/** Anything unexpected still answers in JSON (a plain 500 page shows up as "That didn't work" with no reason). */
+async function safePost(req: NextRequest, ctx: { params: { id: string } }) {
+  try {
+    return await handlePost(req, ctx);
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || "Fix all failed." }, { status: 500 });
+  }
+}
+
+export const POST = tracked("engineering", "Fixing all issues", safePost);
 
 /** How many problems Fix all would take on (safety items, failing example tasks as one, evaluation failures). */
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {

@@ -117,6 +117,8 @@ export async function generateLogic(design: AgentDesign, spec: Record<string, an
           `Human fallback: ${design.fallback}\n` +
           `Answer fields: ${design.outputs.map((f) => `${f.name} (${f.type}): ${f.description}`).join("; ")}\n\n` +
           `TOOLS:\n${toolSpecText(design) || "(none)"}\n\n` +
+          `DATA SOURCES (where the data really lives; the owner may have corrected these, so when a tool's description names a ` +
+          `different source, these win):\n${design.data_sources.map((d) => `- ${d.name} (${d.kind}, ${d.access}): ${d.why}`).join("\n") || "(none)"}\n\n` +
           `EXAMPLE TASKS (for the test run):\n${exampleTasks(spec).map((e, i) => `  [${i}] ${e.input} → expected: ${e.expected}`).join("\n") || "(none)"}\n\n` +
           (fixHint ? `THE PREVIOUS ATTEMPT FAILED. Fix this:\n${fixHint.slice(-4000)}\n\n` : "") +
           "Write the system prompt, every tool body, and the test setup for each example task.",

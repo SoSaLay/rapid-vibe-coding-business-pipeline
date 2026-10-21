@@ -27,6 +27,8 @@ export interface EvalRun {
   full?: boolean;
   /** A practice run: the cheaper model it used instead of the agent's own. */
   practice?: string;
+  /** Where the agent ran: our way (unset), or its build on Claude / ChatGPT. */
+  platform?: "claude" | "chatgpt";
 }
 
 export interface EvalsState {
@@ -35,6 +37,8 @@ export interface EvalsState {
   runs: EvalRun[];
   baseline: EvalSummary | null;
   baseline_at?: string;
+  /** The first passing run on each hosted platform (a Claude or ChatGPT build is compared with its own). */
+  hosted_baselines?: Partial<Record<"claude" | "chatgpt", EvalSummary>>;
   /** Fix it on a kind of case or a gate rule, since the last run: key → what the AI changed. Cleared by the next run. */
   fixes?: Record<string, { summary: string; at: string; verified?: boolean; tries?: number }>;
   /**

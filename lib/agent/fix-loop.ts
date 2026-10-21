@@ -13,6 +13,8 @@ import { agentEnv, renderDotEnv } from "./env";
 import { uvRunModule } from "./adapters/pytest-uv";
 import { recordSpend, spendStatus } from "./spend";
 import { codeFingerprint } from "./code-fp";
+import { syncHosted } from "./hosted/sync";
+import { runHostedEvals } from "./hosted/evals";
 import { summarize, type Dataset, type EvalCase } from "../phases/agent-evals";
 
 export interface FixAttempt {
@@ -36,7 +38,8 @@ export interface FixResult {
 const MAX_TRIES = 3;
 
 /** Re-run just these cases (if they still exist: a fix may have corrected or removed a wrong test). */
-async function recheck(projectId: string, ids: string[]): Promise<Record<string, string> | null> {
+async function recheck(projectId: string, ids: string[], platform?: "claude" | "chatgpt"): Promise<Record<string, string> | null> {
+  if (platform) return recheckHosted(projectId, ids, platform);
   const ctx = await loadBuild(projectId);
   if (!ctx.design) return null;
   const dataset = await fs.readFile(path.join(ctx.dir, "evals", "dataset.json"), "utf8").then((t) => JSON.parse(t) as Dataset).catch(() => null);
@@ -52,8 +55,23 @@ async function recheck(projectId: string, ids: string[]): Promise<Record<string,
   return Object.fromEntries((raw.rows ?? []).filter((r: any) => !r.passed).map((r: any) => [r.case, r.reason]));
 }
 
+/** On Claude / ChatGPT: update that copy with the fix, then re-run the cases there. */
+async function recheckHosted(projectId: string, ids: string[], platform: "claude" | "chatgpt"): Promise<Record<string, string> | null> {
+  const ctx = await loadBuild(projectId);
+  const dataset = await fs.readFile(path.join(ctx.dir, "evals", "dataset.json"), "utf8").then((t) => JSON.parse(t) as Dataset).catch(() => null);
+  const still = ids.filter((id) => dataset?.cases.some((c) => c.id === id));
+  if (!still.length) return null;
+  const synced = await syncHosted(projectId, { only: platform });
+  if (synced[platform] === "failed" || synced[platform] === "model doesn't fit") {
+    return Object.fromEntries(still.map((id) => [id, `The ${platform === "claude" ? "Claude" : "ChatGPT"} agent couldn't be updated with the fix.`]));
+  }
+  const raw = await runHostedEvals(projectId, platform, { cases: still });
+  await recordSpend(projectId, "checking a fix", summarize(raw).spend_usd);
+  return Object.fromEntries(raw.rows.filter((r) => !r.passed).map((r) => [r.case, r.reason]));
+}
+
 /** Fix one problem and check it on exactly the cases that failed; retries with feedback. */
-export async function fixAndVerify(args: { projectId: string; issue: string; cases: EvalCase[]; details?: string }): Promise<FixResult> {
+export async function fixAndVerify(args: { projectId: string; issue: string; cases: EvalCase[]; details?: string; platform?: "claude" | "chatgpt" }): Promise<FixResult> {
   const { projectId, issue, cases } = args;
   const ids = cases.map((c) => c.id);
   const attempts: FixAttempt[] = [];
@@ -78,7 +96,7 @@ export async function fixAndVerify(args: { projectId: string; issue: string; cas
     version = r.version ?? version;
     // No test cases to re-run (e.g. a release error): the fix goes straight on to be re-tested.
     if (!ids.length) return { fixed: true, verified: false, release: true, tries: t, summary: r.summary, version, attempts: [{ summary: r.summary, failing: {} }] };
-    const failing = await recheck(projectId, ids);
+    const failing = await recheck(projectId, ids, args.platform);
     if (failing === null) {
       // Nothing left to re-run: verified only if this fix corrected/removed those tests itself.
       return { fixed: true, verified: (r.tests_changed ?? 0) > 0, release: true, tries: t, summary: r.summary, version, attempts: [...attempts, { summary: r.summary, failing: {} }] };

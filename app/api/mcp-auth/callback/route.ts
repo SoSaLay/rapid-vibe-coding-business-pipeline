@@ -8,7 +8,7 @@ export async function GET(req: NextRequest) {
   let text: string;
   try {
     if (q.get("error")) throw new Error(q.get("error_description") || q.get("error") || "Sign-in was cancelled.");
-    const p = await finishAuth(q.get("state") ?? "", q.get("code") ?? "");
+    const { provider: p } = await finishAuth(q.get("state") ?? "", q.get("code") ?? "");
     ok = true;
     text = `Signed in to ${providerName(p)}. You can close this window.`;
   } catch (e: any) {

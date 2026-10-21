@@ -772,18 +772,173 @@ without its tools."""
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+import threading
+import time
+import urllib.parse
+import urllib.request
+from pathlib import Path
 
 from langchain_core.tools import StructuredTool
 
 from .limits import MCP_SERVERS
 from .safety import safe_tool
 
+# ---- Sign-ins (servers marked "signin"): the agent refreshes its own token -------------------------------
+# The pipeline hands over the first token in env (<PREFIX>_TOKEN, _REFRESH_TOKEN, _EXPIRES_AT, _TOKEN_URL,
+# _CLIENT_ID, _CLIENT_SECRET, _RESOURCE). Every refresh is saved (the agent's database when it has one, else
+# .results/mcp-tokens.json) because providers may swap the refresh token each time: the newest one must win.
+
+_TOKENS_FILE = Path(__file__).resolve().parent.parent / ".results" / "mcp-tokens.json"
+_lock = threading.Lock()
+
+
+def _db():
+    url = os.getenv("DATABASE_URL")
+    if not url:
+        return None
+    try:
+        import psycopg
+
+        conn = psycopg.connect(url, autocommit=True, prepare_threshold=None)
+        conn.execute("create table if not exists mcp_tokens (name text primary key, data jsonb not null, updated_at timestamptz default now())")
+        return conn
+    except Exception:  # noqa: BLE001 — no driver or no database yet: the file keeps it
+        return None
+
+
+def _stored(name: str) -> dict | None:
+    conn = _db()
+    if conn:
+        try:
+            with conn:
+                row = conn.execute("select data from mcp_tokens where name = %s", (name,)).fetchone()
+            if row:
+                return row[0] if isinstance(row[0], dict) else json.loads(row[0])
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        return json.loads(_TOKENS_FILE.read_text()).get(name)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _store(name: str, data: dict) -> None:
+    conn = _db()
+    if conn:
+        try:
+            with conn:
+                conn.execute(
+                    "insert into mcp_tokens (name, data, updated_at) values (%s, %s::jsonb, now()) "
+                    "on conflict (name) do update set data = excluded.data, updated_at = now()",
+                    (name, json.dumps(data)),
+                )
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        saved = json.loads(_TOKENS_FILE.read_text()) if _TOKENS_FILE.exists() else {}
+        saved[name] = data
+        _TOKENS_FILE.parent.mkdir(exist_ok=True)
+        _TOKENS_FILE.write_text(json.dumps(saved))
+    except Exception:  # noqa: BLE001 — read-only disk when deployed: the database keeps it
+        pass
+
+
+class _SignIn:
+    def __init__(self, server: dict):
+        self.name = server["name"]
+        self.token_env = server.get("token_env") or ""
+        self.prefix = self.token_env[: -len("_TOKEN")] if self.token_env.endswith("_TOKEN") else self.token_env
+        self._mem: dict | None = None
+
+    def _env(self, k: str) -> str:
+        return os.getenv(f"{self.prefix}_{k}", "")
+
+    def _state(self) -> dict:
+        # "seed" = the sign-in the pipeline handed over; a new one (the owner signed in again) replaces what's saved.
+        seed = self._env("REFRESH_TOKEN") or os.getenv(self.token_env, "")
+        st = self._mem or _stored(self.name)
+        if not st or st.get("seed") != seed:
+            st = {
+                "access_token": os.getenv(self.token_env, ""),
+                "refresh_token": self._env("REFRESH_TOKEN"),
+                "expires_at": float(self._env("EXPIRES_AT") or 0),
+                "seed": seed,
+            }
+        return st
+
+    def _refresh(self, st: dict) -> str:
+        if not st.get("refresh_token") or not self._env("TOKEN_URL"):
+            return st.get("access_token", "")
+        form = {"grant_type": "refresh_token", "refresh_token": st["refresh_token"], "client_id": self._env("CLIENT_ID")}
+        if self._env("CLIENT_SECRET"):
+            form["client_secret"] = self._env("CLIENT_SECRET")
+        if self._env("RESOURCE"):
+            form["resource"] = self._env("RESOURCE")
+        req = urllib.request.Request(
+            self._env("TOKEN_URL"),
+            data=urllib.parse.urlencode(form).encode(),
+            headers={"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                j = json.loads(r.read())
+        except Exception as e:  # noqa: BLE001
+            # Another copy of the agent may have just refreshed (and swapped the refresh token): use its result.
+            other = _stored(self.name)
+            if other and other.get("access_token") != st.get("access_token"):
+                self._mem = other
+                return other["access_token"]
+            print(f"MCP sign-in for {self.name} couldn't refresh ({type(e).__name__}): sign in again in the pipeline.")
+            return st.get("access_token", "")
+        st = {
+            **st,
+            "access_token": j["access_token"],
+            "refresh_token": j.get("refresh_token") or st.get("refresh_token", ""),
+            "expires_at": time.time() + int(j.get("expires_in") or 3600),
+        }
+        _store(self.name, st)
+        self._mem = st
+        return st["access_token"]
+
+    def token(self) -> str:
+        with _lock:
+            st = self._state()
+            fresh = st.get("access_token") and (not st.get("expires_at") or time.time() < st["expires_at"] - 60)
+            if fresh:
+                self._mem = st
+                return st["access_token"]
+            return self._refresh(st)
+
+    def force_refresh(self) -> str:
+        with _lock:
+            return self._refresh(self._state())
+
+
+def _auth(signin: _SignIn):
+    import httpx
+
+    class _Bearer(httpx.Auth):
+        """A fresh token on every request; one refresh and retry when the server says it expired."""
+
+        def auth_flow(self, request):
+            request.headers["Authorization"] = f"Bearer {signin.token()}"
+            response = yield request
+            if response.status_code == 401:
+                request.headers["Authorization"] = f"Bearer {signin.force_refresh()}"
+                yield request
+
+    return _Bearer()
+
 
 def _config(server: dict) -> dict:
     if server["transport"] == "stdio":
         return {"transport": "stdio", "command": server["command"], "args": server.get("args", []), "env": dict(os.environ)}
-    cfg = {"transport": "streamable_http", "url": server["url"]}
+    cfg = {"transport": "sse" if server["url"].rstrip("/").endswith("/sse") else "streamable_http", "url": server["url"]}
+    if server.get("signin"):
+        cfg["auth"] = _auth(_SignIn(server))
+        return cfg
     token = os.getenv(server.get("token_env") or "", "")
     if token:
         cfg["headers"] = {"Authorization": f"Bearer {token}"}

@@ -29,9 +29,17 @@ function casesForGate(label: string, s: EvalSummary) {
 }
 
 /** The failing test cases behind a target, in full (so a fix can tell a wrong test from a wrong agent). */
-export async function failingCasesFor(projectId: string, target: EvalFixTarget): Promise<EvalCase[]> {
+/** Where a fix is being made: the self-hosted agent (unset) or its copy on Claude / ChatGPT. */
+export type FixPlatform = "claude" | "chatgpt" | undefined;
+
+/** The newest run on that platform (each platform's results are its own). */
+function lastRun(state: Awaited<ReturnType<typeof getEvals>>, platform: FixPlatform) {
+  return [...state.runs].reverse().find((r) => r.platform === platform);
+}
+
+export async function failingCasesFor(projectId: string, target: EvalFixTarget, platform?: FixPlatform): Promise<EvalCase[]> {
   const state = await getEvals(projectId);
-  const last = state.runs[state.runs.length - 1];
+  const last = lastRun(state, platform);
   if (!last) return [];
   const ids = new Set(
     (target.kind === "category"
@@ -44,9 +52,9 @@ export async function failingCasesFor(projectId: string, target: EvalFixTarget):
   return (dataset?.cases ?? []).filter((c) => ids.has(c.id));
 }
 
-async function issueFor(projectId: string, target: EvalFixTarget): Promise<string> {
+async function issueFor(projectId: string, target: EvalFixTarget, platform?: FixPlatform): Promise<string> {
   const state = await getEvals(projectId);
-  const last = state.runs[state.runs.length - 1];
+  const last = lastRun(state, platform);
   if (!last) throw new Error("Run the evaluations first.");
   const s = last.summary;
   const list = (cases: EvalSummary["failing_cases"]) =>
@@ -64,12 +72,12 @@ async function issueFor(projectId: string, target: EvalFixTarget): Promise<strin
     (cases.length ? `\nRELATED FAILING CASES:\n${list(cases)}` : "");
 }
 
-export async function explainEvalFix(projectId: string, target: EvalFixTarget, save = true) {
+export async function explainEvalFix(projectId: string, target: EvalFixTarget, save = true, platform?: FixPlatform) {
   const key = evalFixKey(target);
   const state = await getEvals(projectId);
   const cached = state.proposals?.[key];
   if (cached) return cached;
-  const issue = await issueFor(projectId, target);
+  const issue = await issueFor(projectId, target, platform);
   const ctx = await loadBuild(projectId);
   const r = await activeProvider().completeJson<{ explanation: string; plan: string; fixable: boolean }>({
     system:
@@ -94,7 +102,7 @@ export async function explainEvalFix(projectId: string, target: EvalFixTarget, s
         role: "user",
         content:
           `AGENT: ${ctx.design?.summary ?? ""}\nMODEL: ${ctx.design?.model.selected ?? ""}\n\n${issue}\n\nTHE TEST CASES:\n` +
-          (await failingCasesFor(projectId, target))
+          (await failingCasesFor(projectId, target, platform))
             .map((c) => `- ${c.id}: expected "${c.expected}"; test data ${JSON.stringify(c.fixtures).slice(0, 800)}`)
             .join("\n")
             .slice(0, 6000),
@@ -106,12 +114,13 @@ export async function explainEvalFix(projectId: string, target: EvalFixTarget, s
   return proposal;
 }
 
-export async function applyEvalFix(projectId: string, target: EvalFixTarget) {
+export async function applyEvalFix(projectId: string, target: EvalFixTarget, platform?: FixPlatform) {
   const key = evalFixKey(target);
-  const issue = await issueFor(projectId, target);
+  const issue = await issueFor(projectId, target, platform);
   const plan = (await getEvals(projectId)).proposals?.[key]?.plan ?? "";
-  // Fix, then re-run exactly the failing cases (retrying up to 3 times) before it's released.
-  const r = await fixAndVerify({ projectId, issue, details: plan, cases: await failingCasesFor(projectId, target) });
+  // Fix, then re-run exactly the failing cases (retrying up to 3 times) before it's released: on the platform the
+  // failure came from (a Claude / ChatGPT copy is updated with the fix first).
+  const r = await fixAndVerify({ projectId, issue, details: plan, cases: await failingCasesFor(projectId, target, platform), platform });
   if (r.fixed) {
     const state = await getEvals(projectId);
     await saveEvals(projectId, {
@@ -123,13 +132,13 @@ export async function applyEvalFix(projectId: string, target: EvalFixTarget) {
 }
 
 /** Fix all: apply several fixes one after another (each builds on the last), skipping ones already fixed. */
-export async function applyEvalFixes(projectId: string, targets: EvalFixTarget[]) {
+export async function applyEvalFixes(projectId: string, targets: EvalFixTarget[], platform?: FixPlatform) {
   const results: { key: string; fixed: boolean; summary: string; version: number | null; verified?: boolean; tries?: number; release?: boolean }[] = [];
   for (const t of targets) {
     const key = evalFixKey(t);
     if ((await getEvals(projectId)).fixes?.[key]) continue;
     try {
-      const r = await applyEvalFix(projectId, t);
+      const r = await applyEvalFix(projectId, t, platform);
       results.push({ key, ...r });
     } catch (e: any) {
       results.push({ key, fixed: false, summary: e?.message || "Couldn't fix this one.", version: null });
@@ -139,9 +148,9 @@ export async function applyEvalFixes(projectId: string, targets: EvalFixTarget[]
 }
 
 /** Fix all, step 1: explain every target at once (in parallel), saving the explanations together. */
-export async function explainEvalFixes(projectId: string, targets: EvalFixTarget[]) {
+export async function explainEvalFixes(projectId: string, targets: EvalFixTarget[], platform?: FixPlatform) {
   const items = await Promise.all(
-    targets.map((t) => explainEvalFix(projectId, t, false).catch((e: any) => ({ explanation: e?.message || "Couldn't look at this one.", plan: "", fixable: false }))),
+    targets.map((t) => explainEvalFix(projectId, t, false, platform).catch((e: any) => ({ explanation: e?.message || "Couldn't look at this one.", plan: "", fixable: false }))),
   );
   const state = await getEvals(projectId);
   const proposals = { ...(state.proposals ?? {}) };

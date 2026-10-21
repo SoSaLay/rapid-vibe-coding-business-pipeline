@@ -47,14 +47,11 @@ export function AgentEngineering({
   security,
   autoflow = null,
   activity = [],
-  githubUrl = null,
   autostart = false,
   onUpdated,
 }: {
   /** Long jobs running for this agent right now (any stage); Engineering shows its own. */
   activity?: { phase: string; label: string }[];
-  /** The agent's GitHub repo, once it has one. */
-  githubUrl?: string | null;
   security: SecurityReport | null;
   /** The background flow carrying a design change through (null = none). */
   autoflow?: { running: boolean; stage: string; phase: string | null; message: string; error?: string } | null;
@@ -67,6 +64,19 @@ export function AgentEngineering({
   onUpdated: () => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
+  /** The "you can move on, but…" warning before Evaluations, while items are still open. */
+  const [warnNext, setWarnNext] = useState(false);
+  /** Keys this agent still needs (labels), for that warning. */
+  const [missingKeys, setMissingKeys] = useState<string[]>([]);
+  const checkKeys = () =>
+    fetch(`/api/projects/${projectId}/agent-design/credentials`)
+      .then((r) => r.json())
+      .then((d) => {
+        const left = (d?.items ?? []).filter((k: any) => !k.shared && !k.set).map((k: any) => k.label as string);
+        setMissingKeys(left);
+        return left;
+      })
+      .catch(() => missingKeys);
   const [error, setError] = useState<string | null>(null);
   const [log, setLog] = useState<string | null>(null);
   const stopper = useStopper();
@@ -74,6 +84,8 @@ export function AgentEngineering({
   // The background flow (after a design change) is doing the work: the page only shows it.
   const flowBusy = !!autoflow?.running && autoflow.phase === "engineering";
   const autoRan = useRef(false);
+
+  useEffect(() => { checkKeys(); }, [projectId, designVersion]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Test runs from before plain summaries existed: fill the titles once, quietly.
   const summarizing = useRef(false);
@@ -88,7 +100,7 @@ export function AgentEngineering({
   useEffect(() => {
     const current = !!security && !!build && security.design_version === build.design_version;
     if (!build?.install?.ok || build.design_version !== designVersion || busy || flowBusy) return;
-    // A change from the Automatic Agent Builder clears the tests: re-test, then review.
+    // A change from the Automatic Agent Changer clears the tests: re-test, then review.
     const key = `${build.design_version}:${build.tests ? "r" : "t"}`;
     if ((build.tests && current) || reviewFor.current === key) return;
     reviewFor.current = key;
@@ -211,6 +223,13 @@ export function AgentEngineering({
     : 0;
   const examples = build?.tests?.examples ?? [];
   const allPass = !!build?.tests?.ok && examples.length > 0 && examples.every((e) => e.passed);
+  const failingTasks = examples.filter((e) => !e.passed).length;
+  /** What's still open when moving on to Evaluations (the warning lists them). */
+  const openIssues = [
+    ...(!reviewed ? ["the safety review hasn't finished"] : redSafety > 0 ? [`${redSafety} safety item${redSafety === 1 ? " is" : "s are"} still open`] : []),
+    ...(!allPass ? [failingTasks ? `${failingTasks} example task${failingTasks === 1 ? "" : "s"} failed` : "not every check passed"] : []),
+    ...(missingKeys.length ? [`${missingKeys.length} key${missingKeys.length === 1 ? " is" : "s are"} still missing`] : []),
+  ];
 
   return (
     <Doc>
@@ -241,7 +260,7 @@ export function AgentEngineering({
         {log && <pre className="mt-3 max-h-60 overflow-auto rounded-lg border border-edge bg-ink p-3 text-[11px] text-fg/80 whitespace-pre-wrap">{log}</pre>}
       </section>
 
-      {!stale && <Codebase projectId={projectId} build={build} githubUrl={githubUrl} />}
+      {!stale && <Codebase projectId={projectId} build={build} />}
 
       {!stale && <AgentKeys projectId={projectId} refreshKey={String(build.design_version)} />}
 
@@ -270,16 +289,21 @@ export function AgentEngineering({
           )}
 
           <SubHead>Security</SubHead>
-          {!reviewed ? (
-            <p className="text-sm text-muted">{error && !busy ? error : "Reviewing your agent's safety…"}</p>
-          ) : (
+          {/* A review that's being redone (or failed to redo) never blanks the section: the last one stays, with a note. */}
+          {!reviewed && (
+            <p className={`mb-2 text-sm ${error && !busy ? "text-bad" : "text-muted"}`}>
+              {error && !busy ? `Couldn't redo the safety review: ${error}` : "Reviewing your agent's safety…"}
+              {security && " Showing the last review until the new one is in."}
+            </p>
+          )}
+          {security && (
             <div className="space-y-2">
               {security!.checks.map((c) => (
                 <SafetyItem
                   key={c.id}
                   state={c.status === "pass" ? "pass" : c.status === "fixed" ? "fixed" : c.status === "deferred" ? "later" : c.status === "exception" ? "accepted" : "fail"}
                   title={CHECK_TITLES[c.id] ?? c.label}
-                  fix={c.status === "fail" || c.status === "exception" ? { projectId, target: { kind: "check", id: c.id }, accepted: c.status === "exception", onDone: onUpdated } : undefined}
+                  fix={reviewed && (c.status === "fail" || c.status === "exception") ? { projectId, target: { kind: "check", id: c.id }, accepted: c.status === "exception", onDone: onUpdated } : undefined}
                 >
                   {c.status === "fixed" ? (
                     <p className="text-ok">Fixed: {c.fix_note}</p>
@@ -293,7 +317,7 @@ export function AgentEngineering({
             </div>
           )}
 
-          {reviewed && (
+          {security && (
             <>
               <SubHead>Threat model</SubHead>
               <div className="space-y-2">
@@ -302,7 +326,7 @@ export function AgentEngineering({
                     key={`e${i}`}
                     state={e.fix_note ? "fixed" : e.mitigated ? "pass" : "fail"}
                     title={`Tricked by ${shortSource(e.source)}`}
-                    fix={!e.mitigated ? { projectId, target: { kind: "threat", index: i }, onDone: onUpdated } : undefined}
+                    fix={reviewed && !e.mitigated ? { projectId, target: { kind: "threat", index: i }, onDone: onUpdated } : undefined}
                   >
                     {e.fix_note && <p className="text-ok">Fixed: {e.fix_note}</p>}
                     <p className="text-fg/90"><span className="font-semibold">Could make it:</span> {e.injected_instruction_could}</p>
@@ -328,19 +352,48 @@ export function AgentEngineering({
 
       {build?.tests && !stale && !manifest && (
         <div className="mt-12 border-t border-edge pt-8">
+          {/* Always open once it's built: a simple or personal agent doesn't need every item fixed. Open items get a warning first. */}
           <button
             className="w-full rounded-xl bg-accent px-6 py-4 text-lg font-semibold text-white shadow-lg transition-transform hover:scale-[1.01] active:scale-100 disabled:opacity-50"
-            disabled={!!busy || !reviewed || redSafety > 0}
-            onClick={() => complete(!allPass)}
+            disabled={!!busy}
+            onClick={async () => {
+              // Keys may have been added since the page loaded: check again before deciding.
+              const left = await checkKeys();
+              if (openIssues.length || left.length) setWarnNext(true);
+              else complete(false);
+            }}
           >
             {busy === "Finishing…" ? "Finishing…" : "Start Evaluations →"}
           </button>
-          {!reviewed ? (
-            <p className="mt-2 text-center text-xs text-muted">Run the safety review first.</p>
-          ) : redSafety > 0 ? (
-            <p className="mt-2 text-center text-xs text-muted">Fix or accept the {redSafety} red safety item{redSafety === 1 ? "" : "s"} first.</p>
-          ) : (
-            !allPass && <p className="mt-2 text-center text-xs text-muted">Not every task passed. You can still move on.</p>
+          {warnNext && openIssues.length > 0 && (
+            <div className="mt-4 rounded-xl border border-warn/40 bg-warn/10 p-4 text-sm">
+              <p className="font-semibold text-fg">You can start Evaluations now, but {openIssues.length > 1 ? `${openIssues.slice(0, -1).join(", ")} and ${openIssues[openIssues.length - 1]}` : openIssues[0]}.</p>
+              <p className="mt-2 text-fg/90">
+                That&apos;s fine for a simple or personal agent: something just for you, or that you&apos;re trying out.
+              </p>
+              {missingKeys.length > 0 && (
+                <p className="mt-2 text-fg/90">
+                  <span className="font-semibold">Missing keys:</span> {missingKeys.join(", ")}. The agent can&apos;t use the tools that need
+                  them until they&apos;re set, so tests that use those tools will fail. Add them later under &quot;Keys this agent needs&quot; on
+                  this page.
+                </p>
+              )}
+              <p className="mt-2 text-fg/90">
+                If other people will use this agent, or its work has to be accurate (it sends, buys, changes or decides things),
+                fix these first. Fix all issues above takes care of most of them.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button className="btn-primary text-sm" onClick={() => { setWarnNext(false); complete(true); }}>
+                  Continue anyway
+                </button>
+                <button className="btn-ghost text-sm" onClick={() => setWarnNext(false)}>
+                  Fix them first
+                </button>
+              </div>
+            </div>
+          )}
+          {!warnNext && openIssues.length > 0 && (
+            <p className="mt-2 text-center text-xs text-muted">Open: {openIssues.join(", ")}. You can still move on.</p>
           )}
         </div>
       )}
@@ -572,7 +625,7 @@ const EDITORS = [
 ] as const;
 
 /** "Your codebase": where it lives, and one click to open it in an editor (or get the editor if it's missing). */
-function Codebase({ projectId, build, githubUrl }: { projectId: string; build: Build; githubUrl: string | null }) {
+function Codebase({ projectId, build }: { projectId: string; build: Build }) {
   const [msg, setMsg] = useState<string | null>(null);
   const [have, setHave] = useState<Record<string, boolean> | null>(null);
   const url = `/api/projects/${projectId}/agent-build/open`;
@@ -608,15 +661,6 @@ function Codebase({ projectId, build, githubUrl }: { projectId: string; build: B
               Open in {e.label}
             </button>
           ),
-        )}
-        {githubUrl ? (
-          <a href={githubUrl} target="_blank" rel="noreferrer" className="btn-ghost text-sm">
-            Open on GitHub ↗
-          </a>
-        ) : (
-          <button className="btn-ghost text-sm" disabled title="Available once the agent is on GitHub (Deployment releases it there)">
-            Open on GitHub
-          </button>
         )}
       </div>
       {msg && <p className="mt-2 text-sm text-bad">{msg}</p>}

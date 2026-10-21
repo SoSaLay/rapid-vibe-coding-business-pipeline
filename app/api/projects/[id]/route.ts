@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getProject, listArtifacts, getPhaseState, deleteProject } from "@/lib/store";
+import { getProject, getProjectSettings, listArtifacts, getPhaseState, deleteProject } from "@/lib/store";
 import { getAutoflow, isAutoflowRunning } from "@/lib/agent/autoflow";
 import { activities } from "@/lib/agent/activity";
 import { githubStatus } from "@/lib/agent/github";
@@ -11,11 +11,12 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const phases = ["product-owner", "idea-validation", "pre-marketing", "product-design", "engineering", "qa", "deployment",
     "marketing-sales", "operations", "iteration", "agent-design", "security"] as const;
   const isAgent = project.kind === "agent";
-  const [artifacts, states, flow, github] = await Promise.all([
+  const [artifacts, states, flow, github, settings] = await Promise.all([
     listArtifacts(params.id),
     Promise.all(phases.map((ph) => getPhaseState<any>(params.id, ph))),
     isAgent ? getAutoflow(params.id) : null,
     isAgent ? githubStatus(params.id).catch(() => null) : null,
+    getProjectSettings(params.id),
   ]);
   const [productOwner, ideaValidation, preMarketing, productDesign, engineering, qa, deployment, marketing, operations, iteration, agentDesign, security] = states;
   // Agents: the background flow after a design change, and what's not on GitHub yet.
@@ -38,6 +39,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       security,
       autoflow,
       github,
+      // The build path picked in Development (self-hosted, Claude or ChatGPT).
+      agentPlatform: settings.agentPlatform ?? null,
       // Long jobs running right now (evaluations, test cases, checks, builds, fixes), by stage.
       activity: activities(params.id),
     },

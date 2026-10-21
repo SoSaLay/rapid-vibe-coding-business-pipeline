@@ -15,9 +15,11 @@ import { PreMarketing } from "@/components/PreMarketing";
 import { ProductDesign } from "@/components/ProductDesign";
 import { Engineering } from "@/components/Engineering";
 import { AgentDesign } from "@/components/AgentDesign";
-import { AgentEngineering } from "@/components/AgentEngineering";
+import { AgentDevelopment } from "@/components/AgentDevelopment";
+import { DeploymentTabs } from "@/components/HostedDeployments";
+import { HostedOperations } from "@/components/HostedOperations";
 import { AgentEvals } from "@/components/AgentEvals";
-import { AgentDeployment, prefetchDeployStatus } from "@/components/AgentDeployment";
+import { prefetchDeployStatus } from "@/components/AgentDeployment";
 import { AgentOperations } from "@/components/AgentOperations";
 import { QA } from "@/components/QA";
 import { Deployment } from "@/components/Deployment";
@@ -144,7 +146,8 @@ export default function ProjectWorkspace() {
   const liveStages: Record<string, "working" | "attention"> = {};
   for (const a of ((phaseState as any)?.activity ?? []) as { phase: string }[]) liveStages[a.phase] = "working";
   if (flow?.running && flow.phase) liveStages[flow.phase] = "working";
-  else if (!liveStages.deployment && gh?.unpushed > 0 && project.phase_status.deployment && project.phase_status.deployment !== "locked") liveStages.deployment = "attention";
+  // Waiting self-hosted changes only matter when the self-hosted agent is the path picked in Development.
+  else if (!liveStages.deployment && ((phaseState as any)?.agentPlatform ?? "self") === "self" && gh?.unpushed > 0 && project.phase_status.deployment && project.phase_status.deployment !== "locked") liveStages.deployment = "attention";
   const phases = phasesFor(project.kind);
   const phaseIndex = phases.findIndex((p) => p.id === activeSlug);
   const phaseDef = phaseIndex >= 0 ? phases[phaseIndex] : null;
@@ -209,7 +212,8 @@ export default function ProjectWorkspace() {
       case "engineering":
         if (project.kind === "agent") {
           return (
-            <AgentEngineering
+            <AgentDevelopment
+              design={(phaseState as any)?.["agent-design"]?.design ?? null}
               projectId={project.id}
               hasDesign={!!agentDesignArt}
               designVersion={agentDesignArt?.version ?? 0}
@@ -218,7 +222,6 @@ export default function ProjectWorkspace() {
               security={(phaseState as any)?.security?.report ?? null}
               autoflow={(phaseState as any)?.autoflow ?? null}
               activity={(phaseState as any)?.activity ?? []}
-              githubUrl={(phaseState as any)?.github?.url ?? null}
               autostart={autostart}
               onUpdated={refresh}
             />
@@ -255,7 +258,8 @@ export default function ProjectWorkspace() {
       case "deployment":
         if (project.kind === "agent") {
           return (
-            <AgentDeployment
+            <DeploymentTabs
+              selfBuilt={!!engineering?.agentBuild}
               projectId={project.id}
               hasEvals={project.phase_status.qa === "complete"}
               completed={project.phase_status.deployment === "complete"}
@@ -271,6 +275,9 @@ export default function ProjectWorkspace() {
         return <Marketing projectId={project.id} hasDeploy={!!deployManifest} state={marketing} report={campaignReport?.payload ?? null} mode={mode} artifact={artifact} onUpdated={refresh} />;
       case "operations":
         if (project.kind === "agent") {
+          // On Claude / ChatGPT: just what their records show, plus a way to the agent's settings there.
+          const onPlatform = (phaseState as any)?.agentPlatform;
+          if (onPlatform === "claude" || onPlatform === "chatgpt") return <HostedOperations projectId={project.id} platform={onPlatform} />;
           return (
             <AgentOperations
               projectId={project.id}

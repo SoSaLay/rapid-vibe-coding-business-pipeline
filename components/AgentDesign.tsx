@@ -2,7 +2,8 @@
 
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import type { AgentDesign as Design, Choice, ToolContract, SkillDef } from "@/lib/agent/design";
+import type { AgentDesign as Design, Choice, DataSource, ServiceChoice, ServiceOption, ToolContract, SkillDef } from "@/lib/agent/design";
+import { mcpServiceFor } from "@/lib/agent/mcp-catalog";
 import { designBlockers, MODEL_PROVIDERS, modelProvider, effectiveMemory, effectiveLimits, defaultToolLimit, stopRules } from "@/lib/agent/design";
 import type { MemoryConfig, McpServer, LoginId } from "@/lib/agent/design";
 import { DocMuted } from "./doc/Doc";
@@ -45,6 +46,23 @@ export function AgentDesign({
   const stopper = useStopper();
   const router = useRouter();
   const approved = !!state?.approved && !dirty;
+
+  // Provider options for each service (designs made before they existed get them once, quietly).
+  const [findingOptions, setFindingOptions] = useState(false);
+  async function findOptions() {
+    setFindingOptions(true);
+    const d = await fetch(`/api/projects/${projectId}/agent-design/services`, { method: "POST" }).then((r) => r.json()).catch(() => null);
+    setFindingOptions(false);
+    if (d?.services) setDesign((cur) => (cur ? { ...cur, services: d.services } : cur));
+  }
+  const askedOptions = useRef(false);
+  useEffect(() => {
+    if (!design || askedOptions.current) return;
+    if (serviceGroups(design).some((g) => !g.service)) {
+      askedOptions.current = true;
+      findOptions();
+    }
+  }, [design]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setDesign(state?.design ?? null);
@@ -151,7 +169,7 @@ export function AgentDesign({
     }
   }
 
-  /** Before the Automatic Agent Builder works on the design, save unsaved edits so it sees them. */
+  /** Before the Automatic Agent Changer works on the design, save unsaved edits so it sees them. */
   async function saveDraft(): Promise<boolean> {
     if (!dirty || !design) return true;
     return !!(await call("save", { design }));
@@ -180,6 +198,19 @@ export function AgentDesign({
   const localBlockers = designBlockers(design);
   const built = builtVersion !== null;
   const enabledTools = design.tools.filter((t) => t.enabled);
+  // Tools: the outside services the agent needs keys for (tools grouped by the credential they share).
+  const groups = serviceGroups(design);
+
+  /** Use another provider for a service: every tool sharing that key switches library and key. */
+  function switchProvider(g: ServiceGroup, o: ServiceOption) {
+    if (!design || !g.service) return;
+    edit({
+      tools: design.tools.map((t) =>
+        t.credential_env === g.env ? { ...t, integration: o.integration, credential_env: o.key_env, credential_label: o.key_label } : t,
+      ),
+      services: (design.services ?? []).map((s) => (s === g.service ? { ...s, key_env: o.key_env, selected: o.provider } : s)),
+    });
+  }
 
   const memory = effectiveMemory(design, spec?.agent);
   const limits = effectiveLimits(design);
@@ -232,22 +263,37 @@ export function AgentDesign({
         } />
 
         <PanelSection title="Tools" summary={
-          enabledTools.length ? (
-            enabledTools.map((t) => (
-              <Row key={t.name} label={toolTitle(t.name)}>
-                <Bullets items={[firstSentence(t.description)]} />
-              </Row>
-            ))
+          groups.length ? (
+            groups.map((g) => {
+              const opt = pickedOption(g);
+              const mcp = mcpServiceFor(opt?.provider, opt?.integration, g.env, g.label);
+              return (
+                <Row key={g.env} label={g.service?.need ?? g.label}>
+                  <span className="font-medium text-fg">{opt?.provider ?? providerName(g.integration)}</span>
+                  {mcp && <span className="ml-2 rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-semibold text-accent">sign-in (MCP) available</span>}
+                  <Bullets items={[`Needs your ${opt?.key_label ?? g.label}`, ...(opt?.how_to_get ? [opt.how_to_get] : [])]} />
+                </Row>
+              );
+            })
           ) : (
-            <Row label="Tools">None</Row>
+            <Row label="Services">None: the agent only uses built-in code, so there are no keys to get.</Row>
           )
         } editor={
           <>
-            <div className="space-y-2">
-              {design.tools.map((t, i) => (
-                <ToolCard key={t.name + i} tool={t} onChange={(next) => edit({ tools: design.tools.map((x, j) => (j === i ? next : x)) })} />
+            <DocMuted>
+              The outside services this agent uses, and the key each one needs. Pick the provider you want; you&apos;ll add its key (or sign
+              in) in Development. Changing a provider rewrites that part of the code on the next build.
+            </DocMuted>
+            <div className="space-y-3">
+              {groups.map((g) => (
+                <ServicePicker key={g.env} group={g} onPick={(o) => switchProvider(g, o)} />
               ))}
             </div>
+            {groups.some((g) => !g.service) && (
+              <button className="btn-ghost text-sm" disabled={findingOptions} onClick={findOptions}>
+                {findingOptions ? "Finding other providers…" : "Show other providers"}
+              </button>
+            )}
             <AddTool onAdd={(t) => edit({ tools: [...design.tools, t] })} existing={design.tools.map((t) => t.name)} />
           </>
         } />
@@ -281,6 +327,14 @@ export function AgentDesign({
           ) : (
             <Row label="Sources">None needed</Row>
           )
+        } editor={
+          <>
+            <DocMuted>
+              Where the agent&apos;s data really lives. Correct anything the recommendation got wrong: the code is written against these,
+              so changing one rewrites the tool code on the next build.
+            </DocMuted>
+            <DataSourcesEditor sources={design.data_sources} onChange={(data_sources) => edit({ data_sources })} />
+          </>
         } />
 
         <PanelSection title="Skills" summary={
@@ -341,9 +395,31 @@ export function AgentDesign({
             <Row label="Step limit">{design.step_limit} steps, then a person takes over</Row>
             {design.fallback && <Row label="Hands off to">{design.fallback}</Row>}
             <Row label="Tool limits">{customLimits ? "Custom" : "Recommended"}</Row>
+            <Row label="Asks you first before">
+              {enabledTools.filter((t) => t.requires_approval).length
+                ? <Bullets items={enabledTools.filter((t) => t.requires_approval).map((t) => toolTitle(t.name))} />
+                : "Nothing: every action runs on its own"}
+            </Row>
           </>
         } editor={
           <>
+            <div className="space-y-1.5 text-sm">
+              <div className="font-medium text-fg">Ask me first before it…</div>
+              {enabledTools.map((t) => (
+                <label key={t.name} className="flex items-start gap-2 text-fg">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={t.requires_approval}
+                    onChange={(e) => edit({ tools: design.tools.map((x) => (x.name === t.name ? { ...x, requires_approval: e.target.checked } : x)) })}
+                  />
+                  <span>
+                    {toolTitle(t.name)}
+                    <span className="ml-1.5 text-xs text-muted">{t.side_effect === "write" ? "changes things" : "only reads"}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
             <div className="flex flex-wrap items-center gap-3 text-sm">
               <label htmlFor="step-limit" className="text-fg">Stop after</label>
               <input id="step-limit" type="number" min={1} max={50} className="input w-20" value={design.step_limit} onChange={(e) => edit({ step_limit: Number(e.target.value) })} />
@@ -574,28 +650,102 @@ function toolTitle(name: string) {
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
-function ToolCard({ tool, onChange }: { tool: ToolContract; onChange: (t: ToolContract) => void }) {
-  const bullets = [
-    tool.side_effect === "write" ? "Changes things (sends, labels, posts…)" : "Only reads, never changes anything",
-    tool.credential_label ? `Needs: ${tool.credential_label}` : "No login needed",
-  ];
+interface ServiceGroup {
+  env: string;
+  label: string;
+  integration: string;
+  tools: string[];
+  service?: ServiceChoice;
+}
+
+/** The services the agent needs keys for: its turned-on tools grouped by the credential they share. */
+function serviceGroups(design: Design): ServiceGroup[] {
+  const out: ServiceGroup[] = [];
+  for (const t of design.tools.filter((t) => t.enabled && t.credential_env)) {
+    const g = out.find((x) => x.env === t.credential_env);
+    if (g) g.tools.push(t.name);
+    else
+      out.push({
+        env: t.credential_env,
+        label: t.credential_label || t.credential_env,
+        integration: t.integration,
+        tools: [t.name],
+        service: (design.services ?? []).find((s) => s.key_env === t.credential_env),
+      });
+  }
+  return out;
+}
+
+function pickedOption(g: ServiceGroup): ServiceOption | undefined {
+  return g.service?.options.find((o) => o.provider === g.service!.selected) ?? g.service?.options[0];
+}
+
+/** A readable provider name from an integration string ("tavily-python (Tavily API)" → "tavily-python"). */
+function providerName(integration: string): string {
+  return integration.split(/[(+/,]/)[0].trim() || "Custom";
+}
+
+/** One service: the provider options to pick from, each with the key it needs and where to get it. */
+function ServicePicker({ group, onPick }: { group: ServiceGroup; onPick: (o: ServiceOption) => void }) {
+  const opts = group.service?.options ?? [];
+  const picked = pickedOption(group);
   return (
-    <div className={`rounded-lg border border-edge p-3 text-sm ${tool.enabled ? "" : "opacity-50"}`}>
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="font-medium text-fg">{toolTitle(tool.name)}</span>
-        <label className="ml-auto flex items-center gap-1.5 text-xs text-fg">
-          <input type="checkbox" checked={tool.requires_approval} onChange={(e) => onChange({ ...tool, requires_approval: e.target.checked })} />
-          Ask me first
-        </label>
-        <label className="flex items-center gap-1.5 text-xs text-fg">
-          <input type="checkbox" checked={tool.enabled} onChange={(e) => onChange({ ...tool, enabled: e.target.checked })} />
-          On
-        </label>
-      </div>
-      <p className="mt-1 text-muted">{tool.description}</p>
-      <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-muted">
-        {bullets.map((b) => <li key={b}>{b}</li>)}
-      </ul>
+    <div className="rounded-lg border border-edge p-3 text-sm">
+      <div className="font-medium text-fg">{group.service?.need ?? group.label}</div>
+      <div className="mt-0.5 text-xs text-muted">Used for: {group.tools.map((t) => t.replace(/_/g, " ")).join(", ")}</div>
+      {!opts.length ? (
+        <p className="mt-2 text-fg/90">
+          {providerName(group.integration)} <span className="text-muted">· needs your {group.label}</span>
+        </p>
+      ) : (
+        <div className="mt-2 space-y-1.5">
+          {opts.map((o) => {
+            const mcp = mcpServiceFor(o.provider, o.integration, o.key_env);
+            const on = o === picked;
+            return (
+              <label key={o.provider} className={`flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 ${on ? "border-accent/60 bg-accent/10" : "border-edge"}`}>
+                <input type="radio" className="mt-1" checked={on} onChange={() => !on && onPick(o)} />
+                <span className="min-w-0">
+                  <span className="font-medium text-fg">{o.provider}</span>
+                  {mcp && <span className="ml-2 rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-semibold text-accent">sign-in (MCP) available</span>}
+                  <span className="block text-xs text-fg/80">{o.tradeoff}</span>
+                  <span className="block text-xs text-muted">
+                    Needs: {o.key_label} · {o.how_to_get}
+                  </span>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Edit, add or remove the data sources (name, what kind, read or read-write, why). */
+function DataSourcesEditor({ sources, onChange }: { sources: DataSource[]; onChange: (next: DataSource[]) => void }) {
+  const set = (i: number, patch: Partial<DataSource>) => onChange(sources.map((d, j) => (j === i ? { ...d, ...patch } : d)));
+  return (
+    <div className="space-y-2">
+      {sources.map((d, i) => (
+        <div key={i} className="space-y-2 rounded-lg border border-edge p-3 text-sm">
+          <div className="flex gap-2">
+            <input className="input h-9 min-w-0 flex-1" placeholder="Name (e.g. Orders sheet)" value={d.name} onChange={(e) => set(i, { name: e.target.value })} />
+            <button className="shrink-0 text-xs text-muted underline hover:text-bad" onClick={() => onChange(sources.filter((_, j) => j !== i))}>
+              Remove
+            </button>
+          </div>
+          <input className="input h-9 w-full" placeholder="What it is (e.g. Google Sheet, Shopify API, Gmail inbox)" value={d.kind} onChange={(e) => set(i, { kind: e.target.value })} />
+          <input className="input h-9 w-full" placeholder="Why the agent needs it" value={d.why} onChange={(e) => set(i, { why: e.target.value })} />
+          <label className="flex items-center gap-2 text-fg">
+            <input type="checkbox" checked={d.access === "read-write"} onChange={(e) => set(i, { access: e.target.checked ? "read-write" : "read" })} />
+            The agent also changes it (writes, not just reads)
+          </label>
+        </div>
+      ))}
+      <button className="btn-ghost text-sm" onClick={() => onChange([...sources, { name: "", kind: "", access: "read", why: "" }])}>
+        + Add a data source
+      </button>
     </div>
   );
 }
@@ -611,7 +761,7 @@ function AddTool({ onAdd, existing }: { onAdd: (t: ToolContract) => void; existi
   if (!open) {
     return (
       <button className="btn-ghost mt-3 text-sm" onClick={() => setOpen(true)}>
-        + Add a tool
+        + Add another service or action
       </button>
     );
   }

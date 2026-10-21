@@ -17,14 +17,16 @@ const parse = (t: any): EvalFixTarget | null =>
  */
 async function handlePost(req: NextRequest, { params }: { params: { id: string } }) {
   const b = await req.json().catch(() => ({}));
+  // Fixing a failure seen on Claude / ChatGPT: read that platform's run, and check the fix there.
+  const platform = b.platform === "claude" || b.platform === "chatgpt" ? b.platform : undefined;
   if (b.step === "explain-all" || b.step === "apply-all") {
     const targets = (Array.isArray(b.targets) ? b.targets : []).map(parse).filter(Boolean) as EvalFixTarget[];
     if (!targets.length) return NextResponse.json({ error: "Nothing to fix." }, { status: 400 });
     try {
       if (b.step === "explain-all") {
-        return NextResponse.json({ items: await explainEvalFixes(params.id, targets) });
+        return NextResponse.json({ items: await explainEvalFixes(params.id, targets, platform) });
       }
-      const results = await applyEvalFixes(params.id, targets);
+      const results = await applyEvalFixes(params.id, targets, platform);
       // One re-check for all of them: Engineering re-tests and re-reviews, then Deployment.
       const last = [...results].reverse().find((r) => r.release);
       if (last) startAutoflow(params.id, req.nextUrl.origin, last.version ?? undefined, { codeReady: true });
@@ -37,13 +39,13 @@ async function handlePost(req: NextRequest, { params }: { params: { id: string }
   if (!target) return NextResponse.json({ error: "Say what to fix." }, { status: 400 });
   try {
     if (b.step === "apply") {
-      const r = await applyEvalFix(params.id, target);
+      const r = await applyEvalFix(params.id, target, platform);
       // The code changed: Engineering re-tests and re-reviews it in the background, then Deployment.
       // Only a fix that made the failing cases pass goes on to be re-tested and released.
       if (r.release) startAutoflow(params.id, req.nextUrl.origin, r.version ?? undefined, { codeReady: true });
       return NextResponse.json(r);
     }
-    return NextResponse.json(await explainEvalFix(params.id, target));
+    return NextResponse.json(await explainEvalFix(params.id, target, true, platform));
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "That didn't work." }, { status: 400 });
   }

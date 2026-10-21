@@ -5,6 +5,7 @@
  * leave the machine except into the agent's own gitignored .env.
  */
 
+import { agentGrant } from "./mcp-auth";
 import { readConnectorConfig } from "../connectors/config";
 import { credentialsAdapter, langfuseConfig, langsmithKey } from "./registry";
 import { modelKeyEnv, type AgentDesign } from "./design";
@@ -41,6 +42,20 @@ export async function agentEnv(projectId: string, design: AgentDesign, slug: str
   if (design.model_price) {
     env.MODEL_PRICE_IN = String(design.model_price.input);
     env.MODEL_PRICE_OUT = String(design.model_price.output);
+  }
+  // Services the agent signs in to through their MCP server: hand it its own sign-in (it refreshes it itself).
+  for (const m of design.mcp_servers ?? []) {
+    if (!m.signin || !m.token_env) continue;
+    const g = await agentGrant(m.name, projectId).catch(() => null);
+    if (!g?.access_token) continue;
+    const prefix = m.token_env.replace(/_TOKEN$/, "");
+    env[m.token_env] = g.access_token;
+    if (g.refresh_token) env[`${prefix}_REFRESH_TOKEN`] = g.refresh_token;
+    env[`${prefix}_EXPIRES_AT`] = String(Math.floor((g.expires_at ?? 0) / 1000));
+    env[`${prefix}_TOKEN_URL`] = g.token_url;
+    env[`${prefix}_CLIENT_ID`] = g.client_id;
+    if (g.client_secret) env[`${prefix}_CLIENT_SECRET`] = g.client_secret;
+    env[`${prefix}_RESOURCE`] = g.resource;
   }
   const lf = await langfuseConfig();
   if (lf) {

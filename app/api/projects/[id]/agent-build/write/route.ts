@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { scheduleHostedSync } from "@/lib/agent/hosted/sync";
 import { tracked } from "@/lib/agent/activity";
 import { promises as fs } from "fs";
 import path from "path";
-import { loadBuild, saveBuild, toolsSignature } from "@/lib/agent/build-context";
+import { loadBuild, saveBuild, sourcesSignature, toolsSignature } from "@/lib/agent/build-context";
 import { renderAgent } from "@/lib/agent/render";
 import { agentEnv, renderDotEnv } from "@/lib/agent/env";
 import { envVarsUsed, generateLogic, writeCodebase } from "@/lib/phases/agent-engineering";
@@ -27,8 +28,10 @@ async function handlePost(_req: NextRequest, { params }: { params: { id: string 
       env_vars: envVarsUsed(logic),
       logic,
       tools_signature: toolsSignature(ctx.design),
+      sources_signature: sourcesSignature(ctx.design),
       knowledge,
     };
+    scheduleHostedSync(params.id);
     await saveBuild(params.id, ctx.phase, build);
     return NextResponse.json({ build }, { status: 201 });
   } catch (e: any) {
