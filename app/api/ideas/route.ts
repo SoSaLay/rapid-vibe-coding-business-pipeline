@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createProject, listProjects, saveArtifact, getProject, writeMeta } from "@/lib/store";
 import { isValidIdeaType } from "@/lib/idea-types";
+import { parseBasics, type AgentBasics } from "@/lib/agent/basics";
+import { nameFromText } from "@/lib/idea-name";
 
 export interface RawIdeaPayload {
   source: "direct";
@@ -8,6 +10,8 @@ export interface RawIdeaPayload {
   title: string;
   raw_text: string;
   idea_type: string;
+  /** Agents: who uses it (and whether they pay) — answered before Define the Job. */
+  agent_basics?: AgentBasics;
 }
 
 export async function GET() {
@@ -24,7 +28,8 @@ export async function POST(req: NextRequest) {
   const inputMethod: string = body.inputMethod || "text";
 
   if (!rawText) return NextResponse.json({ error: "Idea is empty." }, { status: 400 });
-  const title = title0 || rawText.slice(0, 60);
+  const kind0 = body.kind === "agent" ? "agent" : "project";
+  const title = title0 || nameFromText(rawText, kind0);
 
   // Idea type is no longer chosen at capture — the owner labels it later on the home list.
   // Default to web-app for safe downstream context; mark unlabeled unless one was explicitly sent.
@@ -33,6 +38,9 @@ export async function POST(req: NextRequest) {
   const explicit = kind === "agent" || isValidIdeaType(body.ideaType);
   const ideaType = kind === "agent" ? "ai-agent" : explicit ? (body.ideaType as string) : "web-app";
 
+  const basics = kind === "agent" ? parseBasics(body.basics) : null;
+  if (kind === "agent" && !basics) return NextResponse.json({ error: "Answer both questions first." }, { status: 400 });
+
   const project = await createProject(title, ideaType, kind);
   const payload: RawIdeaPayload = {
     source: "direct",
@@ -40,6 +48,7 @@ export async function POST(req: NextRequest) {
     title,
     raw_text: rawText,
     idea_type: ideaType,
+    ...(basics ? { agent_basics: basics } : {}),
   };
   const artifact = await saveArtifact<RawIdeaPayload>({
     projectId: project.id,

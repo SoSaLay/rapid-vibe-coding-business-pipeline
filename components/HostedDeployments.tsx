@@ -7,7 +7,7 @@ import { platform as platformInfo, type PlatformBuild, type PlatformId } from "@
 type Hosted = Exclude<PlatformId, "self">;
 
 /**
- * Deployment for the path picked in Development, and only that one: the self-hosted agent keeps its full
+ * Deployment for the path picked in Agent Development, and only that one: the self-hosted agent keeps its full
  * deployment page; an agent on Claude or ChatGPT is already live there, so it's one table row (status, links,
  * details). The platform takes care of hosting, sign-in and versions.
  */
@@ -22,11 +22,11 @@ export function DeploymentTabs(props: ComponentProps<typeof AgentDeployment> & {
   }, [projectId]);
   if (!status) return <p className="text-sm text-muted">Loading…</p>;
 
-  // Only the path picked in Development.
+  // Only the path picked in Agent Development.
   const chosen = status.chosen;
-  if (chosen === "self") return selfBuilt ? <AgentDeployment {...props} /> : <p className="text-sm text-muted">Build the self-hosted agent in Development first.</p>;
+  if (chosen === "self") return selfBuilt ? <AgentDeployment {...props} /> : <p className="text-sm text-muted">Build the self-hosted agent in Agent Development first.</p>;
   const b = status.builds[chosen];
-  if (!b) return <p className="text-sm text-muted">Build it on {platformInfo(chosen).label} in Development first.</p>;
+  if (!b) return <p className="text-sm text-muted">Build it on {platformInfo(chosen).label} in Agent Development first.</p>;
   return <HostedDeployTable projectId={projectId} b={b} />;
 }
 

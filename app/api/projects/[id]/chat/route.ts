@@ -30,7 +30,7 @@ async function handlePost(req: NextRequest, { params }: { params: { id: string }
     }
     if (b.action === "deploy") {
       const platform = (await getProjectSettings(params.id)).agentPlatform;
-      if (platform !== "claude" && platform !== "chatgpt") return NextResponse.json({ error: "Pick Claude or ChatGPT in Development first." }, { status: 400 });
+      if (platform !== "claude" && platform !== "chatgpt") return NextResponse.json({ error: "Pick Claude or ChatGPT in Agent Development first." }, { status: 400 });
       return NextResponse.json({ chat: await deployChat(params.id, platform) });
     }
     return NextResponse.json({ error: "Unknown action." }, { status: 400 });

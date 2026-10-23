@@ -38,7 +38,7 @@ export async function runBuilder(projectId: string, message: string, mode: Build
   } else if (designChanged || logicChanged) {
     if (await needsRewrite(projectId, ctx!.build!, r.design)) {
       await approveDesign(projectId, r.design);
-      reply += " This changes the tools or where the data comes from, so the code needs a full rewrite: press Rebuild everything in Development.";
+      reply += " This changes the tools or where the data comes from, so the code needs a full rewrite: press Rebuild everything in Agent Development.";
     } else {
       await applyToBuild({
         projectId,
@@ -49,7 +49,7 @@ export async function runBuilder(projectId: string, message: string, mode: Build
         reinstall: r.codeChanged,
         keepTests: false,
       });
-      reply += " Your agent's code is updated; Development re-tests and re-reviews it.";
+      reply += " Your agent's code is updated; Agent Development re-tests and re-reviews it.";
     }
   }
 

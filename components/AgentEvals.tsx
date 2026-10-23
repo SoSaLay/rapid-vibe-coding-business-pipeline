@@ -72,7 +72,7 @@ export function AgentEvals({
     fetch(`/api/projects/${projectId}/hosted`)
       .then((r) => r.json())
       .then((d) => {
-        // Only the path picked in Development.
+        // Only the path picked in Agent Development.
         const chosen = (d?.chosen ?? "self") as PlatformId;
         setBuiltOn([chosen]);
         setPlatform(chosen);
@@ -135,7 +135,7 @@ export function AgentEvals({
     if (await post("dataset", {}, "Writing test cases…")) await post("run", {}, RUN_LABEL);
   }
 
-  if (!hasSecurity) return <StageStart label="Start Evaluations" locked="Finish Development first (including its safety checklist)." onStart={() => {}} />;
+  if (!hasSecurity) return <StageStart label="Start Evaluations" locked="Finish Agent Development first (including its safety checklist)." onStart={() => {}} />;
 
   // Runs of the build being looked at (live checks belong to our way's deployment).
   const runs = (state?.runs ?? []).filter((r) => (r.platform ?? "self") === platform);

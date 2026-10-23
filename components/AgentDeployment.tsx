@@ -8,6 +8,7 @@ import type { DeployState } from "@/lib/agent/deploy";
 import { Doc, DocSection, DocP, DocMuted, DocFacts } from "./doc/Doc";
 import { StageStart } from "./StageStart";
 import { AskBuilder } from "./AgentEvals";
+import { AgentLocalSection, useLocalAgent } from "./AgentLocal";
 
 interface Status {
   state: DeployState;
@@ -148,7 +149,7 @@ function TestingAction({ projectId, autoflow, github, deployed, checkFailed, nee
     else if (d.error) setFixNote({ tone: "bad", text: d.error });
     else if (d.fixed && d.verified)
       setFixNote({ tone: "ok", text: `Fixed${d.tries > 1 ? ` on try ${d.tries}` : ""}: ${d.summary} The cases that failed now pass; it's being re-tested, released and checked again.` });
-    else if (d.fixed && d.release) setFixNote({ tone: "ok", text: `Fixed: ${d.summary} Development is re-testing it, then it's released and checked again.` });
+    else if (d.fixed && d.release) setFixNote({ tone: "ok", text: `Fixed: ${d.summary} Agent Development is re-testing it, then it's released and checked again.` });
     else if (d.fixed) setFixNote({ tone: "bad", text: d.summary });
     else setFixNote({ tone: "bad", text: `${d.summary || "Couldn't fix it automatically."}` });
     onUpdated();
@@ -426,15 +427,7 @@ export function prefetchDeployStatus(projectId: string) {
     .catch(() => {});
 }
 
-export function AgentDeployment({
-  projectId,
-  hasEvals,
-  completed,
-  autoflow = null,
-  github = null,
-  autostart = false,
-  onUpdated,
-}: {
+type DeploymentProps = {
   projectId: string;
   hasEvals: boolean;
   completed: boolean;
@@ -442,7 +435,64 @@ export function AgentDeployment({
   github?: Github;
   autostart?: boolean;
   onUpdated: () => void;
-}) {
+};
+
+/**
+ * Deployment: every agent runs on this computer first ("On your computer"). "Just me" agents stop there
+ * (going online is optional); the rest go online after testing here: a testing copy on their host, then production.
+ */
+export function AgentDeployment(props: DeploymentProps) {
+  const { projectId, hasEvals, onUpdated } = props;
+  const { info, reload } = useLocalAgent(projectId);
+  const [opening, setOpening] = useState(false);
+  if (!hasEvals) return <StageStart label="Start Deployment" locked="Finish Evaluations first." onStart={() => {}} />;
+  if (!info) return <div className="card p-6 text-sm text-muted">Loading…</div>;
+
+  const goOnline = async () => {
+    setOpening(true);
+    await fetch(`/api/projects/${projectId}/deploy/local`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "online" }) }).catch(() => {});
+    await reload();
+    setOpening(false);
+  };
+  const showOnline = info.personal ? info.online : info.tested;
+
+  return (
+    <div className="space-y-6">
+      <Doc>
+        <DocSection title="On your computer">
+          <AgentLocalSection projectId={projectId} info={info} onChanged={() => { reload(); onUpdated(); }} />
+        </DocSection>
+      </Doc>
+      {showOnline ? (
+        // Going online is a deliberate click, never automatic.
+        <OnlineDeployment {...props} autostart={false} />
+      ) : (
+        <Doc>
+          <DocSection title="Go online">
+            {info.personal ? (
+              <>
+                <DocP>This agent is just for you, so it can stay on your computer. Put it online only if you want to use it from anywhere, like your phone.</DocP>
+                <button className="btn btn-ghost mt-2" disabled={opening} onClick={goOnline}>{opening ? "Opening…" : "Use it from anywhere"}</button>
+              </>
+            ) : (
+              <DocMuted>Start your agent and try it on your computer first. Then you can put it online here: a testing copy first, then the live version.</DocMuted>
+            )}
+          </DocSection>
+        </Doc>
+      )}
+    </div>
+  );
+}
+
+function OnlineDeployment({
+  projectId,
+  hasEvals,
+  completed,
+  autoflow = null,
+  github = null,
+  autostart = false,
+  onUpdated,
+}: DeploymentProps) {
   const autoRan = useRef(false);
   const autoKey = useRef<string | null>(null);
   // Quick start is shown by default; the other column's heading switches to traditional setup.
@@ -609,7 +659,14 @@ export function AgentDeployment({
 
   const s = st.state;
   if (!s.prepared_at) {
-    return <StageStart label="Start Deployment" busy={busy} error={error} onStart={() => post("prepare", {}, "Packaging your agent (first time installs a few packages)…")} />;
+    return (
+      <Doc>
+        <DocSection title="Go online">
+          <DocP>Put your agent online so it works from anywhere: a testing copy on your host first, then the live version once it passes its checks.</DocP>
+          <StageStart label="Go online" busy={busy} error={error} onStart={() => post("prepare", {}, "Packaging your agent (first time installs a few packages)…")} />
+        </DocSection>
+      </Doc>
+    );
   }
   const railway = st.host === "railway";
   const jwt = st.login !== "machine-key";

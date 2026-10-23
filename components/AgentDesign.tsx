@@ -6,6 +6,7 @@ import type { AgentDesign as Design, Choice, DataSource, ServiceChoice, ServiceO
 import { mcpServiceFor } from "@/lib/agent/mcp-catalog";
 import { designBlockers, MODEL_PROVIDERS, modelProvider, effectiveMemory, effectiveLimits, defaultToolLimit, stopRules } from "@/lib/agent/design";
 import type { MemoryConfig, McpServer, LoginId } from "@/lib/agent/design";
+import { basicsLabel, isPersonal, type AgentBasics } from "@/lib/agent/basics";
 import { DocMuted } from "./doc/Doc";
 import { sectionAnchor } from "@/lib/pipeline";
 import { AgentBuilder } from "./AgentBuilder";
@@ -164,7 +165,7 @@ export function AgentDesign({
     setBusy(null);
     if (d) {
       setDirty(false);
-      if (d.autoflow) setNotice("Saved. Development is building your change now.");
+      if (d.autoflow) setNotice("Saved. Agent Development is building your change now.");
       onUpdated();
     }
   }
@@ -244,7 +245,7 @@ export function AgentDesign({
       <DoneContext.Provider value={() => confirmChanges()}>
     <div className="space-y-3">
         {design.login && (
-          <PanelSection title="Who uses it" tone="ok" summary={<AccessSummary login={design.login.selected} />} editor={
+          <PanelSection title="Who uses it" tone="ok" summary={<AccessSummary login={design.login.selected} basics={design.basics} />} editor={
             <AccessEditor login={design.login} onPick={(id) => edit({ login: { ...design.login!, selected: id } })} />
           } />
         )}
@@ -282,7 +283,7 @@ export function AgentDesign({
           <>
             <DocMuted>
               The outside services this agent uses, and the key each one needs. Pick the provider you want; you&apos;ll add its key (or sign
-              in) in Development. Changing a provider rewrites that part of the code on the next build.
+              in) in Agent Development. Changing a provider rewrites that part of the code on the next build.
             </DocMuted>
             <div className="space-y-3">
               {groups.map((g) => (
@@ -516,15 +517,25 @@ function access(login: LoginId) {
   };
 }
 
-function AccessSummary({ login }: { login: LoginId }) {
+function AccessSummary({ login, basics }: { login: LoginId; basics?: AgentBasics }) {
   const a = access(login);
   return (
     <>
-      <Row label="People use it">
-        {a.people ? "Yes, they chat with it" : "No, it runs on its own"}
-        <Bullets items={[a.people ? "Each person sees only their own conversations" : "Called by your systems with a private key"]} />
-      </Row>
-      {a.people && <Row label="Free or paid">{a.paid ? "Paid" : "Free"}<Bullets items={[a.paid ? "Users pay through Clerk Billing" : "No payments"]} /></Row>}
+      {basics ? (
+        <>
+          <Row label="Used by">
+            {basicsLabel("audience", basics.audience)}
+            <Bullets items={[isPersonal(basics) ? "Runs on your computer, no sign-in" : "Runs online, behind a sign-in"]} />
+          </Row>
+          {basics.mode && <Row label="How you use it">{basicsLabel("mode", basics.mode)}</Row>}
+        </>
+      ) : (
+        <Row label="People use it">
+          {a.people ? "Yes, they chat with it" : "No, it runs on its own"}
+          <Bullets items={[a.people ? "Each person sees only their own conversations" : "Called by your systems with a private key"]} />
+        </Row>
+      )}
+      {a.people && !basics && <Row label="Free or paid">{a.paid ? "Paid" : "Free"}<Bullets items={[a.paid ? "Users pay through Clerk Billing" : "No payments"]} /></Row>}
       <Row label="Login">{a.people ? a.loginLabel : "None"}<Bullets items={[a.people ? (a.paid ? "Login and payments in one account" : "Comes with your state database") : "Private machine key only"]} /></Row>
       <Row label="Chat page">{a.people ? "Yes" : "None"}<Bullets items={[a.people ? `Hosted on ${a.chat}` : "No page to build or host"]} /></Row>
     </>
@@ -975,7 +986,7 @@ function CustomModel({ design, onChange }: { design: Design; onChange: (p: Parti
         />
         out
       </div>
-      <DocMuted>You add the key for this provider in Development, after the build. Evaluations will show whether it does the job as well.</DocMuted>
+      <DocMuted>You add the key for this provider in Agent Development, after the build. Evaluations will show whether it does the job as well.</DocMuted>
     </div>
   );
 }
@@ -1132,7 +1143,7 @@ function KnowledgeEditor({ design, run, busy }: { design: Design; run: Run; busy
           <input className="input mt-2 h-9 w-full" placeholder="Or paste text — title" value={title} onChange={(e) => setTitle(e.target.value)} />
           <textarea className="input mt-1 w-full" rows={3} placeholder="Paste a policy, FAQ, or notes" value={text} onChange={(e) => setText(e.target.value)} />
           <button className="btn-ghost mt-1" disabled={busy || !text.trim()} onClick={() => run("knowledge", { add: { title, text } }, "Adding…").then((ok) => ok && (setText(""), setTitle("")))}>Add text</button>
-          <DocMuted className="mt-2">Documents are split, indexed and bundled with the agent when Development builds it.</DocMuted>
+          <DocMuted className="mt-2">Documents are split, indexed and bundled with the agent when Agent Development builds it.</DocMuted>
         </div>
       )}
     </div>
@@ -1293,7 +1304,7 @@ function McpEditor({ servers, onChange }: { servers: McpServer[]; onChange: (s: 
           <input className="input h-9 min-w-0 flex-1" placeholder="Only these tools (optional, comma-separated)" value={allow} onChange={(e) => setAllow(e.target.value)} />
           <button className="btn-ghost" disabled={!draft.name.trim() || (draft.transport === "http" ? !draft.url : !draft.command)} onClick={add}>Add</button>
         </div>
-        <DocMuted>You add the token in Development, after the build. Changing MCP servers is a light change: no code rewrite.</DocMuted>
+        <DocMuted>You add the token in Agent Development, after the build. Changing MCP servers is a light change: no code rewrite.</DocMuted>
       </div>
     </div>
   );

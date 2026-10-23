@@ -11,6 +11,7 @@ import { activeProvider } from "../llm/registry";
 import { SKIMMABLE_STYLE } from "./brevity";
 import { AGENT_MODELS, AgentDesign, Choice, recommendLogin, type ServiceChoice } from "../agent/design";
 import { recommendSkills } from "../agent/skills";
+import { basicsText, parseBasics } from "../agent/basics";
 
 const MODEL_IDS = AGENT_MODELS.map((m) => m.id);
 
@@ -193,6 +194,7 @@ export function specToAgentText(spec: Record<string, any>): string {
     `Human fallback: ${a.human_fallback ?? ""}`,
     `Capabilities: ${(spec.must_have_features ?? []).map((f: any) => `${f.name}: ${f.description}`).join("; ")}`,
     `Example tasks:\n${(a.example_tasks ?? []).map((e: any, i: number) => `  ${i + 1}. ${e.input} → ${e.expected}`).join("\n")}`,
+    ...(parseBasics(a.basics) ? [basicsText(parseBasics(a.basics)!)] : []),
   ].join("\n");
 }
 
@@ -217,6 +219,7 @@ export async function generateAgentDesign(spec: Record<string, any>, title: stri
   ]);
   const raw = { ...decisions, ...contracts };
   const skills = await skillsP;
+  const basics = parseBasics(spec.agent?.basics) ?? undefined;
   const tools = (raw.tools ?? []).map((t: any) => ({ ...t, enabled: true }));
   // Optional: without it the Tools section shows each service with just the provider in use.
   const services = await proposeServices({ tools } as AgentDesign, specToAgentText(spec)).catch(() => []);
@@ -237,6 +240,7 @@ export async function generateAgentDesign(spec: Record<string, any>, title: stri
     est_cost_per_run: raw.est_cost_per_run ?? "",
     est_latency: raw.est_latency ?? "",
     login: recommendLogin(spec.agent),
+    basics,
     runs_per_month: Number(decisions.runs_per_month) || 300,
     skills,
     // One knowledge approach: document search only when the job needs outside knowledge; else facts live in skills.

@@ -1,18 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { attributed } from "@/lib/agent/activity";
-import { ideaTypeContext } from "@/lib/idea-types";
 import { latestArtifact, savePhaseState, getPhaseState, saveArtifact, completePhase, getProject } from "@/lib/store";
-import { synthesizeSpec, PODialogue } from "@/lib/phases/product-owner";
+import { synthesizeSpec, PODialogue, ideaTextFor, withAgentBasics } from "@/lib/phases/product-owner";
 
 async function handlePost(_req: NextRequest, { params }: { params: { id: string } }) {
   const dialogue = await getPhaseState<PODialogue>(params.id, "product-owner");
   const rawIdea = await latestArtifact(params.id, "raw-idea");
   if (!rawIdea) return NextResponse.json({ error: "No raw idea found." }, { status: 400 });
-  const ideaText = `${ideaTypeContext((rawIdea.payload as any)?.idea_type)}\n\n${(rawIdea.payload as any)?.raw_text || ""}`;
+  const ideaText = ideaTextFor(rawIdea.payload);
 
   try {
     const frameworkIds = dialogue?.frameworks?.ids ?? [];
-    const spec = await synthesizeSpec(ideaText, dialogue?.turns ?? [], frameworkIds, "", (await getProject(params.id))?.kind);
+    const spec = withAgentBasics(
+      await synthesizeSpec(ideaText, dialogue?.turns ?? [], frameworkIds, "", (await getProject(params.id))?.kind),
+      rawIdea.payload
+    );
     const artifact = await saveArtifact({
       projectId: params.id,
       phase: "product-owner",

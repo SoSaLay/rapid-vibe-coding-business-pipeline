@@ -4,6 +4,8 @@
  * LangChain for something else never changes this shape.
  */
 
+import { type AgentBasics, isPaid, isPersonal } from "./basics";
+
 export interface Field {
   name: string;
   type: "string" | "number" | "boolean" | "list" | "object";
@@ -176,23 +178,44 @@ export interface AgentDesign {
   retention_days?: number;
   /** Who can use it and how they log in. Missing on designs made before this existed. */
   login?: Choice<LoginId>;
+  /** The owner's answers from agent creation (who uses it, chat or background). Missing on older agents. */
+  basics?: AgentBasics;
 }
 
 export type LoginId = "machine-key" | "supabase-auth" | "neon-auth" | "clerk";
 
 /**
- * The login rule (owner, 2026-10-14): nobody talks to it → machine key; people use it but
- * aren't charged → the state database's own login (Supabase Auth); sold to users → Clerk
- * (login + payments in one account).
+ * The login rule. With the basics answered at creation (owner, 2026-10-22): nobody talks to it
+ * (Define the Job's people_use_it) or just the owner → machine key (no sign-in, runs on their computer);
+ * paying customers → Clerk (login + payments in one account); team or free customers → the state
+ * database's own login (Supabase Auth).
+ * Older agents without basics use the spec flags (owner, 2026-10-14): nobody talks to it →
+ * machine key; free → Supabase Auth; sold → Clerk.
  */
-export function recommendLogin(agent: { people_use_it?: boolean; charges_users?: boolean } | undefined): Choice<LoginId> {
-  const recommended: LoginId = agent?.charges_users ? "clerk" : agent?.people_use_it === false ? "machine-key" : "supabase-auth";
-  const rationale =
-    recommended === "clerk"
-      ? "You plan to charge users, and Clerk handles login and payments in one account."
-      : recommended === "machine-key"
-        ? "Nobody talks to this agent, so there's nothing to log in to. It's called with a private machine-to-machine key."
-        : "People use it but aren't charged, so the login that comes with the Supabase state database keeps it to one account.";
+export function recommendLogin(
+  agent: { people_use_it?: boolean; charges_users?: boolean; basics?: AgentBasics } | undefined
+): Choice<LoginId> {
+  const b = agent?.basics;
+  let recommended: LoginId;
+  let rationale: string;
+  if (b) {
+    recommended = agent?.people_use_it === false || isPersonal(b) ? "machine-key" : isPaid(b) ? "clerk" : "supabase-auth";
+    rationale = agent?.people_use_it === false
+      ? "It runs tasks automatically, so there's nothing to sign in to. It's called with a private machine key."
+      : isPersonal(b)
+        ? "It's just for you and runs on your computer, so no sign-in is needed."
+        : recommended === "clerk"
+          ? "Your customers pay for access, and Clerk handles sign-in and payments in one account."
+          : `${b.audience === "team" ? "Your team signs" : "Your customers sign"} in with the login that comes with the Supabase state database. Each person sees only their own conversations.`;
+  } else {
+    recommended = agent?.charges_users ? "clerk" : agent?.people_use_it === false ? "machine-key" : "supabase-auth";
+    rationale =
+      recommended === "clerk"
+        ? "You plan to charge users, and Clerk handles login and payments in one account."
+        : recommended === "machine-key"
+          ? "Nobody talks to this agent, so there's nothing to log in to. It's called with a private machine-to-machine key."
+          : "People use it but aren't charged, so the login that comes with the Supabase state database keeps it to one account.";
+  }
   return {
     selected: recommended,
     recommended,

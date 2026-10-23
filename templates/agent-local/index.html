@@ -1,0 +1,772 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent</title>
+<style>
+  :root {
+    --bg: #eef1f5; --panel: #ffffff; --fg: #15171c; --muted: #646b78; --edge: #e2e6ec; --soft: #f4f6f9;
+    --accent: #2f6fde; --accent-fg: #ffffff; --ok: #15803d; --bad: #c2410c; --warn: #b45309;
+    --glass: rgba(255, 255, 255, .78); --glass-edge: rgba(255, 255, 255, .9); --chip: rgba(255, 255, 255, .72);
+    --sky-1: #2f6fd1; --sky-2: #6fa3e6; --sky-3: #c9daef; --sky-4: #e9eef4; --cloud: rgba(255, 255, 255, .85);
+    --shadow: 0 10px 40px rgba(20, 40, 80, .14);
+    --hero-fg: #0f2752; --hero-sub: #2a3f66; --hero-glow: 0 1px 14px rgba(255, 255, 255, .7);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d0f14; --panel: #14171e; --fg: #eceef3; --muted: #9aa1ae; --edge: #262b35; --soft: #1a1e27;
+      --accent: #6d9cf5; --accent-fg: #0d0f14; --ok: #4ade80; --bad: #fb923c; --warn: #fbbf24;
+      --glass: rgba(24, 28, 38, .78); --glass-edge: rgba(255, 255, 255, .08); --chip: rgba(30, 35, 46, .8);
+      --sky-1: #0b1631; --sky-2: #16294f; --sky-3: #1b2740; --sky-4: #12151c; --cloud: rgba(170, 190, 230, .12);
+      --shadow: 0 10px 40px rgba(0, 0, 0, .45);
+      --hero-fg: #ffffff; --hero-sub: rgba(255, 255, 255, .85); --hero-glow: 0 2px 18px rgba(0, 0, 0, .35);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  .hidden { display: none !important; }
+
+  /* ---------- frame ---------- */
+  .app { height: 100vh; display: flex; flex-direction: column; }
+  .topbar { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--edge); background: var(--panel); z-index: 5; }
+  .icon-btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--edge); background: transparent; border-radius: 10px; padding: 7px 11px; cursor: pointer; font-size: 14px; color: var(--fg); }
+  .icon-btn:hover { background: var(--soft); }
+  .icon-btn svg { width: 16px; height: 16px; }
+  .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .avatar { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 14px; color: #fff; background: linear-gradient(135deg, #5b8def, #8b6fe8); flex: none; }
+  .brand .name { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .brand .sub { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+  .layout { flex: 1; display: flex; min-height: 0; position: relative; }
+
+  /* ---------- Agent Helper ---------- */
+  .helper { width: 420px; flex: none; display: flex; flex-direction: column; background: var(--panel); border-right: 1px solid var(--edge); min-height: 0; transition: margin-left .28s ease, opacity .2s ease; }
+  .app.helper-closed .helper { margin-left: -420px; opacity: 0; pointer-events: none; }
+  .helper-head { display: flex; align-items: flex-start; gap: 10px; padding: 16px 18px 10px; }
+  .helper-head h2 { margin: 0; font-size: 16px; }
+  .helper-head p { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
+  .helper-head .grow { flex: 1; }
+  .seg { display: flex; gap: 4px; margin: 0 18px 8px; padding: 4px; background: var(--soft); border-radius: 12px; }
+  .seg button { flex: 1; border: none; background: transparent; border-radius: 9px; padding: 7px 10px; font-weight: 600; font-size: 14px; color: var(--muted); cursor: pointer; }
+  .seg button.on { background: var(--panel); color: var(--fg); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .helper-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .hmsgs { flex: 1; overflow-y: auto; padding: 8px 18px 12px; display: flex; flex-direction: column; gap: 12px; }
+  .hmsg { white-space: pre-wrap; word-wrap: break-word; font-size: 14.5px; }
+  .hmsg.user { align-self: flex-end; background: var(--soft); border: 1px solid var(--edge); padding: 9px 13px; border-radius: 16px; max-width: 88%; }
+  .hmsg.assistant { align-self: flex-start; max-width: 100%; }
+  .hmsg.status { align-self: flex-start; color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 8px; }
+  .spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--edge); border-top-color: var(--accent); animation: spin .8s linear infinite; flex: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .configure { overflow-y: auto; padding: 4px 18px 20px; }
+  .cfg { border: 1px solid var(--edge); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; }
+  .cfg h3 { margin: 0 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .cfg textarea { width: 100%; min-height: 110px; resize: vertical; border: 1px solid var(--edge); border-radius: 10px; padding: 8px 10px; background: var(--soft); font-size: 14px; }
+  .tool { padding: 7px 0; border-top: 1px solid var(--edge); font-size: 14px; }
+  .tool:first-of-type { border-top: none; }
+  .tool .t { font-weight: 600; }
+  .tool .d { color: var(--muted); font-size: 13px; }
+  .badge { display: inline-block; margin-left: 6px; font-size: 11px; font-weight: 600; border-radius: 999px; padding: 1px 7px; border: 1px solid var(--warn); color: var(--warn); vertical-align: 1px; }
+  .link { color: var(--accent); text-decoration: none; font-weight: 600; font-size: 14px; }
+  .agent-name { font-weight: 650; color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); padding: 1px 7px; border-radius: 6px; white-space: nowrap; }
+  .readonly { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--edge); background: var(--soft); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; font-size: 14px; }
+  .readonly svg { flex: none; margin-top: 2px; color: var(--muted); }
+  .starter-list { margin: 0; padding-left: 18px; font-size: 14px; }
+  .starter-list li { margin: 3px 0; }
+
+  /* ---------- composer (shared) ---------- */
+  .composer { background: var(--glass); border: 1px solid var(--glass-edge); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-radius: 20px; box-shadow: var(--shadow); padding: 12px 12px 10px 16px; }
+  .composer textarea { width: 100%; border: none; outline: none; background: transparent; resize: none; min-height: 52px; max-height: 200px; font-size: 16px; }
+  .composer .bar { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+  .send { width: 38px; height: 38px; border-radius: 50%; border: none; background: var(--accent); color: var(--accent-fg); display: grid; place-items: center; cursor: pointer; flex: none; transition: transform .15s ease, opacity .15s ease; }
+  .send:disabled { opacity: .35; cursor: not-allowed; }
+  .send:not(:disabled):hover { transform: translateY(-1px); }
+  .send svg { width: 18px; height: 18px; }
+  .helper .composer { margin: 0 14px 14px; box-shadow: none; background: var(--soft); border-color: var(--edge); backdrop-filter: none; }
+  .helper .composer textarea { min-height: 40px; font-size: 15px; }
+
+  /* ---------- Preview ---------- */
+  .preview { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; overflow: hidden; }
+  .preview-head { position: absolute; top: 0; left: 0; right: 0; z-index: 3; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 18px; pointer-events: none; }
+  .preview-head > * { pointer-events: auto; }
+  .preview-head > .row { flex: none; }
+  .ptitle { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 650; font-size: 15px; background: var(--glass); border: 1px solid var(--glass-edge); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 6px 12px; border-radius: 999px; }
+  .ptitle span { color: var(--muted); font-weight: 500; }
+  .preview .seg { margin: 0; background: var(--glass); border: 1px solid var(--glass-edge); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+  .preview .seg button { padding: 5px 14px; }
+
+  .sky { position: absolute; inset: 0; background: linear-gradient(180deg, var(--sky-1) 0%, var(--sky-2) 28%, var(--sky-3) 55%, var(--sky-4) 78%); transition: opacity .6s ease; z-index: 0; overflow: hidden; }
+  .cloud { position: absolute; border-radius: 50%; background: var(--cloud); filter: blur(28px); }
+  .c1 { width: 520px; height: 170px; top: 4%; left: -120px; }
+  .c2 { width: 420px; height: 150px; top: 10%; right: -100px; }
+  .c3 { width: 360px; height: 120px; top: 30%; left: 18%; opacity: .6; }
+  .c4 { width: 600px; height: 200px; top: 36%; right: 6%; opacity: .55; }
+  @media (prefers-reduced-motion: no-preference) {
+    .c1, .c3 { animation: drift 60s ease-in-out infinite alternate; }
+    .c2, .c4 { animation: drift 75s ease-in-out infinite alternate-reverse; }
+    .fade-up { animation: fadeUp .45s ease both; }
+  }
+  @keyframes drift { from { transform: translateX(0); } to { transform: translateX(120px); } }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+  .view { position: relative; z-index: 1; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .scroll { flex: 1; min-height: 0; overflow-y: auto; }
+  /* Everything in a view sits above its sky. */
+  .view > :not(.sky) { position: relative; z-index: 1; }
+  .col { max-width: 820px; margin: 0 auto; padding: 0 20px; }
+
+  /* chat: empty = hero in the middle; started = thread + docked composer */
+  .hero { min-height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 80px 0 48px; }
+  .hero h1 { margin: 0 0 22px; font-size: clamp(24px, 4vw, 34px); font-weight: 650; color: var(--hero-fg); text-align: center; text-shadow: var(--hero-glow); letter-spacing: -.01em; }
+  .hero .lead { margin: -12px 0 22px; color: var(--hero-sub); text-align: center; max-width: 640px; font-size: 15px; text-shadow: var(--hero-glow); }
+  .hero .composer { width: 100%; max-width: 760px; }
+  .starters { margin-top: 30px; text-align: center; width: 100%; max-width: 860px; }
+  .starters .hint { font-size: 13px; color: var(--hero-sub); display: inline-flex; align-items: center; gap: 6px; margin-bottom: 12px; }
+  .starters .hint button { border: none; background: none; cursor: pointer; color: var(--muted); padding: 2px; display: inline-flex; }
+  .chips { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+  .chip { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--glass-edge); background: var(--chip); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-radius: 999px; padding: 8px 14px; cursor: pointer; font-size: 14px; color: var(--fg); max-width: 100%; text-align: left; transition: transform .15s ease, box-shadow .15s ease; }
+  .chip:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(20, 40, 80, .12); }
+  .chip .orb { width: 16px; height: 16px; border-radius: 50%; flex: none; }
+  .chip .txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .chat.started .sky { opacity: .16; }
+  .thread { display: flex; flex-direction: column; gap: 16px; padding: 72px 0 24px; }
+  .bubble { max-width: 85%; white-space: pre-wrap; word-wrap: break-word; }
+  .bubble.user { align-self: flex-end; background: var(--accent); color: var(--accent-fg); padding: 10px 14px; border-radius: 18px 18px 4px 18px; }
+  .bubble.agent { align-self: flex-start; background: var(--panel); border: 1px solid var(--edge); padding: 12px 16px; border-radius: 18px 18px 18px 4px; box-shadow: 0 2px 10px rgba(0,0,0,.04); }
+  .bubble.note { align-self: center; color: var(--muted); font-size: 13px; }
+  .dock { padding-top: 10px; padding-bottom: 18px; }
+  .dock .composer { box-shadow: 0 4px 20px rgba(20, 40, 80, .1); }
+
+  /* answers */
+  .answer .main { white-space: pre-wrap; }
+  .answer details { margin-top: 8px; }
+  .answer summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  .answer dl { margin: 6px 0 0; }
+  .answer dt { font-size: 12px; font-weight: 600; color: var(--muted); margin-top: 6px; }
+  .answer dd { margin: 0; white-space: pre-wrap; font-size: 14px; }
+  .answer ul { margin: 2px 0; padding-left: 18px; }
+  .answer pre { margin: 4px 0 0; font-size: 12px; white-space: pre-wrap; }
+  .approval { border: 1px solid var(--warn); border-radius: 14px; padding: 12px 14px; margin-top: 8px; background: var(--panel); }
+  .approval .what { font-weight: 600; }
+  .approval pre { margin: 6px 0 0; font-size: 12px; white-space: pre-wrap; color: var(--muted); }
+  .btn { border: none; background: var(--accent); color: var(--accent-fg); font-weight: 600; border-radius: 10px; padding: 9px 16px; cursor: pointer; }
+  .btn.ghost { background: var(--panel); color: var(--fg); border: 1px solid var(--edge); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .err { color: var(--bad); font-size: 14px; margin-top: 8px; }
+  .muted { color: var(--muted); font-size: 13px; }
+
+  /* runs */
+  .runcard { width: 100%; max-width: 640px; }
+  .runcard .composer { padding: 18px; }
+  .field { display: block; margin-bottom: 12px; }
+  .field span { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .field input, .field select { width: 100%; border: 1px solid var(--edge); background: var(--panel); border-radius: 10px; padding: 9px 11px; }
+  .bigrun { width: 100%; padding: 12px; font-size: 16px; border-radius: 12px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .section { background: var(--panel); border: 1px solid var(--edge); border-radius: 16px; padding: 16px; margin: 0 0 16px; }
+  .section h2 { margin: 0 0 10px; font-size: 15px; }
+  .run { border-top: 1px solid var(--edge); }
+  .run:first-child { border-top: none; }
+  .run > summary { list-style: none; display: flex; align-items: center; gap: 10px; padding: 10px 0; cursor: pointer; }
+  .run > summary::-webkit-details-marker { display: none; }
+  .run .one { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+  .run .when { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .run .body { padding: 0 0 12px; }
+  .tag { font-size: 12px; font-weight: 600; border-radius: 999px; padding: 1px 9px; white-space: nowrap; }
+  .tag.ok { color: var(--ok); border: 1px solid var(--ok); }
+  .tag.bad { color: var(--bad); border: 1px solid var(--bad); }
+  .tag.wait { color: var(--warn); border: 1px solid var(--warn); }
+  .toast { position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 9px 16px; border-radius: 999px; font-size: 14px; z-index: 10; box-shadow: var(--shadow); }
+  .newchat { white-space: nowrap; flex: none; padding: 6px 14px; border-radius: 999px; background: var(--glass); border-color: var(--glass-edge); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+
+  /* phones: the helper slides over the preview */
+  @media (max-width: 860px) {
+    .helper { position: absolute; inset: 0 auto 0 0; width: min(420px, 100%); z-index: 6; box-shadow: var(--shadow); }
+    .app.helper-closed .helper { margin-left: -100%; }
+    .icon-btn span { display: none; }
+    .hero { padding-top: 70px; }
+    .bubble { max-width: 92%; }
+  }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <header class="topbar">
+    <button class="icon-btn" id="helperToggle" title="Show or hide the Agent Helper">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>
+      <span>Agent Helper</span>
+    </button>
+    <div class="brand">
+      <div class="avatar" id="avatar">A</div>
+      <div style="min-width:0">
+        <div class="name" id="title">Agent</div>
+        <div class="sub"><span class="dot"></span><span id="statusText">Running on this computer</span></div>
+      </div>
+    </div>
+  </header>
+
+  <div class="layout">
+    <!-- ================= Agent Helper ================= -->
+    <aside class="helper" id="helper" aria-label="Agent Helper">
+      <div class="helper-head">
+        <div class="grow">
+          <h2>Agent Helper</h2>
+          <p>Something off? Ask for a change and it's applied to your agent.</p>
+        </div>
+        <button class="icon-btn" id="helperClose" title="Collapse the Agent Helper" aria-label="Collapse">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg>
+        </button>
+      </div>
+      <div class="seg" role="tablist">
+        <button data-htab="create" class="on">Create</button>
+        <button data-htab="configure">Configure</button>
+      </div>
+
+      <section class="helper-body" id="createTab">
+        <div class="hmsgs" id="hmsgs"></div>
+        <div class="composer">
+          <textarea id="htext" rows="1" placeholder="Ask the helper to change something…"></textarea>
+          <div class="bar"><button class="send" id="hsend" title="Send" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div>
+        </div>
+      </section>
+
+      <section class="helper-body configure hidden" id="configureTab">
+        <div class="readonly">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+          <div>
+            <strong>Read only.</strong> To change your agent, ask in <strong>Create</strong>, or edit it in Agent Design.
+            <div style="margin-top:6px"><a class="link" id="cfgDesign" target="_blank" rel="noopener">Open Agent Design ↗</a></div>
+          </div>
+        </div>
+        <div class="cfg">
+          <h3>What it does</h3>
+          <div id="cfgSummary" style="font-size:14px"></div>
+        </div>
+        <div class="cfg" id="cfgStartersBox">
+          <h3>Starter prompts</h3>
+          <ul class="starter-list" id="cfgStarters"></ul>
+        </div>
+        <div class="cfg">
+          <h3>How it works</h3>
+          <div style="font-size:14px"><span id="cfgModel"></span> · <span id="cfgApproach"></span></div>
+        </div>
+        <div class="cfg">
+          <h3>Tools</h3>
+          <div id="cfgTools"></div>
+        </div>
+      </section>
+    </aside>
+
+    <!-- ================= Preview ================= -->
+    <main class="preview" id="preview">
+      <div class="preview-head">
+        <div class="ptitle">Preview <span id="ptitleName"></span></div>
+        <div class="row" style="flex-wrap:nowrap">
+          <button class="btn ghost newchat hidden" id="newChat">New chat</button>
+          <div class="seg hidden" id="viewSeg">
+            <button data-view="chat" class="on">Chat</button>
+            <button data-view="runs">Runs</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chat -->
+      <section class="view chat hidden" id="chatView">
+        <div class="sky" aria-hidden="true"><div class="cloud c1"></div><div class="cloud c2"></div><div class="cloud c3"></div><div class="cloud c4"></div></div>
+        <div class="scroll" id="chatScroll" style="position:relative">
+          <div class="col" style="height:100%">
+            <div class="hero" id="chatHero">
+              <h1 id="chatHeadline">What can I help you with?</h1>
+              <div id="heroComposerSlot"></div>
+              <div class="starters" id="chatStarters">
+                <div class="hint">Not sure where to start? Try these
+                  <button id="shuffle" title="Shuffle"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg></button>
+                </div>
+                <div class="chips" id="chips"></div>
+              </div>
+            </div>
+            <div class="thread hidden" id="thread"></div>
+          </div>
+        </div>
+        <div class="col dock hidden" id="dock" style="width:100%"></div>
+        <div class="err col hidden" id="chatErr" style="width:100%;padding-bottom:10px"></div>
+      </section>
+
+      <!-- Runs -->
+      <section class="view hidden" id="runsView">
+        <div class="sky" aria-hidden="true"><div class="cloud c1"></div><div class="cloud c2"></div><div class="cloud c3"></div><div class="cloud c4"></div></div>
+        <div class="scroll">
+          <div class="col">
+            <div class="hero" style="min-height:auto;padding-bottom:36px">
+              <h1 id="runHeadline">Run your agent</h1>
+              <p class="lead" id="runLead"></p>
+              <div class="runcard">
+                <div class="composer">
+                  <div id="inputs"></div>
+                  <button class="btn bigrun" id="runNow">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5v14l11-7z"/></svg>
+                    <span id="runLabel">Run now</span>
+                  </button>
+                  <div class="err hidden" id="runErr"></div>
+                </div>
+              </div>
+              <div class="starters">
+                <div class="hint" id="schedHint"></div>
+                <div class="chips" id="schedChips"></div>
+              </div>
+            </div>
+
+            <div class="section">
+              <div class="row" style="justify-content:space-between;margin-bottom:6px">
+                <h2 style="margin:0">Schedule</h2>
+                <span class="muted" id="nextRun"></span>
+              </div>
+              <label class="row" style="margin-bottom:10px;font-size:14px"><input type="checkbox" id="schedOn"> Run on a schedule</label>
+              <div id="schedFields" class="hidden">
+                <div class="row" style="align-items:flex-end">
+                  <label class="field" style="flex:1;min-width:120px"><span>Every</span>
+                    <select id="every"><option value="minutes">Few minutes</option><option value="hours">Few hours</option><option value="day">Day</option><option value="weekdays">Weekday</option><option value="week">Week</option></select>
+                  </label>
+                  <label class="field" style="flex:1;min-width:120px" id="weekdayWrap"><span>On</span>
+                    <select id="weekday">
+                      <option value="monday">Monday</option><option value="tuesday">Tuesday</option><option value="wednesday">Wednesday</option>
+                      <option value="thursday">Thursday</option><option value="friday">Friday</option><option value="saturday">Saturday</option><option value="sunday">Sunday</option>
+                    </select>
+                  </label>
+                  <label class="field" style="flex:1;min-width:120px" id="timeWrap"><span>At</span><input type="time" id="time" value="09:00"></label>
+                  <label class="field" style="flex:1;min-width:120px" id="hoursWrap"><span>Hours</span><input type="number" id="hours" min="1" max="24" value="4"></label>
+                  <label class="field" style="flex:1;min-width:120px" id="minutesWrap"><span>Minutes</span><input type="number" id="minutes" min="5" max="59" value="15"></label>
+                </div>
+              </div>
+              <div class="row">
+                <button class="btn ghost" id="saveSched">Save schedule</button>
+                <span class="muted">Runs while this computer is awake. A run missed while it slept happens when it wakes.</span>
+              </div>
+            </div>
+
+            <div class="section">
+              <div class="row" style="justify-content:space-between;margin-bottom:4px">
+                <h2 style="margin:0">Past runs</h2>
+                <button class="btn ghost" id="refresh" style="padding:6px 12px">Refresh</button>
+              </div>
+              <div id="history"><p class="muted">No runs yet.</p></div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <div class="toast hidden" id="toast"></div>
+    </main>
+  </div>
+</div>
+
+<script>
+  let CONFIG = /*__CONFIG__*/null || {};
+  const TOKEN = CONFIG.token || "";
+  const MODE = CONFIG.mode || "chat";
+  const NAME = CONFIG.title || "Agent";
+  const $ = (id) => document.getElementById(id);
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  };
+  const KEY = "agent-page:" + NAME;
+
+  document.title = NAME;
+  $("title").textContent = NAME;
+  $("ptitleName").textContent = "· " + NAME;
+  $("avatar").textContent = (NAME.match(/[A-Za-z0-9]/) || ["A"])[0].toUpperCase();
+
+  async function api(path, body) {
+    const res = await fetch(path, {
+      method: body === undefined ? "GET" : "POST",
+      headers: { "Content-Type": "application/json", "X-Local-Token": TOKEN },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Something went wrong.");
+    return data;
+  }
+
+  function el(tag, attrs, ...kids) {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (k === "class") n.className = v;
+      else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+      else n.setAttribute(k, v);
+    }
+    for (const kid of kids.flat(Infinity)) if (kid != null && kid !== false) n.append(kid.nodeType ? kid : String(kid));
+    return n;
+  }
+  const label = (k) => String(k).replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+  const ARROW = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
+  const ORBS = ["linear-gradient(135deg,#f6a26b,#e86fa0)", "linear-gradient(135deg,#6fd3c6,#5aa9e6)", "linear-gradient(135deg,#a58cf0,#6f8fe8)", "linear-gradient(135deg,#b9a2e8,#7fb5e8)", "linear-gradient(135deg,#7fe0a0,#4fb3d9)"];
+
+  function toast(text) {
+    const t = $("toast");
+    t.textContent = text;
+    t.classList.remove("hidden");
+    clearTimeout(toast.t);
+    toast.t = setTimeout(() => t.classList.add("hidden"), 2600);
+  }
+  function autosize(t) { t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, 200) + "px"; }
+
+  /* ---------- answers: the main text first, everything else under Details ---------- */
+  const MAIN_KEYS = ["answer", "reply", "response", "message", "summary", "result", "output", "text", "reasoning"];
+  function mainKeyOf(o) {
+    return MAIN_KEYS.find((k) => typeof o[k] === "string" && o[k].trim())
+      || Object.entries(o).filter(([, v]) => typeof v === "string" && v.trim()).sort((a, b) => b[1].length - a[1].length)[0]?.[0];
+  }
+  function renderAnswer(o) {
+    if (o == null) return el("div", { class: "answer muted" }, "No answer.");
+    if (typeof o !== "object") return el("div", { class: "answer" }, el("div", { class: "main" }, String(o)));
+    const entries = Object.entries(o).filter(([, v]) => v !== "" && v != null && !(Array.isArray(v) && !v.length));
+    if (!entries.length) return el("div", { class: "answer muted" }, "Done.");
+    const mainKey = mainKeyOf(o);
+    const rest = entries.filter(([k]) => k !== mainKey);
+    const fmt = (v) => typeof v === "boolean" ? (v ? "Yes" : "No")
+      : Array.isArray(v) ? el("ul", {}, v.map((x) => el("li", {}, typeof x === "object" ? JSON.stringify(x) : String(x))))
+      : typeof v === "object" ? el("pre", {}, JSON.stringify(v, null, 2)) : String(v);
+    const list = el("dl", {}, rest.map(([k, v]) => [el("dt", {}, label(k)), el("dd", {}, fmt(v))]));
+    return el("div", { class: "answer" },
+      mainKey ? el("div", { class: "main" }, o[mainKey]) : null,
+      rest.length ? (mainKey ? el("details", {}, el("summary", {}, "Details"), list) : list) : null,
+    );
+  }
+  function oneLine(o) {
+    if (o == null) return "No answer";
+    if (typeof o !== "object") return String(o);
+    const k = mainKeyOf(o);
+    return k ? o[k] : "Done";
+  }
+
+  function renderApprovals(pending, onDecide) {
+    const box = el("div", {});
+    for (const p of pending || []) {
+      box.append(el("div", { class: "approval" },
+        el("div", { class: "what" }, "Needs your OK: " + label(p.tool || "action")),
+        p.description ? el("div", { class: "muted" }, p.description) : null,
+        el("pre", {}, JSON.stringify(p.args || {}, null, 2)),
+      ));
+    }
+    const decide = (type, btn) => { btn.disabled = true; onDecide((pending || []).map(() => (type === "approve" ? { type } : { type, message: "The owner rejected this." }))); };
+    box.append(el("div", { class: "row", style: "margin-top:10px" },
+      el("button", { class: "btn", onclick: (e) => decide("approve", e.currentTarget) }, "Approve"),
+      el("button", { class: "btn ghost", onclick: (e) => decide("reject", e.currentTarget) }, "Reject"),
+    ));
+    return box;
+  }
+
+  /* ================= Agent Helper ================= */
+  const narrow = () => matchMedia("(max-width: 860px)").matches;
+  function setHelper(open) {
+    $("app").classList.toggle("helper-closed", !open);
+    store.set(KEY + ":helper", open);
+  }
+  setHelper(narrow() ? false : store.get(KEY + ":helper", true));
+  $("helperToggle").addEventListener("click", () => setHelper($("app").classList.contains("helper-closed")));
+  $("helperClose").addEventListener("click", () => setHelper(false));
+
+  for (const b of document.querySelectorAll("[data-htab]")) b.addEventListener("click", () => {
+    for (const x of document.querySelectorAll("[data-htab]")) x.classList.toggle("on", x === b);
+    $("createTab").classList.toggle("hidden", b.dataset.htab !== "create");
+    $("configureTab").classList.toggle("hidden", b.dataset.htab !== "configure");
+  });
+
+  /** The helper's words with the agent's name highlighted wherever it appears. */
+  function withName(text) {
+    const parts = String(text).split(NAME);
+    return parts.flatMap((p, i) => (i ? [el("span", { class: "agent-name" }, NAME), p] : [p]));
+  }
+  const GREETING = `Hi! I'm your Agent Helper. Try ${NAME} in the preview, and if something's off, tell me what to change. For example: "keep replies shorter", "ask me before it posts anything", or "also include the due date".\n\nI'll update your agent and restart it here with the change.`;
+  let helperChat = [];
+  function drawHelper(status) {
+    const box = $("hmsgs");
+    box.replaceChildren(el("div", { class: "hmsg assistant" }, withName(GREETING)));
+    for (const t of helperChat) box.append(el("div", { class: "hmsg " + (t.role === "user" ? "user" : "assistant") }, t.role === "user" ? t.text : withName(t.text)));
+    if (status) box.append(el("div", { class: "hmsg status" }, el("span", { class: "spinner" }), status));
+    box.scrollTop = box.scrollHeight;
+  }
+  drawHelper();
+  api("/api/helper").then((d) => { helperChat = d.chat || []; drawHelper(); }).catch(() => {});
+
+  /** After a change the agent restarts on the new code: wait until it's back. */
+  async function waitForRestart() {
+    const started = Date.now();
+    let wentDown = false;
+    await new Promise((r) => setTimeout(r, 1200));
+    while (Date.now() - started < 5 * 60_000) {
+      const up = await fetch("/ping", { cache: "no-store" }).then((r) => r.ok).catch(() => false);
+      if (!up) wentDown = true;
+      else if (wentDown || Date.now() - started > 30_000) return true;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    return false;
+  }
+
+  async function sendHelper() {
+    const text = $("htext").value.trim();
+    if (!text) return;
+    $("htext").value = "";
+    autosize($("htext"));
+    $("hsend").disabled = true;
+    helperChat.push({ role: "user", text });
+    drawHelper("Working on your change…");
+    try {
+      const d = await api("/api/helper", { message: text });
+      helperChat = d.chat || [...helperChat, { role: "assistant", text: d.reply }];
+      if (d.restarting) {
+        drawHelper("Restarting your agent with the change…");
+        $("statusText").textContent = "Restarting with your change…";
+        const ok = await waitForRestart();
+        $("statusText").textContent = "Running on this computer";
+        helperChat.push({ role: "assistant", text: ok ? `Done. ${NAME} is running the new version: try it in the preview.` : "The restart is taking longer than usual. Check Deployment in the pipeline." });
+        try { CONFIG = { ...CONFIG, ...(await api("/api/config")) }; drawStarters(); drawConfigure(); } catch {}
+      }
+      drawHelper();
+    } catch (e) {
+      helperChat.push({ role: "assistant", text: e.message });
+      drawHelper();
+    }
+  }
+  $("htext").addEventListener("input", (e) => { autosize(e.target); $("hsend").disabled = !e.target.value.trim(); });
+  $("htext").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendHelper(); } });
+  $("hsend").addEventListener("click", sendHelper);
+
+  /* Configure */
+  function drawConfigure() {
+    $("cfgSummary").textContent = CONFIG.summary || "";
+    $("cfgStarters").replaceChildren(...(CONFIG.starters || []).map((x) => el("li", {}, x)));
+    $("cfgStartersBox").classList.toggle("hidden", MODE === "background");
+    const ov = CONFIG.overview || {};
+    $("cfgModel").textContent = ov.model || "";
+    $("cfgApproach").textContent = ov.approach || "";
+    const tools = $("cfgTools");
+    tools.replaceChildren();
+    if (!(ov.tools || []).length) tools.append(el("div", { class: "muted" }, "No outside tools."));
+    for (const t of ov.tools || []) tools.append(el("div", { class: "tool" },
+      el("div", { class: "t" }, label(t.name), t.approval ? el("span", { class: "badge" }, "Asks you first") : null),
+      el("div", { class: "d" }, t.description),
+    ));
+    if (CONFIG.design_url) $("cfgDesign").href = CONFIG.design_url;
+    else $("cfgDesign").classList.add("hidden");
+  }
+  drawConfigure();
+
+  /* ================= Preview: which view ================= */
+  function showView(v) {
+    $("chatView").classList.toggle("hidden", v !== "chat");
+    $("runsView").classList.toggle("hidden", v !== "runs");
+    $("newChat").classList.toggle("hidden", v !== "chat" || !$("chatView").classList.contains("started"));
+    for (const b of document.querySelectorAll("[data-view]")) b.classList.toggle("on", b.dataset.view === v);
+    if (v === "runs") loadRuns();
+  }
+  if (MODE === "both") {
+    $("viewSeg").classList.remove("hidden");
+    for (const b of document.querySelectorAll("[data-view]")) b.addEventListener("click", () => showView(b.dataset.view));
+  }
+
+  /* ================= Chat ================= */
+  // One composer: centered in the hero until the first message, then docked at the bottom.
+  const composer = el("div", { class: "composer" });
+  const ctext = el("textarea", { rows: "1", placeholder: "Ask " + NAME + "…" });
+  const csend = el("button", { class: "send", title: "Send", disabled: "" });
+  csend.innerHTML = ARROW;
+  composer.append(ctext, el("div", { class: "bar" }, csend));
+  $("heroComposerSlot").replaceWith(composer);
+
+  let chat = store.get(KEY + ":chat", { id: null, messages: [] });
+  const saveChat = () => store.set(KEY + ":chat", chat);
+
+  let starterOffset = 0;
+  function drawStarters() {
+    const list = CONFIG.starters || [];
+    $("chatStarters").classList.toggle("hidden", !list.length);
+    $("shuffle").classList.toggle("hidden", list.length <= 3);
+    const shown = list.length <= 3 ? list : [0, 1, 2].map((i) => list[(starterOffset + i) % list.length]);
+    $("chips").replaceChildren(...shown.map((s, i) => el("button", {
+      class: "chip fade-up", style: `animation-delay:${i * 60}ms`, title: s,
+      onclick: () => { ctext.value = s; autosize(ctext); csend.disabled = false; ctext.focus(); },
+    }, el("span", { class: "orb", style: `background:${ORBS[(starterOffset + i) % ORBS.length]}` }), el("span", { class: "txt" }, s))));
+  }
+  $("shuffle").addEventListener("click", () => { starterOffset += 3; drawStarters(); });
+
+  function setStarted(started) {
+    $("chatView").classList.toggle("started", started);
+    $("chatHero").classList.toggle("hidden", started);
+    $("thread").classList.toggle("hidden", !started);
+    $("dock").classList.toggle("hidden", !started);
+    $("newChat").classList.toggle("hidden", !started || $("chatView").classList.contains("hidden"));
+    if (started && composer.parentElement !== $("dock")) $("dock").append(composer);
+    if (!started && composer.parentElement === $("dock")) $("chatHero").insertBefore(composer, $("chatStarters"));
+  }
+
+  function drawChat(extra) {
+    const box = $("thread");
+    box.replaceChildren();
+    for (const m of chat.messages) {
+      if (m.role === "user") box.append(el("div", { class: "bubble user fade-up" }, m.text));
+      else if (m.role === "note") box.append(el("div", { class: "bubble note" }, m.text));
+      else box.append(el("div", { class: "bubble agent fade-up" }, renderAnswer(m.output)));
+    }
+    if (extra) box.append(extra);
+    setStarted(chat.messages.length > 0 || !!extra);
+    const sc = $("chatScroll");
+    requestAnimationFrame(() => (sc.scrollTop = sc.scrollHeight));
+  }
+
+  async function sendChat(body) {
+    $("chatErr").classList.add("hidden");
+    csend.disabled = true;
+    drawChat(el("div", { class: "bubble agent" }, el("div", { class: "row muted" }, el("span", { class: "spinner" }), "Working…")));
+    try {
+      const d = await api("/api/invoke", { ...body, conversation_id: chat.id || undefined });
+      chat.id = d.conversation_id;
+      if (d.status === "needs_approval") {
+        saveChat();
+        drawChat(el("div", { class: "bubble agent" }, renderApprovals(d.pending, (decisions) => {
+          chat.messages.push({ role: "note", text: decisions[0]?.type === "approve" ? "You approved." : "You rejected." });
+          sendChat({ decisions });
+        })));
+      } else {
+        if (d.handed_off) chat.messages.push({ role: "note", text: "It couldn't finish this one and handed it off." });
+        chat.messages.push({ role: "agent", output: d.output });
+        saveChat();
+        drawChat();
+      }
+    } catch (e) {
+      drawChat();
+      $("chatErr").textContent = e.message;
+      $("chatErr").classList.remove("hidden");
+    }
+    csend.disabled = !ctext.value.trim();
+  }
+
+  function submitChat() {
+    const text = ctext.value.trim();
+    if (!text) return;
+    ctext.value = "";
+    autosize(ctext);
+    chat.messages.push({ role: "user", text });
+    saveChat();
+    sendChat({ message: text });
+  }
+  ctext.addEventListener("input", () => { autosize(ctext); csend.disabled = !ctext.value.trim(); });
+  ctext.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitChat(); } });
+  csend.addEventListener("click", submitChat);
+  $("newChat").addEventListener("click", () => { chat = { id: null, messages: [] }; saveChat(); drawChat(); ctext.focus(); });
+
+  $("chatHeadline").textContent = "What can I help you with?";
+  drawStarters();
+  drawChat();
+
+  /* ================= Runs ================= */
+  $("runHeadline").textContent = "Run " + NAME;
+  $("runLead").textContent = CONFIG.summary || "";
+  // Never ask for keys, tokens or approvals here: keys are set in the pipeline, approvals are the Approve buttons.
+  const NOT_AN_INPUT = /(^|_)(token|tokens|api_?key|key|secret|password|passwd|credential|credentials|auth|oauth|bearer|approval|approve|approved|confirm|confirmation|consent)(_|$)/i;
+  const INPUTS = (CONFIG.inputs || []).filter((f) => !NOT_AN_INPUT.test(f.name));
+  for (const f of INPUTS) {
+    $("inputs").append(el("label", { class: "field" },
+      el("span", {}, label(f.name) + (f.required ? "" : " (optional)")),
+      el("input", { "data-name": f.name, placeholder: f.description || "" }),
+    ));
+  }
+  const inputValues = () => Object.fromEntries([...document.querySelectorAll("#inputs input")].map((i) => [i.dataset.name, i.value]));
+
+  $("runNow").addEventListener("click", async () => {
+    $("runErr").classList.add("hidden");
+    $("runNow").disabled = true;
+    $("runLabel").textContent = "Running…";
+    try {
+      const d = await api("/api/run", { inputs: inputValues() });
+      toast(d.status === "needs_approval" ? "Waiting for your OK below" : d.ok === false ? "It couldn't finish: see below" : "Done: see the result below");
+    } catch (e) { $("runErr").textContent = e.message; $("runErr").classList.remove("hidden"); }
+    $("runNow").disabled = false;
+    $("runLabel").textContent = "Run now";
+    await loadRuns(true);
+  });
+
+  async function loadRuns(openFirst) {
+    let runs = [];
+    try { runs = await api("/api/runs"); } catch { return; }
+    const box = $("history");
+    box.replaceChildren();
+    if (!runs.length) { box.append(el("p", { class: "muted" }, "No runs yet. Press Run now to try it.")); return; }
+    runs.forEach((r, i) => {
+      const when = r.at ? new Date(r.at * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+      const waiting = r.status === "needs_approval";
+      const tag = waiting ? el("span", { class: "tag wait" }, "Needs you") : r.ok ? el("span", { class: "tag ok" }, "Done") : el("span", { class: "tag bad" }, "Handed off");
+      const item = el("details", { class: "run" },
+        el("summary", {}, tag, el("span", { class: "one" }, waiting ? "Waiting for your OK" : oneLine(r.output)), el("span", { class: "when" }, when + (r.source === "schedule" ? " · scheduled" : ""))),
+      );
+      if (waiting || (openFirst && i === 0)) item.open = true;
+      const body = el("div", { class: "body" });
+      if (waiting && r.pending?.length) {
+        body.append(renderApprovals(r.pending, async (decisions) => {
+          try { await api("/api/invoke", { conversation_id: r.conversation_id, decisions }); } catch (e) { toast(e.message); }
+          loadRuns(true);
+        }));
+      } else {
+        body.append(renderAnswer(r.output));
+        if (r.error) body.append(el("details", {}, el("summary", { class: "muted" }, "What went wrong"), el("pre", { class: "muted" }, r.error)));
+      }
+      item.append(body);
+      box.append(item);
+    });
+  }
+  $("refresh").addEventListener("click", () => loadRuns());
+
+  /* schedule: quick starts under the Run card, full controls below */
+  // Suggested from this agent's own trigger (a schedule, or checking for new work); none for agents run by hand.
+  const PRESETS = CONFIG.schedules || [];
+  $("schedHint").textContent = PRESETS.length ? "Suggested for this agent" : "This agent runs when you press Run now. You can still schedule it below.";
+  $("schedChips").replaceChildren(...PRESETS.map((p, i) => el("button", {
+    class: "chip fade-up", style: `animation-delay:${i * 60}ms`,
+    onclick: async () => {
+      try { drawSchedule(await api("/api/schedule", { enabled: true, ...p.s, inputs: inputValues() })); toast("Scheduled: " + p.text.toLowerCase()); }
+      catch (e) { toast(e.message); }
+    },
+  }, el("span", { class: "orb", style: `background:${ORBS[i % ORBS.length]}` }), el("span", { class: "txt" }, p.text))));
+
+  function schedVisibility() {
+    const on = $("schedOn").checked, every = $("every").value;
+    $("schedFields").classList.toggle("hidden", !on);
+    $("weekdayWrap").classList.toggle("hidden", every !== "week");
+    $("timeWrap").classList.toggle("hidden", every === "hours" || every === "minutes");
+    $("hoursWrap").classList.toggle("hidden", every !== "hours");
+    $("minutesWrap").classList.toggle("hidden", every !== "minutes");
+  }
+  function drawSchedule(s) {
+    $("schedOn").checked = !!s.enabled;
+    if (s.every) $("every").value = s.every;
+    if (s.weekday) $("weekday").value = s.weekday;
+    if (s.time) $("time").value = s.time;
+    if (s.hours) $("hours").value = s.hours;
+    if (s.minutes) $("minutes").value = s.minutes;
+    for (const [k, v] of Object.entries(s.inputs || {})) {
+      const i = document.querySelector(`#inputs input[data-name="${CSS.escape(k)}"]`);
+      if (i && !i.value) i.value = v;
+    }
+    $("nextRun").textContent = s.enabled && s.next ? "Next run: " + new Date(s.next).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Off";
+    schedVisibility();
+  }
+  $("schedOn").addEventListener("change", schedVisibility);
+  $("every").addEventListener("change", schedVisibility);
+  $("saveSched").addEventListener("click", async () => {
+    try {
+      drawSchedule(await api("/api/schedule", {
+        enabled: $("schedOn").checked, every: $("every").value, weekday: $("weekday").value,
+        time: $("time").value, hours: Number($("hours").value) || 1, minutes: Math.max(5, Number($("minutes").value) || 15), inputs: inputValues(),
+      }));
+      toast($("schedOn").checked ? "Schedule saved" : "Schedule off");
+    } catch (e) { toast(e.message); }
+  });
+  if (MODE !== "chat") api("/api/schedule").then(drawSchedule).catch(() => {});
+
+  showView(MODE === "background" ? "runs" : "chat");
+</script>
+</body>
+</html>

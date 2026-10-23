@@ -13,6 +13,10 @@
 
 import { getPhaseState, savePhaseState } from "../store";
 import { githubStatus, githubToken, pushAgent, pushMode } from "./github";
+import { restartLocalIfRunning } from "./local";
+import { getDeploy } from "./deploy";
+import { loadBuild } from "./build-context";
+import { isPersonal, parseBasics } from "./basics";
 
 export type AutoflowStage = "building" | "testing" | "reviewing" | "pushing" | "deploying" | "ready" | "deployed" | "failed";
 
@@ -136,8 +140,19 @@ async function run(projectId: string, origin: string, designVersion?: number, co
   if (!test.ok) throw new Error(test.d.error || "The tests couldn't run.");
   if (!review.ok) throw new Error(review.d.error || "The safety review couldn't run.");
 
-  // 2. Deployment.
-  const [mode, token] = await Promise.all([pushMode(), githubToken()]);
+  // 2. On this computer: if the agent is running here, it picks up the new code right away.
+  const restarted = await restartLocalIfRunning(projectId).catch(() => false);
+
+  // 3. Online. Agents that only run on this computer ("Just me", not put online) stop here.
+  const [mode, token, local] = await Promise.all([pushMode(), githubToken(), onlyOnThisComputer(projectId)]);
+  if (local) {
+    await set(projectId, {
+      stage: "deployed",
+      phase: null,
+      message: restarted ? "Your latest changes are built, and your agent on this computer is running them." : "Your latest changes are built. Start your agent in Deployment to use them.",
+    });
+    return;
+  }
   if (mode !== "auto" || !token) {
     await set(projectId, { stage: "ready", phase: null, message: "Your latest changes are built and ready to deploy." });
     return;
@@ -257,4 +272,11 @@ async function explainRun(repo: string, runId: number, headers: Record<string, s
     message: `${testsOk ? "Tests passed, but " : ""}the ${failed.name} step "${step || "unknown"}" failed.`,
     error: "Open it on GitHub for the details.",
   };
+}
+
+/** "Just me" agents that the owner hasn't put online: running on this computer is their whole release. */
+async function onlyOnThisComputer(projectId: string): Promise<boolean> {
+  const [ctx, s] = await Promise.all([loadBuild(projectId), getDeploy(projectId)]);
+  const basics = parseBasics(ctx.design?.basics ?? ctx.spec?.agent?.basics);
+  return !!basics && isPersonal(basics) && !s.online;
 }

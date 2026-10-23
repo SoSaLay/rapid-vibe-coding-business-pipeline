@@ -12,6 +12,8 @@
 import { activeProvider } from "../llm/registry";
 import { buildFrameworkContext, frameworkCatalog } from "../frameworks";
 import { SKIMMABLE_STYLE } from "./brevity";
+import { ideaTypeContext } from "../idea-types";
+import { basicsText, isChat, isPaid, parseBasics } from "../agent/basics";
 
 /**
  * Dialogue budget. The PO used to decide for itself when it had "enough", which
@@ -30,6 +32,25 @@ export const PO_MAX_ROUNDS = 2;
 /** Round 1 is the one real question set; round 2 is only for contradictions or a critical gap. */
 export const PO_QUESTIONS_BY_ROUND = [5, 2];
 export const PO_MAX_QUESTIONS_PER_ROUND = PO_QUESTIONS_BY_ROUND[0];
+/**
+ * Agents answer the basics (who it's for, how it's used, approvals) before Define the Job, so the
+ * PO only clears up what's still unclear: one round of at most 3 questions.
+ */
+export const AGENT_PO_MAX_ROUNDS = 1;
+export const AGENT_PO_MAX_QUESTIONS = 3;
+
+/** The idea text every PO call reads: idea-type context, the raw idea, and (agents) the settled basics. */
+export function ideaTextFor(payload: any): string {
+  const basics = parseBasics(payload?.agent_basics);
+  return [ideaTypeContext(payload?.idea_type), payload?.raw_text || "", ...(basics ? [basicsText(basics)] : [])].join("\n\n");
+}
+
+/** Agents: carry the owner's basics into the spec's agent block, where they beat the model's guesses. */
+export function withAgentBasics(spec: Record<string, any>, payload: any): Record<string, any> {
+  const basics = parseBasics(payload?.agent_basics);
+  if (!basics || !spec.agent) return spec;
+  return { ...spec, agent: { ...spec.agent, basics, people_use_it: isChat(basics), charges_users: isPaid(basics) } };
+}
 
 export interface POQuestion {
   id: string;
@@ -129,12 +150,14 @@ an agent could take off their plate. Re-aim every question at what makes an agen
   become the evaluation set, so push for real ones.
 - Economics: hours or dollars saved per run versus what a run costs in tokens and tool calls.
 
-Every round, aim your questions at the gaps in what the spec's AGENT block must pin down: the users, the
-ONE task, success and failure criteria, the actions it may and may never take, the latency and cost
-budgets, how sensitive the data is, the human fallback, whether people use it directly and whether the
-owner will charge them for it, and 3-5 REAL example tasks (an input paired with
-what the right output looks like). Decide what you can infer; ask only for what you can't — real example
-tasks are worth asking for, because they become the test set.
+The owner has usually already answered who uses the agent (just them, their team, or free or paying
+customers) and whether it's a chat agent, a background agent or both; these appear in the idea as ALREADY
+SETTLED. Never ask about them.
+Your questions are only for clearing up the task itself: keep them few, short and plain. The spec's AGENT
+block must still pin down the ONE task, success and failure criteria, the actions it may and may never
+take, which actions need a person's approval first, the latency and cost budgets, how sensitive the data
+is, the human fallback, and 3-5 example tasks (an input paired with what the right output looks like). Decide all of
+that yourself from the idea; ask only for what you truly can't infer.
 
 Agents fit best on repetitive, predictable work: a recurring trigger, the same kind of input each
 time, real tools or data to act on, and a clear definition of done. Some ideas don't fit that shape
@@ -378,8 +401,9 @@ export async function generatePOTurn(
   kind?: string | null
 ): Promise<{ assessment: string; ready: boolean; questions: POQuestion[] }> {
   const round = currentRound(turns);
+  const isAgent = kind === "agent";
 
-  if (round > PO_MAX_ROUNDS) {
+  if (round > (isAgent ? AGENT_PO_MAX_ROUNDS : PO_MAX_ROUNDS)) {
     return {
       assessment:
         "That's what I needed. Anything still open goes into the spec as an explicit open question with my recommended default — you can overrule any of it there.",
@@ -388,9 +412,12 @@ export async function generatePOTurn(
     };
   }
 
-  const cap = PO_QUESTIONS_BY_ROUND[round - 1] ?? 2;
-  const budget =
-    round === 1
+  const cap = isAgent ? AGENT_PO_MAX_QUESTIONS : PO_QUESTIONS_BY_ROUND[round - 1] ?? 2;
+  const budget = isAgent
+    ? `\n\nThis is your ONLY question set: at most ${cap} short, simple questions, each with 2-4 short options (a few words each). ` +
+      "Who uses it, whether they pay, and chat vs background are already settled, so never ask about them. Ask only what you truly can't infer " +
+      "about the task itself (for example what it reads or acts on, or what done looks like). If the idea is already clear, ask nothing and set ready=true."
+    : round === 1
       ? `\n\nThis is your ONE question set: at most ${cap} questions. Use it to pin down the whole idea at once: who it's for, ` +
         "the exact job, and what done looks like, plus whatever else would most change what gets built. Decide everything else yourself."
       : `\n\nFOLLOW-UP: only if the owner's answers contradict each other or leave a critical gap, ask at most ${cap} short questions. ` +
@@ -419,7 +446,7 @@ export async function generatePOTurn(
   // budget must not be able to spend the owner's time anyway.
   result.questions = (result.questions ?? [])
     .slice(0, cap)
-    .map((q, i) => ({ ...q, id: q.id || `q${turns.length}_${i}` }));
+    .map((q, i) => ({ ...q, id: q.id || `q${turns.length}_${i}`, options: isAgent ? q.options?.slice(0, 4) : q.options }));
   if (result.questions.length === 0) result.ready = true;
   return result;
 }

@@ -52,6 +52,21 @@ export interface Release {
 
 export interface DeployState {
   host?: HostId;
+  /** The agent running on the owner's computer (lib/agent/local.ts); pid 0 = stopped. */
+  local?: {
+    pid: number;
+    port: number;
+    url: string;
+    started_at: string;
+    /** Kept across restarts so an open page keeps working after the agent restarts on a change. */
+    token?: string;
+    /** The private key the agent's page uses to reach the pipeline's Agent Helper. */
+    bridge_key?: string;
+    /** Where the pipeline runs (the page's Agent Helper calls it). */
+    pipeline_url?: string;
+  };
+  /** "Just me" agents: the owner chose to put it online too (shows the online steps). */
+  online?: boolean;
   prepared_at?: string;
   db?: { ok: boolean; at: string; error?: string };
   railway_urls?: Partial<Record<DeployEnv, string>>;

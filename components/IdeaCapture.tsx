@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { VoiceInput } from "./VoiceInput";
 import { FolderUpload } from "./FolderUpload";
+import { BASICS_QUESTIONS, type AgentBasics } from "@/lib/agent/basics";
 
 /**
  * Idea capture — three ways in:
@@ -23,6 +24,9 @@ export function IdeaCapture({ onCreated, kind = "project" }: { onCreated: () => 
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
   const [usedVoice, setUsedVoice] = useState(false);
+  // Agents: the basics, answered before Define the Job.
+  const [basics, setBasics] = useState<Partial<AgentBasics>>({});
+  const basicsDone = BASICS_QUESTIONS.every((q) => basics[q.key]);
 
   // GitHub import
   const [repoUrl, setRepoUrl] = useState("");
@@ -35,18 +39,20 @@ export function IdeaCapture({ onCreated, kind = "project" }: { onCreated: () => 
 
   async function submitDirect() {
     if (!text.trim()) return setError("Speak or type your idea first.");
+    if (isAgent && !basicsDone) return setError("Answer both questions first.");
     setBusy(true);
     setError(null);
     const res = await fetch("/api/ideas", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, text, inputMethod: usedVoice ? "voice" : "text", kind }),
+      body: JSON.stringify({ title, text, inputMethod: usedVoice ? "voice" : "text", kind, ...(isAgent ? { basics } : {}) }),
     });
     setBusy(false);
     const d = await res.json().catch(() => ({}));
     if (!res.ok) return setError(d.error || "Failed to capture idea.");
     setTitle("");
     setText("");
+    setBasics({});
     // Straight into the pipeline: Define the Problem / Define the Job starts on its own.
     if (d.project?.id) router.push(`/project/${d.project.id}/product-owner?autostart=1`);
     else onCreated();
@@ -135,8 +141,39 @@ export function IdeaCapture({ onCreated, kind = "project" }: { onCreated: () => 
             value={text}
             onChange={(e) => setText(e.target.value)}
           />
+          {isAgent && (
+            <div className="space-y-4 pt-1">
+              {BASICS_QUESTIONS.map((q) => (
+                <fieldset key={q.key}>
+                  <legend className="text-sm font-medium text-fg">{q.question}</legend>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {q.options.map((o) => {
+                      const on = basics[q.key] === o.id;
+                      return (
+                        <label
+                          key={o.id}
+                          className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm ${on ? "border-accent/60 bg-accent/5 text-fg" : "border-edge text-muted hover:border-accent/30"}`}
+                        >
+                          <input
+                            type="radio"
+                            name={`basics-${q.key}`}
+                            className="accent-current"
+                            checked={on}
+                            onChange={() =>
+setBasics((b) => ({ ...b, [q.key]: o.id } as Partial<AgentBasics>))
+                            }
+                          />
+                          {o.label}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </fieldset>
+              ))}
+            </div>
+          )}
           <div className="flex justify-end">
-            <button className="btn-primary" disabled={busy} onClick={submitDirect}>
+            <button className="btn-primary" disabled={busy || (isAgent && !basicsDone)} onClick={submitDirect}>
               {busy ? "Creating…" : isAgent ? "Create agent →" : "Create project →"}
             </button>
           </div>

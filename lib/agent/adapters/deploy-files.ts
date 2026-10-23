@@ -275,7 +275,7 @@ def log_run(row: dict) -> int | None:
             out = _ROOT / ".results" / "runs.jsonl"
             out.parent.mkdir(exist_ok=True)
             with out.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(row, default=str) + "\\n")
+                f.write(json.dumps({"at": time.time(), **row}, default=str) + "\\n")
         except OSError:
             pass
         return None

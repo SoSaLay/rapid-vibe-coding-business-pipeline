@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { attributed } from "@/lib/agent/activity";
-import { ideaTypeContext } from "@/lib/idea-types";
 import { latestArtifact, savePhaseState, getPhaseState, getProject } from "@/lib/store";
-import { generatePOTurn, PODialogue } from "@/lib/phases/product-owner";
+import { generatePOTurn, PODialogue, ideaTextFor } from "@/lib/phases/product-owner";
 
 async function handlePost(req: NextRequest, { params }: { params: { id: string } }) {
   const body = await req.json().catch(() => ({}));
@@ -13,7 +12,7 @@ async function handlePost(req: NextRequest, { params }: { params: { id: string }
   if (!dialogue) return NextResponse.json({ error: "No active review. Start it first." }, { status: 400 });
 
   const rawIdea = await latestArtifact(params.id, "raw-idea");
-  const ideaText = `${ideaTypeContext((rawIdea?.payload as any)?.idea_type)}\n\n${(rawIdea?.payload as any)?.raw_text || ""}`;
+  const ideaText = ideaTextFor(rawIdea?.payload);
 
   const project = await getProject(params.id);
 

@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { attributed } from "@/lib/agent/activity";
-import { ideaTypeContext } from "@/lib/idea-types";
 import { latestArtifact, savePhaseState, getPhaseState, getProject } from "@/lib/store";
-import { generatePOTurn, selectFrameworks, PODialogue } from "@/lib/phases/product-owner";
+import { generatePOTurn, selectFrameworks, PODialogue, ideaTextFor } from "@/lib/phases/product-owner";
 
 async function handlePost(_req: NextRequest, { params }: { params: { id: string } }) {
   const existing = await getPhaseState<PODialogue>(params.id, "product-owner");
@@ -10,7 +9,7 @@ async function handlePost(_req: NextRequest, { params }: { params: { id: string 
 
   const rawIdea = await latestArtifact(params.id, "raw-idea");
   if (!rawIdea) return NextResponse.json({ error: "No raw idea to review." }, { status: 400 });
-  let ideaText = `${ideaTypeContext((rawIdea.payload as any)?.idea_type)}\n\n${(rawIdea.payload as any)?.raw_text || ""}`;
+  let ideaText = ideaTextFor(rawIdea.payload);
 
   // Cycle ≥2: the iteration brief is the real input — the dialogue refines a LIVE product.
   const project = await getProject(params.id);

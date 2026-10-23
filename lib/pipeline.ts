@@ -170,6 +170,9 @@ const AGENT_OVERRIDES: Partial<Record<PhaseId, Partial<PhaseDef>>> = {
     description:
       "The problem the agent is solving. An AI product owner pries at the idea through an agent lens — which repetitive task it takes over, how often it happens, what the agent needs access to, and where a human must stay in the loop — then structures it into the spec that steers every downstream stage.",
   },
+  engineering: {
+    name: "Agent Development",
+  },
   qa: {
     name: "Evaluations",
     short: "Evals",

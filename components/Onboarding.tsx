@@ -402,7 +402,7 @@ const TOOLBOX: Record<PipelineKindKey, Slot[]> = {
     {
       id: "framework",
       label: "Agent framework",
-      section: "Development",
+      section: "Agent Development",
       options: [
         placeholder({ id: "langchain", label: "LangChain", blurb: "Model and tool integrations, plus create_agent — the loop with structured responses.", statusText: "No key needed" }),
         placeholder({ id: "crewai", label: "CrewAI", blurb: "Teams of role-based agents that hand work to each other (Python). Not wired yet." }),
@@ -411,7 +411,7 @@ const TOOLBOX: Record<PipelineKindKey, Slot[]> = {
     {
       id: "validation",
       label: "Structured output & validation",
-      section: "Development",
+      section: "Agent Development",
       options: [
         placeholder({
           id: "pydantic",
